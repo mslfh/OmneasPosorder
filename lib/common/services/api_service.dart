@@ -8,7 +8,7 @@ class ApiService {
     return await _dio.get(path, queryParameters: params);
   }
 
-  Future<Response> post(String path, {dynamic data}) async {
+  Future<Response> post(String path, Map<String, List<Map<String, Object>>> map, {dynamic data}) async {
     return await _dio.post(path, data: data);
   }
 

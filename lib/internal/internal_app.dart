@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'pages/order_page.dart';
+import 'pages/order/order_page.dart';
 import 'pages/history_page.dart';
 import 'pages/report_page.dart';
 import 'pages/settings_page.dart';

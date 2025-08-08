@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../common/models/menu_item.dart';
-import '../../common/models/category.dart';
-import '../../common/services/api_service.dart';
-import '../../common/models/menu_option.dart';
+import '../../../common/models/menu_item.dart';
+import '../../../common/models/category.dart';
+import '../../../common/services/api_service.dart';
+import '../../../common/models/menu_option.dart';
+import 'checkout_page.dart';
 
 class OrderPage extends StatefulWidget {
   @override
@@ -302,6 +303,25 @@ class _OrderPageState extends State<OrderPage> {
                 ),
               ),
             ],
+          ),
+        ),
+        // 结账按钮
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12.0),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: orderedProducts.isEmpty ? null : () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => CheckoutPage(
+                      orderedProducts: orderedProducts,
+                    ),
+                  ),
+                );
+              },
+              child: Text('结账'),
+            ),
           ),
         ),
       ],
