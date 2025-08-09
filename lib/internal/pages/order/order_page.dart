@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:hive/hive.dart';
 import '../../../common/models/menu_item.dart';
 import '../../../common/models/category.dart';
 import '../../../common/services/api_service.dart';
 import '../../../common/models/menu_option.dart';
 import 'checkout_page.dart';
+import '../../../common/models/menu_item_adapter.dart';
+import '../../../common/models/category_adapter.dart';
+import '../../../common/models/menu_option_adapter.dart';
+import '../../../common/models/option_groups_adapter.dart';
 
 class OrderPage extends StatefulWidget {
   @override
@@ -23,8 +28,23 @@ class _OrderPageState extends State<OrderPage> {
   @override
   void initState() {
     super.initState();
-    fetchData();
-    fetchOptions();
+    loadData();
+    loadOptions();
+  }
+
+  Future<void> loadData() async {
+    final productsBox = await Hive.openBox<MenuItemAdapter>('productsBox');
+    final categoriesBox = await Hive.openBox<CategoryAdapter>('categoriesBox');
+    if (productsBox.isNotEmpty && categoriesBox.isNotEmpty) {
+      setState(() {
+        products = productsBox.values.map((e) => e.toMenuItem()).toList();
+        products.sort((a, b) => a.sort.compareTo(b.sort));
+        categories = categoriesBox.values.map((e) => e.toCategory()).toList();
+        isLoading = false;
+      });
+    } else {
+      await fetchData();
+    }
   }
 
   Future<void> fetchData() async {
@@ -40,6 +60,16 @@ class _OrderPageState extends State<OrderPage> {
         categories = catData.map((e) => Category.fromJson(e)).toList();
         isLoading = false;
       });
+      final productsBox = Hive.box<MenuItemAdapter>('productsBox');
+      final categoriesBox = Hive.box<CategoryAdapter>('categoriesBox');
+      await productsBox.clear();
+      await categoriesBox.clear();
+      for (var item in products) {
+        await productsBox.add(MenuItemAdapter.fromMenuItem(item));
+      }
+      for (var cat in categories) {
+        await categoriesBox.add(CategoryAdapter.fromCategory(cat));
+      }
     } catch (e) {
       setState(() {
         error = e.toString();
@@ -48,17 +78,36 @@ class _OrderPageState extends State<OrderPage> {
     }
   }
 
+  Future<void> loadOptions() async {
+    final optionGroupsBox = await Hive.openBox<OptionGroupsAdapter>('optionGroupsBox');
+    final adapter = optionGroupsBox.get('groups');
+    print('[DEBUG] Hive adapter.groups: ${adapter?.groups}');
+    if (adapter != null && adapter.groups.isNotEmpty) {
+      setState(() {
+        optionGroups = adapter.groups;
+      });
+      print('[DEBUG] 使用本地缓存的 optionGroups');
+      return;
+    } else {
+      print('[DEBUG] 本地无 optionGroups，调用 API');
+      await fetchOptions();
+    }
+  }
+
   Future<void> fetchOptions() async {
     try {
       final api = ApiService();
       final response = await api.get('attributes/group');
       final data = response.data['data'] as Map<String, dynamic>;
+      final groups = data.map((type, list) => MapEntry(
+        type,
+        (list as List).map((e) => MenuOption.fromJson(e)).toList(),
+      ));
       setState(() {
-        optionGroups = data.map((type, list) => MapEntry(
-          type,
-          (list as List).map((e) => MenuOption.fromJson(e)).toList(),
-        ));
+        optionGroups = groups;
       });
+      final optionGroupsBox = Hive.box<OptionGroupsAdapter>('optionGroupsBox');
+      await optionGroupsBox.put('groups', OptionGroupsAdapter(groups: groups));
     } catch (e) {
       // 可选：处理错误
     }

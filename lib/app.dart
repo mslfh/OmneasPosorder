@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'internal/internal_app.dart';
-import 'customer/customer_app.dart';
 
 class OmneasApp extends StatelessWidget {
   const OmneasApp({super.key});
