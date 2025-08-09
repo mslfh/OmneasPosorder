@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'pages/order/order_page.dart';
-import 'pages/history_page.dart';
 import 'pages/report_page.dart';
 import 'pages/settings_page.dart';
+import 'pages/place_order_page.dart';
+import 'pages/order_list_page.dart';
 
 class InternalApp extends StatefulWidget {
   @override
@@ -13,7 +14,8 @@ class _InternalAppState extends State<InternalApp> {
   int _selectedIndex = 0;
   final List<Widget> _pages = [
     OrderPage(),
-    HistoryPage(),
+    PlaceOrderPage(),
+    OrderListPage(),
     ReportPage(),
     SettingsPage(),
   ];
@@ -27,18 +29,39 @@ class _InternalAppState extends State<InternalApp> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Omneas Posorder')),
+      appBar: AppBar(
+        title: Text('Omneas POS'),
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
+      ),
       body: _pages[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.receipt_long), label: 'Order'),
-          BottomNavigationBarItem(icon: Icon(Icons.history), label: 'History'),
-          BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'Report'),
-          BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Setting'),
-        ],
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
+        selectedItemColor: Colors.blue,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.restaurant_menu),
+            label: 'Menu',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.add_shopping_cart),
+            label: 'Order Demo',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.receipt_long),
+            label: 'Orders',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.analytics),
+            label: 'Reports',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings),
+            label: 'Settings',
+          ),
+        ],
       ),
     );
   }

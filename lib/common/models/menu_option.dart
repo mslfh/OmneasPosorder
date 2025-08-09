@@ -1,7 +1,16 @@
+import 'package:hive/hive.dart';
+
+part 'menu_option.g.dart';
+
+@HiveType(typeId: 5)
 class MenuOption {
+  @HiveField(0)
   final int id;
+  @HiveField(1)
   final String name;
+  @HiveField(2)
   final String type;
+  @HiveField(3)
   final double extraCost;
 
   MenuOption({
@@ -20,4 +29,3 @@ class MenuOption {
     );
   }
 }
-

@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'order_page.dart';
 import '../../../common/services/api_service.dart';
 import '../../../common/services/print_service.dart';
-import 'dart:io';
-import 'dart:convert';
+import '../../../common/services/order_service.dart';
+import '../order_list_page.dart';
 
 class CheckoutPage extends StatefulWidget {
   final List<SelectedProduct> orderedProducts;
@@ -33,8 +33,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
   double get totalPrice {
     double sum = 0.0;
     for (var p in widget.orderedProducts) {
+      double itemPrice = p.product.sellingPrice;
       double optionsTotal = p.options.fold(0.0, (s, o) => s + o.option.extraCost);
-      sum += p.product.sellingPrice + optionsTotal;
+      sum += (itemPrice + optionsTotal) * p.quantity; // multiply by quantity
     }
     return sum;
   }
@@ -51,8 +52,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async => false, // 禁止系统返回
+    return PopScope(
+      canPop: false, // disable system back navigation
       child: Scaffold(
         appBar: AppBar(
           title: Text('Checkout'),
@@ -73,6 +74,10 @@ class _CheckoutPageState extends State<CheckoutPage> {
                   itemCount: widget.orderedProducts.length,
                   itemBuilder: (context, idx) {
                     final p = widget.orderedProducts[idx];
+                    double itemPrice = p.product.sellingPrice;
+                    double optionsTotal = p.options.fold(0.0, (s, o) => s + o.option.extraCost);
+                    double itemTotalPrice = (itemPrice + optionsTotal) * p.quantity;
+
                     return Card(
                       child: Padding(
                         padding: const EdgeInsets.all(8.0),
@@ -82,17 +87,56 @@ class _CheckoutPageState extends State<CheckoutPage> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text(p.product.title, style: TextStyle(fontWeight: FontWeight.bold)),
-                                Text('¥${p.product.sellingPrice.toStringAsFixed(2)}'),
+                                Expanded(
+                                  child: Text(
+                                    p.product.title,
+                                    style: TextStyle(fontWeight: FontWeight.bold)
+                                  )
+                                ),
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue[100],
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: Colors.blue[300]!, width: 1),
+                                      ),
+                                      child: Text(
+                                        'x${p.quantity}',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                          color: Colors.blue[700],
+                                        ),
+                                      ),
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text('¥${itemTotalPrice.toStringAsFixed(2)}',
+                                      style: TextStyle(fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
                               ],
                             ),
-                            ...p.options.map((opt) => Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            SizedBox(height: 4),
+                            Row(
                               children: [
-                                Text('${opt.type}: ${opt.option.name}', style: TextStyle(fontSize: 13)),
-                                if (opt.option.extraCost > 0)
-                                  Text('Extra: ¥${opt.option.extraCost.toStringAsFixed(2)}', style: TextStyle(fontSize: 12, color: Colors.red)),
+                                Text('Unit price: \$${itemPrice.toStringAsFixed(2)}',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                               ],
+                            ),
+                            ...p.options.map((opt) => Padding(
+                              padding: const EdgeInsets.only(top: 2.0),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('${opt.type}: ${opt.option.name}',
+                                    style: TextStyle(fontSize: 13, color: Colors.grey[700])),
+                                  if (opt.option.extraCost > 0)
+                                    Text('+¥${opt.option.extraCost.toStringAsFixed(2)}',
+                                      style: TextStyle(fontSize: 12, color: Colors.red)),
+                                ],
+                              ),
                             ))
                           ],
                         ),
@@ -175,33 +219,184 @@ class _CheckoutPageState extends State<CheckoutPage> {
               // Order button
               ElevatedButton(
                 onPressed: () async {
-                  // 1. Call order/place API
-                  final api = ApiService();
-                  final orderData = widget.orderedProducts.map((p) => {
-                    'product_id': p.product.id,
-                    'options': p.options.map((o) => {
-                      'type': o.type,
-                      'option_id': o.option.id,
-                    }).toList(),
-                  }).toList();
-                  await api.post('orders/place', {
-                    'items': orderData,
-                  });
-                  // 2. Call print service
-                  final printer = PrintService();
-                  await printer.printReceipt(
-                    orderData: orderData,
-                    totalPrice: totalPrice,
-                    receivedAmount: receivedAmount,
-                    change: change,
-                  );
+                  try {
+                    // Use local transaction order service instead of direct API call
+                    final orderService = OrderService();
+
+                    // Prepare order items for local transaction
+                    final orderItems = widget.orderedProducts.map((p) => {
+                      'id': p.product.id,
+                      'name': p.product.title, // 使用title而不是name
+                      'price': p.product.sellingPrice, // 使用sellingPrice而不是price
+                      'quantity': p.quantity,
+                      'options': p.options.map((o) => {
+                        'type': o.type,
+                        'option_id': o.option.id,
+                        'option_name': o.option.name,
+                      }).toList(),
+                      'note': '', // Add notes if needed
+                    }).toList();
+
+                    // Calculate total amount
+                    double totalAmount = 0;
+                    for (var product in widget.orderedProducts) {
+                      totalAmount += product.product.sellingPrice * product.quantity; // 使用sellingPrice
+                      // Add option prices if any
+                      for (var option in product.options) {
+                        totalAmount += option.option.extraCost * product.quantity; // 使用extraCost而不是price
+                      }
+                    }
+
+                    // Place order using local transaction system
+                    final orderId = await orderService.placeOrder(
+                      items: orderItems,
+                      totalAmount: totalAmount,
+                    );
+
+                    // Show success dialog
+                    _showOrderSuccessDialog(orderId, totalAmount);
+
+                  } catch (e) {
+                    // Show error dialog
+                    _showErrorDialog('Order placement failed: $e');
+                  }
                 },
-                child: Text('Order'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: EdgeInsets.symmetric(vertical: 16, horizontal: 32),
+                  textStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                child: Text('Place Order'),
               ),
               SizedBox(height: 10),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Show order success dialog
+  void _showOrderSuccessDialog(String orderId, double totalAmount) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.green, size: 32),
+            SizedBox(width: 8),
+            Text('Order Placed Successfully'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Order ID: ${orderId.substring(0, 8)}'),
+            SizedBox(height: 8),
+            Text('Total Amount: ¥${totalAmount.toStringAsFixed(2)}'),
+            SizedBox(height: 12),
+            Container(
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.withOpacity(0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.green, size: 16),
+                      SizedBox(width: 4),
+                      Text(
+                        'Order saved locally',
+                        style: TextStyle(color: Colors.green, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(Icons.sync, color: Colors.orange, size: 16),
+                      SizedBox(width: 4),
+                      Text(
+                        'Syncing to server in background',
+                        style: TextStyle(color: Colors.orange, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(Icons.print, color: Colors.blue, size: 16),
+                      SizedBox(width: 4),
+                      Text(
+                        'Sending to printer in background',
+                        style: TextStyle(color: Colors.blue, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop(); // Close dialog
+              Navigator.of(context).pop(); // Return to previous page
+            },
+            child: Text('Continue'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop(); // Close dialog
+              Navigator.of(context).pop(); // Return to previous page
+              // Navigate to order management
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => OrderListPage()),
+              );
+            },
+            child: Text('View Orders'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show error dialog
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.error, color: Colors.red, size: 32),
+            SizedBox(width: 8),
+            Text('Order Failed'),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('OK'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              // Retry the order
+              // You could implement retry logic here
+            },
+            child: Text('Retry'),
+          ),
+        ],
       ),
     );
   }

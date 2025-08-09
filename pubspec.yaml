@@ -39,6 +39,16 @@ dependencies:
   charset_converter: ^2.0.2
   hive: ^2.2.3
   hive_flutter: ^1.1.0
+  # SQLite 数据库
+  sqflite: ^2.3.0
+  sqflite_common_ffi: ^2.3.0+4
+  path: ^1.8.3
+  # UUID 生成
+  uuid: ^4.1.0
+  # 工作队列
+  workmanager: ^0.5.2
+  # 日志记录
+  logger: ^2.0.2+1
 
 dev_dependencies:
   flutter_test:

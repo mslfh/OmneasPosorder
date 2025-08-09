@@ -1,0 +1,152 @@
+// 订单状态枚举
+enum OrderStatus {
+  pending,      // 待处理
+  pendingSync,  // 待同步
+  synced,       // 已同步
+}
+
+// 打印状态枚举
+enum PrintStatus {
+  pending,      // 待打印
+  printed,      // 已打印
+  printFailed,  // 打印失败
+}
+
+// 订单模型
+class OrderModel {
+  final String id;           // UUID
+  final DateTime orderTime;  // 下单时间
+  final String items;        // 菜品详情 JSON
+  final double totalAmount;  // 总金额
+  final OrderStatus orderStatus;  // 订单状态
+  final PrintStatus printStatus;  // 打印状态
+  final String? errorMessage;     // 错误信息
+  final int retryCount;           // 重试次数
+  final DateTime? lastRetryTime;  // 最后重试时间
+  final DateTime? syncedTime;     // 同步时间
+  final DateTime? printedTime;    // 打印时间
+
+  OrderModel({
+    required this.id,
+    required this.orderTime,
+    required this.items,
+    required this.totalAmount,
+    this.orderStatus = OrderStatus.pending,
+    this.printStatus = PrintStatus.pending,
+    this.errorMessage,
+    this.retryCount = 0,
+    this.lastRetryTime,
+    this.syncedTime,
+    this.printedTime,
+  });
+
+  // 从数据库转换
+  factory OrderModel.fromMap(Map<String, dynamic> map) {
+    return OrderModel(
+      id: map['id'],
+      orderTime: DateTime.parse(map['order_time']),
+      items: map['items'],
+      totalAmount: map['total_amount'],
+      orderStatus: OrderStatus.values[map['order_status']],
+      printStatus: PrintStatus.values[map['print_status']],
+      errorMessage: map['error_message'],
+      retryCount: map['retry_count'] ?? 0,
+      lastRetryTime: map['last_retry_time'] != null
+          ? DateTime.parse(map['last_retry_time'])
+          : null,
+      syncedTime: map['synced_time'] != null
+          ? DateTime.parse(map['synced_time'])
+          : null,
+      printedTime: map['printed_time'] != null
+          ? DateTime.parse(map['printed_time'])
+          : null,
+    );
+  }
+
+  // 转换到数据库
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'order_time': orderTime.toIso8601String(),
+      'items': items,
+      'total_amount': totalAmount,
+      'order_status': orderStatus.index,
+      'print_status': printStatus.index,
+      'error_message': errorMessage,
+      'retry_count': retryCount,
+      'last_retry_time': lastRetryTime?.toIso8601String(),
+      'synced_time': syncedTime?.toIso8601String(),
+      'printed_time': printedTime?.toIso8601String(),
+    };
+  }
+
+  // 复制并更新
+  OrderModel copyWith({
+    String? id,
+    DateTime? orderTime,
+    String? items,
+    double? totalAmount,
+    OrderStatus? orderStatus,
+    PrintStatus? printStatus,
+    String? errorMessage,
+    int? retryCount,
+    DateTime? lastRetryTime,
+    DateTime? syncedTime,
+    DateTime? printedTime,
+  }) {
+    return OrderModel(
+      id: id ?? this.id,
+      orderTime: orderTime ?? this.orderTime,
+      items: items ?? this.items,
+      totalAmount: totalAmount ?? this.totalAmount,
+      orderStatus: orderStatus ?? this.orderStatus,
+      printStatus: printStatus ?? this.printStatus,
+      errorMessage: errorMessage ?? this.errorMessage,
+      retryCount: retryCount ?? this.retryCount,
+      lastRetryTime: lastRetryTime ?? this.lastRetryTime,
+      syncedTime: syncedTime ?? this.syncedTime,
+      printedTime: printedTime ?? this.printedTime,
+    );
+  }
+}
+
+// 日志模型
+class LogModel {
+  final int? id;
+  final String orderId;
+  final String action;        // 'order', 'sync', 'print'
+  final String status;        // 'success', 'error'
+  final String? message;
+  final DateTime timestamp;
+
+  LogModel({
+    this.id,
+    required this.orderId,
+    required this.action,
+    required this.status,
+    this.message,
+    required this.timestamp,
+  });
+
+  factory LogModel.fromMap(Map<String, dynamic> map) {
+    return LogModel(
+      id: map['id'],
+      orderId: map['order_id'],
+      action: map['action'],
+      status: map['status'],
+      message: map['message'],
+      timestamp: DateTime.parse(map['timestamp']),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'order_id': orderId,
+      'action': action,
+      'status': status,
+      'message': message,
+      'timestamp': timestamp.toIso8601String(),
+    };
+  }
+}

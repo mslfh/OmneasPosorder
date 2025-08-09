@@ -1,8 +1,29 @@
 import 'package:dio/dio.dart';
+import 'settings_service.dart';
 import '../../config/env.dart';
 
 class ApiService {
-  final Dio _dio = Dio(BaseOptions(baseUrl: Env.apiBaseUrl));
+  static final SettingsService _settingsService = SettingsService();
+  late Dio _dio;
+
+  ApiService() {
+    _initializeDio();
+  }
+
+  void _initializeDio() {
+    final settings = _settingsService.getSettings();
+    final baseUrl = settings.apiServerUrl.isNotEmpty ? settings.apiServerUrl : Env.apiBaseUrl;
+    _dio = Dio(BaseOptions(
+      baseUrl: baseUrl,
+      connectTimeout: Duration(seconds: 30),
+      receiveTimeout: Duration(seconds: 30),
+    ));
+  }
+
+  /// 更新API基础URL
+  void updateBaseUrl(String baseUrl) {
+    _dio.options.baseUrl = baseUrl;
+  }
 
   Future<Response> get(String path, {Map<String, dynamic>? params}) async {
     return await _dio.get(path, queryParameters: params);
