@@ -454,6 +454,12 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
         return '待处理';
       case OrderStatus.pendingSync:
         return '待同步';
+      case OrderStatus.confirmed:
+        return '已确认';
+      case OrderStatus.completed:
+        return '已完成';
+      case OrderStatus.cancelled:
+        return '已取消';
       case OrderStatus.synced:
         return '已同步';
     }
@@ -465,8 +471,14 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
         return Colors.grey;
       case OrderStatus.pendingSync:
         return Colors.orange;
-      case OrderStatus.synced:
+      case OrderStatus.confirmed:
+        return Colors.blue;
+      case OrderStatus.completed:
         return Colors.green;
+      case OrderStatus.cancelled:
+        return Colors.red;
+      case OrderStatus.synced:
+        return Colors.green[700]!;
     }
   }
 

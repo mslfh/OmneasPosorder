@@ -14,6 +14,7 @@ class CheckoutPage extends StatefulWidget {
 class _CheckoutPageState extends State<CheckoutPage> {
   double receivedAmount = 0.0;
   bool isCash = false;
+  String orderType = 'TAKE AWAY'; // 添加订单类型状态
   final TextEditingController _controller = TextEditingController();
 
   @override
@@ -45,6 +46,13 @@ class _CheckoutPageState extends State<CheckoutPage> {
       receivedAmount = value;
       _controller.text = value == 0.0 ? '' : value.toString();
       _controller.selection = TextSelection.fromPosition(TextPosition(offset: _controller.text.length));
+    });
+  }
+
+  // 订单类型切换方法
+  void _toggleOrderType() {
+    setState(() {
+      orderType = orderType == 'DINE IN' ? 'TAKE AWAY' : 'DINE IN';
     });
   }
 
@@ -110,7 +118,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                       ),
                                     ),
                                     SizedBox(width: 8),
-                                    Text('¥${itemTotalPrice.toStringAsFixed(2)}',
+                                    Text('\$${itemTotalPrice.toStringAsFixed(2)}',
                                       style: TextStyle(fontWeight: FontWeight.bold)),
                                   ],
                                 ),
@@ -131,7 +139,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                   Text('${opt.type}: ${opt.option.name}',
                                     style: TextStyle(fontSize: 13, color: Colors.grey[700])),
                                   if (opt.option.extraCost > 0)
-                                    Text('+¥${opt.option.extraCost.toStringAsFixed(2)}',
+                                    Text('+\$${opt.option.extraCost.toStringAsFixed(2)}',
                                       style: TextStyle(fontSize: 12, color: Colors.red)),
                                 ],
                               ),
@@ -148,7 +156,38 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('Total', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  Text('¥${totalPrice.toStringAsFixed(2)}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text('\$${totalPrice.toStringAsFixed(2)}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              SizedBox(height: 16),
+              // 订单类型选择区域 - 左右布局
+              Row(
+                children: [
+                  // 左侧：Order Type 标签
+                  Text('Order Type: ', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Spacer(), // 推送右侧内容到最右边
+                  // 右侧：只有订单类型切换按钮
+                  ElevatedButton.icon(
+                    onPressed: _toggleOrderType,
+                    icon: Icon(
+                      orderType == 'DINE IN' ? Icons.restaurant : Icons.takeout_dining,
+                      size: 18
+                    ),
+                    label: Text(
+                      orderType,
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: orderType == 'DINE IN' ? Colors.blue[400] : Colors.green[400],
+                      foregroundColor: Colors.white,
+                      elevation: 3,
+                      shadowColor: orderType == 'DINE IN' ? Colors.blue[200] : Colors.green[200],
+                      padding: EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
                 ],
               ),
               SizedBox(height: 16),
@@ -175,7 +214,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                 onPressed: () {
                                   updateReceivedAmount(receivedAmount + cash);
                                 },
-                                child: Text('¥$cash'),
+                                child: Text('\$$cash'),
                               ),
                             ),
                         ],
@@ -210,62 +249,78 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('Change', style: TextStyle(fontSize: 16)),
-                  Text('¥${change.toStringAsFixed(2)}', style: TextStyle(fontSize: 16, color: Colors.green)),
+                  Text('\$${change.toStringAsFixed(2)}', style: TextStyle(fontSize: 16, color: Colors.green)),
                 ],
               ),
-              SizedBox(height: 8),
-              // Order button
-              ElevatedButton(
-                onPressed: () async {
-                  try {
-                    // Use local transaction order service instead of direct API call
-                    final orderService = OrderService();
+              SizedBox(height: 16),
+              // Place Order按钮放在右下角
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  ElevatedButton(
+                    onPressed: () async {
+                      try {
+                        // Use local transaction order service instead of direct API call
+                        final orderService = OrderService();
 
-                    // Prepare order items for local transaction
-                    final orderItems = widget.orderedProducts.map((p) => {
-                      'id': p.product.id,
-                      'name': p.product.title, // 使用title而不是name
-                      'price': p.product.sellingPrice, // 使用sellingPrice而不是price
-                      'quantity': p.quantity,
-                      'options': p.options.map((o) => {
-                        'type': o.type,
-                        'option_id': o.option.id,
-                        'option_name': o.option.name,
-                      }).toList(),
-                      'note': '', // Add notes if needed
-                    }).toList();
+                        // Prepare order items for local transaction
+                        final orderItems = widget.orderedProducts.map((p) => {
+                          'id': p.product.id,
+                          'name': p.product.title, // 使用title而不是name
+                          'price': p.product.sellingPrice, // 使用sellingPrice而不是price
+                          'quantity': p.quantity,
+                          'options': p.options.map((o) => {
+                            'type': o.type,
+                            'option_id': o.option.id,
+                            'option_name': o.option.name,
+                          }).toList(),
+                          'note': '', // Add notes if needed
+                        }).toList();
 
-                    // Calculate total amount
-                    double totalAmount = 0;
-                    for (var product in widget.orderedProducts) {
-                      totalAmount += product.product.sellingPrice * product.quantity; // 使用sellingPrice
-                      // Add option prices if any
-                      for (var option in product.options) {
-                        totalAmount += option.option.extraCost * product.quantity; // 使用extraCost而不是price
+                        // Calculate total amount
+                        double totalAmount = 0;
+                        for (var product in widget.orderedProducts) {
+                          totalAmount += product.product.sellingPrice * product.quantity; // 使用sellingPrice
+                          // Add option prices if any
+                          for (var option in product.options) {
+                            totalAmount += option.option.extraCost * product.quantity; // 使用extraCost而不是price
+                          }
+                        }
+
+                        // Place order using local transaction system
+                        final orderId = await orderService.placeOrder(
+                          items: orderItems,
+                          totalAmount: totalAmount,
+                        );
+
+                        // Show success dialog
+                        _showOrderSuccessDialog(orderId, totalAmount);
+
+                      } catch (e) {
+                        // Show error dialog
+                        _showErrorDialog('Order placement failed: $e');
                       }
-                    }
-
-                    // Place order using local transaction system
-                    final orderId = await orderService.placeOrder(
-                      items: orderItems,
-                      totalAmount: totalAmount,
-                    );
-
-                    // Show success dialog
-                    _showOrderSuccessDialog(orderId, totalAmount);
-
-                  } catch (e) {
-                    // Show error dialog
-                    _showErrorDialog('Order placement failed: $e');
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.symmetric(vertical: 16, horizontal: 32),
-                  textStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                child: Text('Place Order'),
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(vertical: 16, horizontal: 32),
+                      textStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      elevation: 4,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.shopping_cart_checkout, size: 20),
+                        SizedBox(width: 8),
+                        Text('Place Order'),
+                      ],
+                    ),
+                  ),
+                ],
               ),
               SizedBox(height: 10),
             ],
@@ -294,7 +349,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
           children: [
             Text('Order ID: ${orderId.substring(0, 8)}'),
             SizedBox(height: 8),
-            Text('Total Amount: ¥${totalAmount.toStringAsFixed(2)}'),
+            Text('Total Amount: \$${totalAmount.toStringAsFixed(2)}'),
             SizedBox(height: 12),
             Container(
               padding: EdgeInsets.all(12),

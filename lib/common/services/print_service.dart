@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:logger/logger.dart';
 import '../models/order_model.dart';
+import '../models/report_models.dart';
 import 'database_service.dart';
 import 'settings_service.dart';
 
@@ -38,7 +39,6 @@ class PrintService {
       await _markPrintSuccess(order);
 
       _logger.i('订单打印成功: $orderId');
-
     } catch (e) {
       await _handlePrintError(orderId, e);
       rethrow;
@@ -100,6 +100,75 @@ class PrintService {
     return content.toString();
   }
 
+  /// 打印销售报告
+  Future<void> printReport(OrderStats stats, DateTime startDate, DateTime endDate) async {
+    try {
+      _logger.i('开始打印销售报告');
+
+      // 生成报告打印内容
+      final printContent = _generateReportContent(stats, startDate, endDate);
+
+      // 发送到打印机
+      await _sendToPrinter(printContent);
+
+      _logger.i('销售报告打印成功');
+    } catch (e) {
+      _logger.e('打印销售报告失败: $e');
+      rethrow;
+    }
+  }
+
+  /// 生成报告打印内容
+  String _generateReportContent(OrderStats stats, DateTime startDate, DateTime endDate) {
+    final StringBuffer content = StringBuffer();
+
+    // 报告标题
+    content.writeln('================================');
+    content.writeln('       SALES REPORT');
+    content.writeln('================================');
+    content.writeln();
+
+    // 报告时间段
+    content.writeln('Report Period:');
+    content.writeln('From: ${_formatDate(startDate)}');
+    content.writeln('To:   ${_formatDate(endDate)}');
+    content.writeln('Generated: ${_formatDateTime(DateTime.now())}');
+    content.writeln('--------------------------------');
+    content.writeln();
+
+    // 销售总览
+    content.writeln('SALES OVERVIEW:');
+    content.writeln('--------------------------------');
+    content.writeln('Total Revenue:     \$${stats.totalRevenue.toStringAsFixed(2)}');
+    content.writeln('Total Orders:      ${stats.totalOrders}');
+    content.writeln('Completed Orders:  ${stats.completedOrders}');
+    content.writeln('Cancelled Orders:  ${stats.cancelledOrders}');
+    content.writeln('Average Order:     \$${stats.averageOrderValue.toStringAsFixed(2)}');
+    content.writeln('--------------------------------');
+    content.writeln();
+
+    // 热销商品
+    if (stats.topSellingItems.isNotEmpty) {
+      content.writeln('TOP SELLING ITEMS:');
+      content.writeln('--------------------------------');
+      for (int i = 0; i < stats.topSellingItems.length; i++) {
+        final item = stats.topSellingItems[i];
+        content.writeln('${i + 1}. ${item.name}');
+        content.writeln('   Quantity: ${item.quantity}');
+        content.writeln();
+      }
+      content.writeln('--------------------------------');
+    }
+
+    content.writeln();
+    content.writeln('Thank you for using our system!');
+    content.writeln();
+    content.writeln();
+    content.writeln(); // Extra lines for easy tearing
+
+    return content.toString();
+  }
+
   /// 发送到打印机
   Future<void> _sendToPrinter(String content) async {
     try {
@@ -118,7 +187,6 @@ class PrintService {
 
       // 实际发送到网络打印机
       await _sendToNetworkPrinter(content, printerIP, printerPort);
-
     } catch (e) {
       _logger.e('发送到打印机失败: $e');
       throw Exception('打印机通信失败: $e');
@@ -149,7 +217,6 @@ class PrintService {
       await Future.delayed(Duration(milliseconds: 500));
 
       _logger.i('数据发送到打印机成功，长度: ${printData.length} bytes');
-
     } catch (e) {
       _logger.e('网络打印机通信失败: $e');
       throw Exception('网络打印机连接失败: $e');
@@ -275,7 +342,6 @@ class PrintService {
 
           // 控制打印频率，避免打印机过载
           await Future.delayed(Duration(seconds: 1));
-
         } catch (e) {
           _logger.e('重试打印失败: ${order.id}, 错误: $e');
           failCount++;
@@ -283,7 +349,6 @@ class PrintService {
       }
 
       _logger.i('批量重试打印完成 - 成功: $successCount, 失败: $failCount');
-
     } catch (e) {
       _logger.e('批量重试打印过程出错: $e');
     }
@@ -322,13 +387,11 @@ class PrintService {
 
         await socket.close();
         return true;
-
       } catch (e) {
         _logger.w('打印机状态检查失败: $e');
         await socket?.close();
         return false;
       }
-
     } catch (e) {
       _logger.e('检查打印机状态失败: $e');
       return false;
@@ -386,6 +449,11 @@ class PrintService {
   String _formatDateTime(DateTime dateTime) {
     return '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} '
            '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}:${dateTime.second.toString().padLeft(2, '0')}';
+  }
+
+  /// 格式化日期（仅日期）
+  String _formatDate(DateTime dateTime) {
+    return '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')}';
   }
 
   /// 配置打印机设置

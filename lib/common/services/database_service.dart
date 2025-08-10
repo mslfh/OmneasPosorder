@@ -69,6 +69,8 @@ class DatabaseService {
         order_time TEXT NOT NULL,
         items TEXT NOT NULL,
         total_amount REAL NOT NULL,
+        cash_amount REAL NOT NULL DEFAULT 0,
+        pos_amount REAL NOT NULL DEFAULT 0,
         order_status INTEGER NOT NULL DEFAULT 0,
         print_status INTEGER NOT NULL DEFAULT 0,
         error_message TEXT,
@@ -217,6 +219,27 @@ class DatabaseService {
       return maps.map((map) => OrderModel.fromMap(map)).toList();
     } catch (e) {
       _logger.e('获取所有订单失败: $e');
+      throw e;
+    }
+  }
+
+  // 获取日期范围内的订单
+  Future<List<OrderModel>> getOrdersByDateRange(DateTime startDate, DateTime endDate) async {
+    final db = await database;
+    try {
+      final maps = await db.query(
+        'orders',
+        where: 'order_time >= ? AND order_time <= ?',
+        whereArgs: [
+          startDate.toIso8601String(),
+          endDate.toIso8601String(),
+        ],
+        orderBy: 'order_time DESC',
+      );
+
+      return maps.map((map) => OrderModel.fromMap(map)).toList();
+    } catch (e) {
+      _logger.e('获取日期范围订单失败: $e');
       throw e;
     }
   }

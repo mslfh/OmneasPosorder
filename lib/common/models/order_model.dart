@@ -1,7 +1,12 @@
+import 'dart:convert';
+
 // 订单状态枚举
 enum OrderStatus {
   pending,      // 待处理
   pendingSync,  // 待同步
+  confirmed,    // 已确认
+  completed,    // 已完成
+  cancelled,    // 已取消
   synced,       // 已同步
 }
 
@@ -18,6 +23,8 @@ class OrderModel {
   final DateTime orderTime;  // 下单时间
   final String items;        // 菜品详情 JSON
   final double totalAmount;  // 总金额
+  final double cashAmount;   // 现金金额
+  final double posAmount;    // POS金额
   final OrderStatus orderStatus;  // 订单状态
   final PrintStatus printStatus;  // 打印状态
   final String? errorMessage;     // 错误信息
@@ -31,6 +38,8 @@ class OrderModel {
     required this.orderTime,
     required this.items,
     required this.totalAmount,
+    this.cashAmount = 0.0,
+    this.posAmount = 0.0,
     this.orderStatus = OrderStatus.pending,
     this.printStatus = PrintStatus.pending,
     this.errorMessage,
@@ -47,6 +56,8 @@ class OrderModel {
       orderTime: DateTime.parse(map['order_time']),
       items: map['items'],
       totalAmount: map['total_amount'],
+      cashAmount: map['cash_amount']?.toDouble() ?? 0.0,
+      posAmount: map['pos_amount']?.toDouble() ?? 0.0,
       orderStatus: OrderStatus.values[map['order_status']],
       printStatus: PrintStatus.values[map['print_status']],
       errorMessage: map['error_message'],
@@ -70,6 +81,8 @@ class OrderModel {
       'order_time': orderTime.toIso8601String(),
       'items': items,
       'total_amount': totalAmount,
+      'cash_amount': cashAmount,
+      'pos_amount': posAmount,
       'order_status': orderStatus.index,
       'print_status': printStatus.index,
       'error_message': errorMessage,
@@ -86,6 +99,8 @@ class OrderModel {
     DateTime? orderTime,
     String? items,
     double? totalAmount,
+    double? cashAmount,
+    double? posAmount,
     OrderStatus? orderStatus,
     PrintStatus? printStatus,
     String? errorMessage,
@@ -99,6 +114,8 @@ class OrderModel {
       orderTime: orderTime ?? this.orderTime,
       items: items ?? this.items,
       totalAmount: totalAmount ?? this.totalAmount,
+      cashAmount: cashAmount ?? this.cashAmount,
+      posAmount: posAmount ?? this.posAmount,
       orderStatus: orderStatus ?? this.orderStatus,
       printStatus: printStatus ?? this.printStatus,
       errorMessage: errorMessage ?? this.errorMessage,
@@ -107,6 +124,16 @@ class OrderModel {
       syncedTime: syncedTime ?? this.syncedTime,
       printedTime: printedTime ?? this.printedTime,
     );
+  }
+
+  // 获取订单项目列表
+  List<Map<String, dynamic>> getItemsList() {
+    try {
+      final List<dynamic> itemsJson = jsonDecode(items);
+      return itemsJson.cast<Map<String, dynamic>>();
+    } catch (e) {
+      return [];
+    }
   }
 }
 

@@ -306,6 +306,12 @@ class _OrderListPageState extends State<OrderListPage> {
         return 'Pending';
       case OrderStatus.pendingSync:
         return 'Syncing';
+      case OrderStatus.confirmed:
+        return 'Confirmed';
+      case OrderStatus.completed:
+        return 'Completed';
+      case OrderStatus.cancelled:
+        return 'Cancelled';
       case OrderStatus.synced:
         return 'Synced';
     }
@@ -317,8 +323,14 @@ class _OrderListPageState extends State<OrderListPage> {
         return Colors.grey;
       case OrderStatus.pendingSync:
         return Colors.orange;
-      case OrderStatus.synced:
+      case OrderStatus.confirmed:
+        return Colors.blue;
+      case OrderStatus.completed:
         return Colors.green;
+      case OrderStatus.cancelled:
+        return Colors.red;
+      case OrderStatus.synced:
+        return Colors.green[700]!;
     }
   }
 

@@ -23,7 +23,7 @@ class _OrderPageState extends State<OrderPage> {
   List<SelectedProduct> orderedProducts = [];
   Map<String, String?> selectedOptions = {};
   MenuItem? selectedProduct;
-  String orderType = 'DINE IN'; // 添加订单类型状态
+  SelectedProduct? selectedOrderedProduct; // 添加选中的已点菜品状态
 
   @override
   void initState() {
@@ -132,24 +132,28 @@ class _OrderPageState extends State<OrderPage> {
     }
   }
 
-  // 单击：添加一个相同的菜品（不包括选项配置）
-  void _addSameProduct(SelectedProduct ordered) {
+  // 单击：选中菜品（添加描边效果）
+  void _selectOrderedProduct(SelectedProduct ordered) {
     setState(() {
-      orderedProducts.add(SelectedProduct(
-        product: ordered.product,
-        options: [], // 不包括选项配置
-      ));
+      selectedOrderedProduct = selectedOrderedProduct == ordered ? null : ordered;
     });
   }
 
-  // 双击：留空
-  void _removeProduct(SelectedProduct ordered) {
-    // 暂时留空，后续可以添加功能
-  }
-
-  // 长按：暂时留空
-  void _showProductOptions(SelectedProduct ordered) {
-    // 暂时留空，后续可以添加功能
+  // 双击：复制当前菜品
+  void _duplicateOrderedProduct(SelectedProduct ordered) {
+    setState(() {
+      final duplicatedProduct = SelectedProduct(
+        product: ordered.product,
+        options: ordered.options.map((opt) => SelectedOption(
+          type: opt.type,
+          option: opt.option,
+        )).toList(),
+        quantity: ordered.quantity,
+      );
+      orderedProducts.add(duplicatedProduct);
+      // 将新复制的菜品设置为选中状态
+      selectedOrderedProduct = duplicatedProduct;
+    });
   }
 
   // 增加数量
@@ -208,7 +212,7 @@ class _OrderPageState extends State<OrderPage> {
                                   children: [
                                     Expanded(child: Text(opt.name)),
                                     if (opt.extraCost > 0)
-                                      Text('+¥${opt.extraCost}',
+                                      Text('+\$${opt.extraCost}',
                                         style: TextStyle(color: Colors.red, fontSize: 12)),
                                   ],
                                 ),
@@ -290,7 +294,7 @@ class _OrderPageState extends State<OrderPage> {
             children: [
               Text('菜品代码: ${ordered.product.code}'),
               Text('快捷键: ${ordered.product.acronym}'),
-              Text('基础价格: ¥${ordered.product.sellingPrice.toStringAsFixed(2)}'),
+              Text('基础价格: \$${ordered.product.sellingPrice.toStringAsFixed(2)}'),
               SizedBox(height: 16),
               if (ordered.options.isNotEmpty) ...[
                 Text('选项配置:', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -301,14 +305,14 @@ class _OrderPageState extends State<OrderPage> {
                     children: [
                       Expanded(child: Text('${opt.type}: ${opt.option.name}')),
                       if (opt.option.extraCost > 0)
-                        Text('+¥${opt.option.extraCost.toStringAsFixed(2)}',
+                        Text('+\$${opt.option.extraCost.toStringAsFixed(2)}',
                           style: TextStyle(color: Colors.red)),
                     ],
                   ),
                 )),
                 SizedBox(height: 16),
               ],
-              Text('总价: ¥${totalPrice.toStringAsFixed(2)}',
+              Text('总价: \$${totalPrice.toStringAsFixed(2)}',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             ],
           ),
@@ -321,13 +325,6 @@ class _OrderPageState extends State<OrderPage> {
         );
       },
     );
-  }
-
-  // 切换订单类型
-  void _toggleOrderType() {
-    setState(() {
-      orderType = orderType == 'DINE IN' ? 'TAKE AWAY' : 'DINE IN';
-    });
   }
 
   // VOID操作 - 删除当前已点菜品（最后一个）
@@ -456,7 +453,7 @@ class _OrderPageState extends State<OrderPage> {
                             Padding(
                               padding: const EdgeInsets.only(top: 2.0),
                               child: Text(
-                                '+¥${option.extraCost.toStringAsFixed(2)}',
+                                '+\$${option.extraCost.toStringAsFixed(2)}',
                                 style: TextStyle(fontSize: 11, color: Colors.red, fontWeight: FontWeight.w600), // 增大字体
                               ),
                             ),
@@ -490,27 +487,37 @@ class _OrderPageState extends State<OrderPage> {
       if (existingProductIndex != -1) {
         // 如果找到相同菜品且没有选项，直接增加该菜品的数量
         orderedProducts[existingProductIndex].quantity++;
+        // 将增加数量的菜品设置为选中状态
+        selectedOrderedProduct = orderedProducts[existingProductIndex];
         return;
       }
 
       // 否则添加新的菜品项
       selectedProduct = item;
-      orderedProducts.add(SelectedProduct(product: item, options: []));
+      final newProduct = SelectedProduct(product: item, options: []);
+      orderedProducts.add(newProduct);
+      // 将新添加的菜品设置为选中状态
+      selectedOrderedProduct = newProduct;
       selectedOptions.clear();
     });
   }
 
-  // 优化选项添加方法 - 支持累加选项
+  // 优化选项添加方法 - 支持为选中的菜品添加选项
   void _addOptionToLastProduct(String type, MenuOption option) {
-    if (orderedProducts.isEmpty) {
+    // 优先为选中的菜品添加选项，如果没有选中的菜品则为最后一个菜品添加选项
+    SelectedProduct? targetProduct;
+
+    if (selectedOrderedProduct != null) {
+      targetProduct = selectedOrderedProduct;
+    } else if (orderedProducts.isNotEmpty) {
+      targetProduct = orderedProducts.last;
+    } else {
       return;
     }
 
     setState(() {
-      final lastProduct = orderedProducts.last;
-
       // 检查是否已存在相同类型和选项的组合
-      final existingOptionIndex = lastProduct.options.indexWhere(
+      final existingOptionIndex = targetProduct!.options.indexWhere(
         (opt) => opt.type == type && opt.option.id == option.id,
       );
 
@@ -519,12 +526,33 @@ class _OrderPageState extends State<OrderPage> {
         return;
       } else {
         // 支持同类型多选 - 不移除同类型的旧选项，直接添加新选项
-        // lastProduct.options.removeWhere((opt) => opt.type == type);
+        // targetProduct.options.removeWhere((opt) => opt.type == type);
 
         // 添加新选项
-        lastProduct.options.add(SelectedOption(type: type, option: option));
+        targetProduct.options.add(SelectedOption(type: type, option: option));
       }
     });
+  }
+
+  // 动态计算标题字体大小
+  double _calculateTitleFontSize(String title, double containerWidth) {
+    final baseSize = 16.0;
+    final maxSize = 18.0;
+    final minSize = 10.0;
+
+    // 预估文字宽度（粗略计算）
+    final estimatedCharWidth = baseSize * 0.6; // 中文字符大约是字体大小的0.6倍宽
+    final availableWidth = containerWidth - 40; // 减去padding和右侧code按钮空间
+    final maxCharsPerLine = (availableWidth / estimatedCharWidth).floor();
+
+    // 根据标题长度和可用宽度调整字体大小
+    if (title.length <= maxCharsPerLine) {
+      return baseSize; // 一行能显示完，使用基础大小
+    } else if (title.length <= maxCharsPerLine * 2) {
+      return (baseSize - 1).clamp(minSize, maxSize); // 两行显示，稍微小一点
+    } else {
+      return (baseSize - 3).clamp(minSize, maxSize); // 需要更多行，使用更小字体
+    }
   }
 
   @override
@@ -590,119 +618,153 @@ class _OrderPageState extends State<OrderPage> {
                                   return SizedBox(
                                     width: cardWidth,
                                     child: GestureDetector(
-                                      onTap: () => _addSameProduct(ordered),
-                                      child: Card(
-                                        margin: EdgeInsets.zero,
-                                        child: Padding(
-                                          padding: const EdgeInsets.all(4.0), // 减少内边距从6.0到4.0
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              // 主要信息行 - 包含菜品名、价格和数量控制
-                                              Row(
-                                                children: [
-                                                  Expanded(
-                                                    flex: 3, // 给菜品名称更多空间
-                                                    child: Text(
-                                                      ordered.product.title,
-                                                      style: TextStyle(
-                                                        fontWeight: FontWeight.bold,
-                                                        fontSize: 16
-                                                      ),
-                                                      overflow: TextOverflow.ellipsis,
-                                                      maxLines: 1,
-                                                    ),
-                                                  ),
-                                                  // 减号按钮
-                                                  GestureDetector(
-                                                    onTap: () => _decreaseQuantity(ordered),
-                                                    child: Container(
-                                                      width: 14,
-                                                      height: 14,
-                                                      margin: EdgeInsets.only(left: 2),
-                                                      decoration: BoxDecoration(
-                                                        color: Colors.red[100],
-                                                        borderRadius: BorderRadius.circular(7),
-                                                        border: Border.all(color: Colors.red[300]!, width: 0.5),
-                                                      ),
-                                                      child: Icon(
-                                                        Icons.remove,
-                                                        size: 8,
-                                                        color: Colors.red[700],
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  // 数量显示
-                                                  Container(
-                                                    width: 24,
-                                                    alignment: Alignment.center,
-                                                    child: Text(
-                                                      '${ordered.quantity}',
-                                                      style: TextStyle(
-                                                        fontWeight: FontWeight.bold,
-                                                        fontSize: 12,
-                                                        color: Colors.blue[700],
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  // 加号按钮
-                                                  GestureDetector(
-                                                    onTap: () => _increaseQuantity(ordered),
-                                                    child: Container(
-                                                      width: 14,
-                                                      height: 14,
-                                                      decoration: BoxDecoration(
-                                                        color: Colors.green[100],
-                                                        borderRadius: BorderRadius.circular(7),
-                                                        border: Border.all(color: Colors.green[300]!, width: 0.5),
-                                                      ),
-                                                      child: Icon(
-                                                        Icons.add,
-                                                        size: 8,
-                                                        color: Colors.green[700],
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
+                                      onTap: () => _selectOrderedProduct(ordered),
+                                      onDoubleTap: () => _duplicateOrderedProduct(ordered),
+                                      child: LayoutBuilder(
+                                        builder: (context, orderedCardConstraints) {
+                                          // 检查当前菜品是否被选中
+                                          final isSelected = selectedOrderedProduct == ordered;
+
+                                          return Card(
+                                            margin: EdgeInsets.zero,
+                                            // 为选中的菜品添加描边效果
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(8),
+                                              side: BorderSide(
+                                                color: isSelected ? Colors.blue[600]! : Colors.grey[300]!,
+                                                width: 1.0,
                                               ),
-                                              // 价格行
-                                              SizedBox(height: 1),
-                                              Row(
-                                                children: [
-                                                  Expanded(child: Container()), // 占位
-                                                  Text(
-                                                    '¥${ordered.product.sellingPrice.toStringAsFixed(2)}',
-                                                    style: TextStyle(fontSize: 9, color: Colors.green[700]),
-                                                  ),
-                                                ],
+                                            ),
+                                            // 为选中的菜品添加阴影效果
+                                            elevation: isSelected ? 8 : 2,
+                                            shadowColor: isSelected ? Colors.blue[200] : Colors.grey[300],
+                                            // 为选中的菜品添加背景颜色变化
+                                            color: Colors.white,
+                                            child: Container(
+                                              decoration: BoxDecoration(
+                                                borderRadius: BorderRadius.circular(8),
                                               ),
-                                              // 显示所有选项
-                                              ...ordered.options.map((opt) {
-                                                return Padding(
-                                                  padding: const EdgeInsets.only(top: 1.0),
-                                                  child: Row(
-                                                    children: [
-                                                      Expanded(
-                                                        child: Text(
-                                                          '${opt.type}: ${opt.option.name}',
-                                                          style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                                                          overflow: TextOverflow.ellipsis,
-                                                          maxLines: 1,
+                                              child: Padding(
+                                                padding: const EdgeInsets.all(4.0),
+                                                child: Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    // 菜品标题行 - 响应式适配，优先级最高
+                                                    Row(
+                                                      children: [
+                                                        Expanded(
+                                                          flex: 4, // 给菜品名称绝对优先权
+                                                          child: Text(
+                                                            ordered.product.title,
+                                                            style: TextStyle(
+                                                              fontWeight: FontWeight.bold,
+                                                              fontSize: _calculateTitleFontSize(ordered.product.title, orderedCardConstraints.maxWidth * 0.7), // 动态字体
+                                                              height: 1.1,
+                                                              color: isSelected ? Colors.blue[800] : Colors.black87,
+                                                            ),
+                                                            maxLines: null, // 允许多行
+                                                            overflow: TextOverflow.visible, // 完全显示
+                                                          ),
                                                         ),
-                                                      ),
-                                                      if (opt.option.extraCost > 0)
+                                                        // 数量控制按钮 - 增大尺寸便于点击
+                                                        Row(
+                                                          mainAxisSize: MainAxisSize.min,
+                                                          children: [
+                                                            // 减号按钮
+                                                            GestureDetector(
+                                                              onTap: () => _decreaseQuantity(ordered),
+                                                              child: Container(
+                                                                width: 20,
+                                                                height: 20,
+                                                                margin: EdgeInsets.only(left: 4),
+                                                                decoration: BoxDecoration(
+                                                                  color: Colors.red[100],
+                                                                  borderRadius: BorderRadius.circular(10),
+                                                                  border: Border.all(color: Colors.red[200]!, width: 0.5),
+                                                                ),
+                                                                child: Icon(
+                                                                  Icons.remove,
+                                                                  size: 12,
+                                                                  color: Colors.red[700],
+                                                                ),
+                                                              ),
+                                                            ),
+                                                            // 数量显示
+                                                            Container(
+                                                              width: 28,
+                                                              alignment: Alignment.center,
+                                                              child: Text(
+                                                                '${ordered.quantity}',
+                                                                style: TextStyle(
+                                                                  fontWeight: FontWeight.bold,
+                                                                  fontSize: 12,
+                                                                  color: Colors.blue[700],
+                                                                ),
+                                                              ),
+                                                            ),
+                                                            // 加号按钮 - 增大可点击区域
+                                                            GestureDetector(
+                                                              onTap: () => _increaseQuantity(ordered),
+                                                              child: Container(
+                                                                width: 20,
+                                                                height: 20,
+                                                                decoration: BoxDecoration(
+                                                                  color: Colors.green[100],
+                                                                  borderRadius: BorderRadius.circular(10),
+                                                                  border: Border.all(color: Colors.green[200]!, width: 0.5),
+                                                                ),
+                                                                child: Icon(
+                                                                  Icons.add,
+                                                                  size: 12,
+                                                                  color: Colors.green[700],
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    // 价格行 - 固定在底部
+                                                    SizedBox(height: 2),
+                                                    Row(
+                                                      children: [
+                                                        Expanded(child: Container()), // 占位
                                                         Text(
-                                                          '+¥${opt.option.extraCost.toStringAsFixed(2)}',
-                                                          style: TextStyle(fontSize: 7, color: Colors.red),
+                                                          '￥${ordered.product.sellingPrice.toStringAsFixed(2)}',
+                                                          style: TextStyle(fontSize: 9, color: Colors.green[700]),
                                                         ),
-                                                    ],
-                                                  ),
-                                                );
-                                              }).toList(),
-                                            ],
-                                          ),
-                                        ),
+                                                      ],
+                                                    ),
+                                                    // 显示所有选项 - 动态高度
+                                                    ...ordered.options.map((opt) {
+                                                      return Padding(
+                                                        padding: const EdgeInsets.only(top: 1.0),
+                                                        child: Row(
+                                                          children: [
+                                                            Expanded(
+                                                              child: Text(
+                                                                ' - ${opt.option.name}',
+                                                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold,color: Colors.grey[600]),
+                                                                overflow: TextOverflow.ellipsis,
+                                                                maxLines: 1,
+                                                              ),
+                                                            ),
+                                                            if (opt.option.extraCost > 0)
+                                                              Text(
+                                                                '+\$ ${opt.option.extraCost.toStringAsFixed(2)}',
+                                                                style: TextStyle(fontSize: 8,  color: Colors.red),
+                                                              ),
+                                                          ],
+                                                        ),
+                                                      );
+                                                    }),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        },
                                       ),
                                     ),
                                   );
@@ -770,6 +832,34 @@ class _OrderPageState extends State<OrderPage> {
                                   itemBuilder: (context, index) {
                                     final parent = categories.where((c) => c.parentId == null).toList()[index];
                                     final children = categories.where((c) => c.parentId == parent.id).toList();
+
+                                    // 如果没有子分类，显示为普通ListTile
+                                    if (children.isEmpty) {
+                                      return Container(
+                                        margin: EdgeInsets.only(bottom: 1),
+                                        child: Material(
+                                          color: Colors.grey[50],
+                                          child: InkWell(
+                                            onTap: () {
+                                              // TODO: 实现分类筛选功能
+                                            },
+                                            child: Container(
+                                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                              child: Text(
+                                                parent.title,
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.grey[800],
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }
+
+                                    // 有子分类时显示ExpansionTile
                                     return Container(
                                       margin: EdgeInsets.only(bottom: 1), // 减少间距
                                       child: ExpansionTile(
@@ -999,117 +1089,105 @@ class _OrderPageState extends State<OrderPage> {
                                           : GridView.builder(
                                               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                                                 crossAxisCount: 4,
-                                                crossAxisSpacing: 8, // 减少间距
-                                                mainAxisSpacing: 8, // 减少间距
+                                                crossAxisSpacing: 2, // 减少间距
+                                                mainAxisSpacing: 2, // 减少间距
                                                 childAspectRatio: 1.1, // 调整宽高比，使卡片更紧凑
                                               ),
                                               itemCount: products.length,
                                               itemBuilder: (context, index) {
                                                 final item = products[index];
-                                                return Card(
-                                                  elevation: 2,
-                                                  shadowColor: Colors.grey[300],
-                                                  shape: RoundedRectangleBorder(
-                                                    borderRadius: BorderRadius.circular(8),
-                                                    side: BorderSide(color: Colors.grey[200]!, width: 1),
-                                                  ),
-                                                  child: InkWell(
-                                                    onTap: () => _addProductIntelligently(item),
-                                                    borderRadius: BorderRadius.circular(8),
-                                                    child: Container(
-                                                      decoration: BoxDecoration(
+                                                return LayoutBuilder(
+                                                  builder: (context, cardConstraints) {
+                                                    return Card(
+                                                      elevation: 2,
+                                                      shadowColor: Colors.grey[300],
+                                                      shape: RoundedRectangleBorder(
                                                         borderRadius: BorderRadius.circular(8),
-                                                        gradient: LinearGradient(
-                                                          begin: Alignment.topCenter,
-                                                          end: Alignment.bottomCenter,
-                                                          colors: [Colors.white, Colors.grey[50]!],
-                                                        ),
+                                                        side: BorderSide(color: Colors.grey[200]!, width: 1),
                                                       ),
-                                                      child: Stack(
-                                                        children: [
-                                                          // 主要内容
-                                                          Padding(
-                                                            padding: const EdgeInsets.all(6.0),
-                                                            child: Column(
-                                                              mainAxisAlignment: MainAxisAlignment.center,
-                                                              children: [
-                                                                // 菜品标题 - 加粗、大字体
-                                                                Padding(
-                                                                  padding: const EdgeInsets.only(right: 20.0), // 为右上角的code留出空间
-                                                                  child: Text(
-                                                                    item.title,
-                                                                    style: TextStyle(
-                                                                      fontSize: 13,
-                                                                      fontWeight: FontWeight.bold,
-                                                                      color: Colors.black87,
-                                                                    ),
-                                                                    textAlign: TextAlign.center,
-                                                                    maxLines: 2,
-                                                                    overflow: TextOverflow.ellipsis,
-                                                                  ),
-                                                                ),
-                                                                SizedBox(height: 8),
-                                                                // 缩写显示
-                                                                Container(
-                                                                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                                  decoration: BoxDecoration(
-                                                                    color: Colors.orange[100],
-                                                                    borderRadius: BorderRadius.circular(4),
-                                                                    border: Border.all(color: Colors.orange[300]!, width: 0.5),
-                                                                  ),
-                                                                  child: Text(
-                                                                    item.acronym,
-                                                                    style: TextStyle(
-                                                                      fontSize: 10,
-                                                                      color: Colors.orange[800],
-                                                                      fontWeight: FontWeight.w600,
-                                                                      letterSpacing: 0.5,
-                                                                    ),
-                                                                  ),
-                                                                ),
-                                                                SizedBox(height: 6),
-                                                              ],
+                                                      child: InkWell(
+                                                        onTap: () => _addProductIntelligently(item),
+                                                        borderRadius: BorderRadius.circular(8),
+                                                        child: Container(
+                                                          decoration: BoxDecoration(
+                                                            borderRadius: BorderRadius.circular(8),
+                                                            gradient: LinearGradient(
+                                                              begin: Alignment.topCenter,
+                                                              end: Alignment.bottomCenter,
+                                                              colors: [Colors.white, Colors.grey[50]!],
                                                             ),
                                                           ),
-                                                          // 悬浮在右上角的圆形code
-                                                          Positioned(
-                                                            top: 4,
-                                                            right: 4,
-                                                            child: Container(
-                                                              width: 26,
-                                                              height: 26,
-                                                              decoration: BoxDecoration(
-                                                                shape: BoxShape.circle,
-                                                                gradient: LinearGradient(
-                                                                  colors: [Colors.blue[400]!, Colors.blue[600]!],
+                                                          child: Stack(
+                                                            children: [
+                                                              // 主要内容
+                                                              Padding(
+                                                                padding: const EdgeInsets.all(6.0),
+                                                                child: Column(
+                                                                  children: [
+                                                                    // 菜品标题 - 绝对优先级，占用所有可用空间
+                                                                    Expanded(
+                                                                      child: Container(
+                                                                        width: double.infinity,
+                                                                        padding: const EdgeInsets.only(right: 20.0), // 为右上角的code留出空间
+                                                                        child: Center(
+                                                                          child: Text(
+                                                                            item.title,
+                                                                            style: TextStyle(
+                                                                              fontSize: _calculateTitleFontSize(item.title, cardConstraints.maxWidth),
+                                                                              fontWeight: FontWeight.bold,
+                                                                              color: Colors.black87,
+                                                                              height: 1.1, // 紧凑行高
+                                                                            ),
+                                                                            textAlign: TextAlign.center,
+                                                                            maxLines: null, // 允许多行显示
+                                                                            overflow: TextOverflow.visible, // 确保文字完全显示
+                                                                          ),
+                                                                        ),
+                                                                      ),
+                                                                    ),
+                                                                    // 缩写显示 - 固定在底部，只有有空间时才显示
+                                                                    if (cardConstraints.maxHeight > 60) // 只有足够高度时才显示缩写
+                                                                      Container(
+                                                                        margin: EdgeInsets.only(top: 2),
+                                                                        padding: EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                                                        decoration: BoxDecoration(
+                                                                          color: Colors.blue[100],
+                                                                          borderRadius: BorderRadius.circular(3),
+                                                                          border: Border.all(color: Colors.blue[300]!, width: 0.5),
+                                                                        ),
+                                                                        child: Text(
+                                                                          item.acronym,
+                                                                          style: TextStyle(
+                                                                            fontSize: 9,
+                                                                            color: Colors.blue[800],
+                                                                            fontWeight: FontWeight.w600,
+                                                                          ),
+                                                                        ),
+                                                                      ),
+                                                                  ],
                                                                 ),
-                                                                boxShadow: [
-                                                                  BoxShadow(
-                                                                    color: Colors.blue[200]!,
-                                                                    blurRadius: 3,
-                                                                    offset: Offset(0, 2),
-                                                                  ),
-                                                                ],
                                                               ),
-                                                              child: Center(
+                                                              // 悬浮在右上角的圆形code
+                                                              Positioned(
+                                                                top: 4,
+                                                                right: 4,
                                                                 child: Text(
                                                                   item.code.length > 4
                                                                       ? item.code.substring(0, 4)
                                                                       : item.code,
                                                                   style: TextStyle(
-                                                                    fontSize: 8,
-                                                                    fontWeight: FontWeight.bold,
-                                                                    color: Colors.white,
+                                                                    fontSize: 9,
+                                                                    color: Colors.grey[600],
+                                                                    fontWeight: FontWeight.w500,
                                                                   ),
-                                                                  textAlign: TextAlign.center,
                                                                 ),
                                                               ),
-                                                            ),
+                                                            ],
                                                           ),
-                                                        ],
+                                                        ),
                                                       ),
-                                                    ),
-                                                  ),
+                                                    );
+                                                  },
                                                 );
                                               },
                                             ),
@@ -1151,7 +1229,7 @@ class _OrderPageState extends State<OrderPage> {
                             icon: Icon(Icons.delete_outline, size: 16),
                             label: Text('VOID', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red[400],
+                              backgroundColor: Colors.red[300],
                               foregroundColor: Colors.white,
                               elevation: 3,
                               shadowColor: Colors.red[200],
@@ -1172,38 +1250,10 @@ class _OrderPageState extends State<OrderPage> {
                             icon: Icon(Icons.clear_all, size: 16),
                             label: Text('CLEAR', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.orange[400],
+                              backgroundColor: Colors.orange[300],
                               foregroundColor: Colors.white,
                               elevation: 3,
                               shadowColor: Colors.orange[200],
-                              padding: EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      // 订单类型切换按钮
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 3.0),
-                          child: ElevatedButton.icon(
-                            onPressed: _toggleOrderType,
-                            icon: Icon(
-                              orderType == 'DINE IN' ? Icons.restaurant : Icons.takeout_dining,
-                              size: 16
-                            ),
-                            label: Text(
-                              orderType.replaceAll(' ', '\n'),
-                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600),
-                              textAlign: TextAlign.center,
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: orderType == 'DINE IN' ? Colors.blue[400] : Colors.green[400],
-                              foregroundColor: Colors.white,
-                              elevation: 3,
-                              shadowColor: orderType == 'DINE IN' ? Colors.blue[200] : Colors.green[200],
                               padding: EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
@@ -1221,7 +1271,7 @@ class _OrderPageState extends State<OrderPage> {
                             icon: Icon(Icons.add_circle_outline, size: 16),
                             label: Text('QTY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.purple[400],
+                              backgroundColor: Colors.purple[300],
                               foregroundColor: Colors.white,
                               elevation: 3,
                               shadowColor: Colors.purple[200],
@@ -1242,10 +1292,10 @@ class _OrderPageState extends State<OrderPage> {
                             icon: Icon(Icons.settings, size: 16),
                             label: Text('CUSTOM', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600)),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.grey[500],
+                              backgroundColor: Colors.blue[300],
                               foregroundColor: Colors.white,
                               elevation: 3,
-                              shadowColor: Colors.grey[300],
+                              shadowColor: Colors.blue[200],
                               padding: EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
