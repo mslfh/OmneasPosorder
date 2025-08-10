@@ -371,6 +371,13 @@ class _SettingsPageState extends State<SettingsPage> {
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+        margin: EdgeInsets.only(
+          bottom: MediaQuery.of(context).size.height - 150,
+          left: 20,
+          right: 20,
+        ),
+        duration: Duration(seconds: 3),
       ),
     );
   }
@@ -380,6 +387,13 @@ class _SettingsPageState extends State<SettingsPage> {
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        margin: EdgeInsets.only(
+          bottom: MediaQuery.of(context).size.height - 150,
+          left: 20,
+          right: 20,
+        ),
+        duration: Duration(seconds: 4),
       ),
     );
   }
