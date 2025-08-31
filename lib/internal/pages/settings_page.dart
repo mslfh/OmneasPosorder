@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
+import 'package:hive/hive.dart';
 import '../../common/models/app_settings.dart';
 import '../../common/services/settings_service.dart';
 import '../../common/services/sync_service.dart';
 import '../../common/services/print_service.dart';
+import '../../common/services/api_service.dart';
+import '../../common/services/app_initialization_service.dart';
+import '../internal_app.dart';
+import 'login_page.dart';
 
 class SettingsPage extends StatefulWidget {
   @override
@@ -87,6 +92,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
       // 先保存设置到本地存储
       await _settingsService.saveSettings(updatedSettings);
+      ApiService().updateBaseUrl(apiUrl); // 同步到ApiService和Hive
       _logger.i('Settings saved to local storage');
 
       // 立即应用设置到服务
@@ -158,6 +164,41 @@ class _SettingsPageState extends State<SettingsPage> {
       await _settingsService.resetToDefaults();
       await _loadSettings();
       _showSuccessSnackBar('Settings reset to defaults');
+    }
+  }
+
+  Future<void> _logout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('退出登录'),
+        content: Text('确定要退出登录吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text('退出'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      final box = await Hive.openBox('authBox');
+      await box.delete('authToken');
+      await box.delete('savedUsername');
+      await box.delete('savedPassword');
+      await box.delete('rememberMe');
+      ApiService().setAuthToken(''); // 清除ApiService的token
+      await AppInitializationService.stopBackgroundTasksAndNetworkListener();
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => InternalApp()),
+        (route) => false,
+      );
     }
   }
 
@@ -322,6 +363,22 @@ class _SettingsPageState extends State<SettingsPage> {
                 label: Text(_isSaving ? 'Saving...' : 'Save Settings'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  textStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+            SizedBox(height: 24),
+            // 退出登录按钮
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                onPressed: _logout,
+                icon: Icon(Icons.logout),
+                label: Text('退出登录'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
                   foregroundColor: Colors.white,
                   textStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),

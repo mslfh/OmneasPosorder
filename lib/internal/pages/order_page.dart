@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
-import '../../../common/models/menu_item.dart';
-import '../../../common/models/category.dart';
-import '../../../common/services/api_service.dart';
-import '../../../common/models/menu_option.dart';
+import 'package:audioplayers/audioplayers.dart';
+import '../../common/models/menu_item.dart';
+import '../../common/models/category.dart';
+import '../../common/services/api_service.dart';
+import '../../common/models/menu_option.dart';
 import 'checkout_page.dart';
-import '../../../common/models/menu_item_adapter.dart';
-import '../../../common/models/category_adapter.dart';
-import '../../../common/models/option_groups_adapter.dart';
+import '../../common/models/menu_item_adapter.dart';
+import '../../common/models/category_adapter.dart';
+import '../../common/models/option_groups_adapter.dart';
 
 class OrderPage extends StatefulWidget {
   @override
@@ -24,12 +25,31 @@ class _OrderPageState extends State<OrderPage> {
   Map<String, String?> selectedOptions = {};
   MenuItem? selectedProduct;
   SelectedProduct? selectedOrderedProduct; // 添加选中的已点菜品状态
+  late final AudioPlayer _audioPlayer;
+  bool _isCardPressed = false;
+  int? _pressedCardIndex;
 
   @override
   void initState() {
     super.initState();
+    _audioPlayer = AudioPlayer();
     loadData();
     loadOptions();
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
+  }
+
+  Future<void> _playClickSound() async {
+    try {
+      // 本地assets/click.mp3，如无可用网络音效
+      await _audioPlayer.play(AssetSource('click.mp3'));
+    } catch (e) {
+      // 忽略音效错误
+    }
   }
 
   Future<void> loadData() async {
@@ -1089,104 +1109,134 @@ class _OrderPageState extends State<OrderPage> {
                                           : GridView.builder(
                                               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                                                 crossAxisCount: 4,
-                                                crossAxisSpacing: 2, // 减少间距
-                                                mainAxisSpacing: 2, // 减少间距
-                                                childAspectRatio: 1.1, // 调整宽高比，使卡片更紧凑
+                                                crossAxisSpacing: 2,
+                                                mainAxisSpacing: 2,
+                                                childAspectRatio: 1.1,
                                               ),
                                               itemCount: products.length,
                                               itemBuilder: (context, index) {
                                                 final item = products[index];
                                                 return LayoutBuilder(
                                                   builder: (context, cardConstraints) {
-                                                    return Card(
-                                                      elevation: 2,
-                                                      shadowColor: Colors.grey[300],
-                                                      shape: RoundedRectangleBorder(
+                                                    final isPressed = _isCardPressed && _pressedCardIndex == index;
+                                                    return AnimatedContainer(
+                                                      duration: Duration(milliseconds: 120),
+                                                      curve: Curves.easeOut,
+                                                      transform: isPressed ? Matrix4.translationValues(0, -6, 0) : Matrix4.identity(),
+                                                      decoration: BoxDecoration(
                                                         borderRadius: BorderRadius.circular(8),
-                                                        side: BorderSide(color: Colors.grey[200]!, width: 1),
+                                                        boxShadow: isPressed
+                                                            ? [BoxShadow(color: Colors.blue.withOpacity(0.18), blurRadius: 16, offset: Offset(0, 6))]
+                                                            : [BoxShadow(color: Colors.grey.withOpacity(0.08), blurRadius: 4, offset: Offset(0, 2))],
                                                       ),
-                                                      child: InkWell(
-                                                        onTap: () => _addProductIntelligently(item),
-                                                        borderRadius: BorderRadius.circular(8),
-                                                        child: Container(
-                                                          decoration: BoxDecoration(
+                                                      child: GestureDetector(
+                                                        onTapDown: (_) {
+                                                          setState(() {
+                                                            _isCardPressed = true;
+                                                            _pressedCardIndex = index;
+                                                          });
+                                                        },
+                                                        onTapUp: (_) async {
+                                                          setState(() {
+                                                            _isCardPressed = false;
+                                                            _pressedCardIndex = null;
+                                                          });
+                                                          await _playClickSound();
+                                                          _addProductIntelligently(item);
+                                                        },
+                                                        onTapCancel: () {
+                                                          setState(() {
+                                                            _isCardPressed = false;
+                                                            _pressedCardIndex = null;
+                                                          });
+                                                        },
+                                                        child: Card(
+                                                          elevation: 2,
+                                                          shadowColor: Colors.grey[300],
+                                                          shape: RoundedRectangleBorder(
                                                             borderRadius: BorderRadius.circular(8),
-                                                            gradient: LinearGradient(
-                                                              begin: Alignment.topCenter,
-                                                              end: Alignment.bottomCenter,
-                                                              colors: [Colors.white, Colors.grey[50]!],
-                                                            ),
+                                                            side: BorderSide(color: Colors.grey[200]!, width: 1),
                                                           ),
-                                                          child: Stack(
-                                                            children: [
-                                                              // 主要内容
-                                                              Padding(
-                                                                padding: const EdgeInsets.all(6.0),
-                                                                child: Column(
-                                                                  children: [
-                                                                    // 菜品标题 - 绝对优先级，占用所有可用空间
-                                                                    Expanded(
-                                                                      child: Container(
-                                                                        width: double.infinity,
-                                                                        padding: const EdgeInsets.only(right: 20.0), // 为右上角的code留出空间
-                                                                        child: Center(
-                                                                          child: Text(
-                                                                            item.title,
-                                                                            style: TextStyle(
-                                                                              fontSize: _calculateTitleFontSize(item.title, cardConstraints.maxWidth),
-                                                                              fontWeight: FontWeight.bold,
-                                                                              color: Colors.black87,
-                                                                              height: 1.1, // 紧凑行高
+                                                          child: InkWell(
+                                                            borderRadius: BorderRadius.circular(8),
+                                                            child: Container(
+                                                              decoration: BoxDecoration(
+                                                                borderRadius: BorderRadius.circular(8),
+                                                                gradient: LinearGradient(
+                                                                  begin: Alignment.topCenter,
+                                                                  end: Alignment.bottomCenter,
+                                                                  colors: [Colors.white, Colors.grey[50]!],
+                                                                ),
+                                                              ),
+                                                              child: Stack(
+                                                                children: [
+                                                                  Padding(
+                                                                    padding: const EdgeInsets.all(6.0),
+                                                                    child: Column(
+                                                                      children: [
+                                                                        // 菜品标题 - 绝对优先级，占用所有可用空间
+                                                                        Expanded(
+                                                                          child: Container(
+                                                                            width: double.infinity,
+                                                                            padding: const EdgeInsets.only(right: 20.0), // 为右上角的code留出空间
+                                                                            child: Center(
+                                                                              child: Text(
+                                                                                item.title,
+                                                                                style: TextStyle(
+                                                                                  fontSize: _calculateTitleFontSize(item.title, cardConstraints.maxWidth),
+                                                                                  fontWeight: FontWeight.bold,
+                                                                                  color: Colors.black87,
+                                                                                  height: 1.1, // 紧凑行高
+                                                                                ),
+                                                                                textAlign: TextAlign.center,
+                                                                                maxLines: null, // 允许多行显示
+                                                                                overflow: TextOverflow.visible, // 确保文字完全显示
+                                                                              ),
                                                                             ),
-                                                                            textAlign: TextAlign.center,
-                                                                            maxLines: null, // 允许多行显示
-                                                                            overflow: TextOverflow.visible, // 确保文字完全显示
                                                                           ),
                                                                         ),
+                                                                        // 缩写显示 - 固定在底部，只有有空间时才显示
+                                                                        if (cardConstraints.maxHeight > 60) // 只有足够高度时才显示缩写
+                                                                          Container(
+                                                                            margin: EdgeInsets.only(top: 2),
+                                                                            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                                                            decoration: BoxDecoration(
+                                                                              color: Colors.blue[100],
+                                                                              borderRadius: BorderRadius.circular(3),
+                                                                              border: Border.all(color: Colors.blue[300]!, width: 0.5),
+                                                                            ),
+                                                                            child: Text(
+                                                                              item.acronym,
+                                                                              style: TextStyle(
+                                                                                fontSize: 9,
+                                                                                color: Colors.blue[800],
+                                                                                fontWeight: FontWeight.w600,
+                                                                              ),
+                                                                            ),
+                                                                          ),
+                                                                      ],
+                                                                    ),
+                                                                  ),
+                                                                  // 悬浮在右上角的圆形code
+                                                                  Positioned(
+                                                                    top: 4,
+                                                                    right: 4,
+                                                                    child: Text(
+                                                                      item.code.length > 4 ? item.code.substring(0, 4) : item.code,
+                                                                      style: TextStyle(
+                                                                        fontSize: 9,
+                                                                        color: Colors.grey[600],
+                                                                        fontWeight: FontWeight.w500,
                                                                       ),
                                                                     ),
-                                                                    // 缩写显示 - 固定在底部，只有有空间时才显示
-                                                                    if (cardConstraints.maxHeight > 60) // 只有足够高度时才显示缩写
-                                                                      Container(
-                                                                        margin: EdgeInsets.only(top: 2),
-                                                                        padding: EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                                                        decoration: BoxDecoration(
-                                                                          color: Colors.blue[100],
-                                                                          borderRadius: BorderRadius.circular(3),
-                                                                          border: Border.all(color: Colors.blue[300]!, width: 0.5),
-                                                                        ),
-                                                                        child: Text(
-                                                                          item.acronym,
-                                                                          style: TextStyle(
-                                                                            fontSize: 9,
-                                                                            color: Colors.blue[800],
-                                                                            fontWeight: FontWeight.w600,
-                                                                          ),
-                                                                        ),
-                                                                      ),
-                                                                  ],
-                                                                ),
-                                                              ),
-                                                              // 悬浮在右上角的圆形code
-                                                              Positioned(
-                                                                top: 4,
-                                                                right: 4,
-                                                                child: Text(
-                                                                  item.code.length > 4
-                                                                      ? item.code.substring(0, 4)
-                                                                      : item.code,
-                                                                  style: TextStyle(
-                                                                    fontSize: 9,
-                                                                    color: Colors.grey[600],
-                                                                    fontWeight: FontWeight.w500,
                                                                   ),
-                                                                ),
+                                                                ],
                                                               ),
-                                                            ],
+                                                            ),
                                                           ),
                                                         ),
                                                       ),
-                                                    );
+                                                        );
                                                   },
                                                 );
                                               },

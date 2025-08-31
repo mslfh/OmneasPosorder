@@ -9,7 +9,6 @@ import 'common/services/api_service.dart';
 import 'common/models/menu_item.dart';
 import 'common/models/category.dart';
 import 'common/services/app_initialization_service.dart';
-import 'common/services/background_task_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,8 +27,8 @@ void main() async {
   await _fetchInitialData();
 
   // 使用应用初始化包装器启动应用
-  runApp(AppInitializationPage(
-    child: const OmneasApp(),
+  runApp(const AppInitializationPage(
+    child: OmneasApp(),
   ));
 }
 

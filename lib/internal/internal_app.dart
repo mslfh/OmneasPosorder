@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
-import 'pages/order/order_page.dart';
+import 'package:hive/hive.dart';
+import 'pages/order_page.dart';
 import 'pages/report_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/place_order_page.dart';
 import 'pages/order_list_page.dart';
+import 'pages/login_page.dart';
+import '../../common/services/api_service.dart';
 
 class InternalApp extends StatefulWidget {
   @override
@@ -20,6 +23,43 @@ class _InternalAppState extends State<InternalApp> {
     SettingsPage(),
   ];
 
+  bool _isChecking = true;
+  bool _isLoggedIn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkLoginStatus();
+  }
+
+  Future<void> _checkLoginStatus() async {
+    final box = await Hive.openBox('authBox');
+    final token = box.get('authToken');
+    if (token != null && token is String && token.isNotEmpty) {
+      ApiService().setAuthToken(token);
+      setState(() {
+        _isLoggedIn = true;
+        _isChecking = false;
+      });
+    } else {
+      setState(() {
+        _isLoggedIn = false;
+        _isChecking = false;
+      });
+    }
+  }
+
+  void _onLoginSuccess() async {
+    final box = await Hive.openBox('authBox');
+    final token = box.get('authToken');
+    if (token != null && token is String && token.isNotEmpty) {
+      ApiService().setAuthToken(token);
+    }
+    setState(() {
+      _isLoggedIn = true;
+    });
+  }
+
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
@@ -28,6 +68,14 @@ class _InternalAppState extends State<InternalApp> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isChecking) {
+      return Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (!_isLoggedIn) {
+      return LoginPage(onLoginSuccess: _onLoginSuccess);
+    }
     return Scaffold(
       appBar: AppBar(
         title: Text('Omneas POS'),

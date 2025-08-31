@@ -15,10 +15,9 @@ class AppInitializationService {
   static final Logger _logger = Logger();
   static bool _isInitialized = false;
 
-  /// 初始化应用
+  /// 初始化应用（只做本地初始化，不启动后台任务和监听）
   static Future<void> initialize() async {
     if (_isInitialized) return;
-
     try {
       _logger.i('开始初始化应用...');
 
@@ -28,18 +27,30 @@ class AppInitializationService {
       // 2. 初始化数据库
       await _initializeDatabase();
 
-      // 3. 初始化后台任务管理器
-      await _initializeBackgroundTasks();
-
-      // 4. 启动网络监听
-      _startNetworkListener();
-
+      // 不再自动初始化后台任务和网络监听
       _isInitialized = true;
       _logger.i('应用初始化完成');
-
     } catch (e) {
       _logger.e('应用初始化失败: $e');
       rethrow;
+    }
+  }
+
+  /// 登录后启动后台任务和网络监听
+  static Future<void> startBackgroundTasksAndNetworkListener() async {
+    await _initializeBackgroundTasks();
+    _startNetworkListener();
+    _logger.i('后台任务和网络监听已启动');
+  }
+
+  /// 退出登录时停止后台任务和网络监听
+  static Future<void> stopBackgroundTasksAndNetworkListener() async {
+    try {
+      await BackgroundTaskManager().cancelAllTasks();
+      NetworkStatusListener.stopListening();
+      _logger.i('后台任务和网络监听已停止');
+    } catch (e) {
+      _logger.e('停止后台任务和网络监听失败: $e');
     }
   }
 
