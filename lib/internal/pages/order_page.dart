@@ -1,14 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:hive/hive.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../../common/models/menu_item.dart';
 import '../../common/models/category.dart';
 import '../../common/services/api_service.dart';
 import '../../common/models/menu_option.dart';
+import '../utils/quick_input_manager.dart';
+import '../widgets/quick_input_overlay.dart';
 import 'checkout_page.dart';
 import '../../common/models/menu_item_adapter.dart';
 import '../../common/models/category_adapter.dart';
 import '../../common/models/option_groups_adapter.dart';
+import '../widgets/category_sidebar_widget.dart';
+import '../widgets/ordered_product_list_widget.dart';
+import '../widgets/menu_option_panel_widget.dart';
+import '../widgets/order_action_bar_widget.dart';
+import '../widgets/menu_grid_widget.dart';
+import '../utils/order_selected.dart';
+import '../utils/keyboard_event_handler.dart';
+import '../keyboard_handlers/navigation_key_handler.dart';
+import '../keyboard_handlers/digit_key_handler.dart';
+import '../keyboard_handlers/enter_key_handler.dart';
+import '../keyboard_handlers/quick_input_handler.dart';
 
 class OrderPage extends StatefulWidget {
   @override
@@ -29,12 +43,58 @@ class _OrderPageState extends State<OrderPage> {
   bool _isCardPressed = false;
   int? _pressedCardIndex;
 
+  final _quickInputManager = QuickInputManager();
+  OverlayEntry? _quickInputOverlay;
+  late final KeyboardEventHandler _keyboardEventHandler;
+
   @override
   void initState() {
     super.initState();
     _audioPlayer = AudioPlayer();
     loadData();
     loadOptions();
+    _keyboardEventHandler = KeyboardEventHandler();
+    _registerKeyboardHandlers();
+  }
+
+  void _registerKeyboardHandlers() {
+    // 数字键：设置数量
+    _keyboardEventHandler.addHandler(
+      digitKeyHandler(
+        quickInputManager: _quickInputManager,
+        orderedProducts: orderedProducts,
+        setProductQuantity: _setProductQuantity,
+        playClickSound: _playClickSound,
+      ),
+    );
+    // Enter键：快捷输入选择
+    _keyboardEventHandler.addHandler(
+      enterKeyHandler(
+        quickInputManager: _quickInputManager,
+        addProductIntelligently: _addProductIntelligently,
+        playClickSound: _playClickSound,
+        clearQuickInput: _quickInputManager.clear,
+        removeQuickInputOverlay: _removeQuickInputOverlay,
+        refreshUI: () => setState(() {}),
+      ),
+    );
+    // 方向键：切换已点菜品区
+    _keyboardEventHandler.addHandler(
+      navigationKeyHandler(
+        hasQuickInput: () => _quickInputManager.hasInput,
+        onNavigate: _navigateOrderedProducts,
+        playClickSound: _playClickSound,
+      ),
+    );
+    // 快捷输入处理（字母/Backspace/ESC/上下箭头等）
+    _keyboardEventHandler.addHandler(
+      quickInputHandler(
+        quickInputManager: _quickInputManager,
+        updateQuickInputOverlay: _updateQuickInputOverlay,
+        setState: setState,
+      ),
+    );
+    // 你可以继续添加更多 handler ...
   }
 
   @override
@@ -45,8 +105,8 @@ class _OrderPageState extends State<OrderPage> {
 
   Future<void> _playClickSound() async {
     try {
-      // 本地assets/click.mp3，如无可用网络音效
-      await _audioPlayer.play(AssetSource('click.mp3'));
+      // 本地assets/audio/click.mp3
+      await _audioPlayer.play(AssetSource('audio/click.mp3'));
     } catch (e) {
       // 忽略音效错误
     }
@@ -575,850 +635,277 @@ class _OrderPageState extends State<OrderPage> {
     }
   }
 
+  // 快捷输入相关方法
+  void _updateQuickInputOverlay() {
+    if (_quickInputManager.hasInput && _quickInputManager.hasResults) {
+      _showQuickInputOverlay();
+    } else if (!_quickInputManager.hasInput) {
+      _removeQuickInputOverlay();
+    } else if (_quickInputManager.hasInput && !_quickInputManager.hasResults) {
+      _showQuickInputOverlay(); // 显示"无匹配结果"
+    }
+  }
+
+  void _showQuickInputOverlay() {
+    if (_quickInputOverlay != null) {
+      _quickInputOverlay!.markNeedsBuild();
+      return;
+    }
+
+    _quickInputOverlay = OverlayEntry(
+      builder: (context) => QuickInputOverlay(
+        input: _quickInputManager.input,
+        searchResults: _quickInputManager.searchResults,
+        highlightedIndex: _quickInputManager.highlightedIndex,
+        onClose: () {
+          _quickInputManager.clear();
+          _removeQuickInputOverlay();
+        },
+        onItemTap: (item) {
+          _addProductIntelligently(item);
+          _playClickSound();
+          _quickInputManager.clear();
+          _removeQuickInputOverlay();
+        },
+      ),
+    );
+
+    Overlay.of(context)?.insert(_quickInputOverlay!);
+  }
+
+  void _removeQuickInputOverlay() {
+    _quickInputOverlay?.remove();
+    _quickInputOverlay = null;
+  }
+
+  // 设置菜品数量
+  void _setProductQuantity(int quantity) {
+    if (orderedProducts.isEmpty) return;
+    
+    setState(() {
+      // 优先为选中的菜品设置数量，如果没有选中的菜品则为最后一个菜品设置数量
+      SelectedProduct? targetProduct;
+      
+      if (selectedOrderedProduct != null) {
+        targetProduct = selectedOrderedProduct;
+      } else {
+        targetProduct = orderedProducts.last;
+      }
+      
+      if (quantity == 0) {
+        // 如果数量为0，删除该菜品
+        orderedProducts.remove(targetProduct);
+        if (selectedOrderedProduct == targetProduct) {
+          selectedOrderedProduct = null;
+        }
+      } else {
+        // 设置新数量
+        targetProduct!.quantity = quantity;
+      }
+    });
+  }
+
+  void _navigateOrderedProducts(LogicalKeyboardKey key) {
+    if (orderedProducts.isEmpty) return;
+    int currentIndex = selectedOrderedProduct != null
+        ? orderedProducts.indexOf(selectedOrderedProduct!)
+        : -1;
+    int newIndex;
+    switch (key) {
+      case LogicalKeyboardKey.arrowLeft:
+      case LogicalKeyboardKey.arrowUp:
+        newIndex = currentIndex <= 0 ? orderedProducts.length - 1 : currentIndex - 1;
+        break;
+      case LogicalKeyboardKey.arrowRight:
+      case LogicalKeyboardKey.arrowDown:
+        newIndex = currentIndex >= orderedProducts.length - 1 || currentIndex == -1
+            ? 0
+            : currentIndex + 1;
+        break;
+      default:
+        return;
+    }
+    setState(() {
+      selectedOrderedProduct = orderedProducts[newIndex];
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            // 动态计算已点菜品区域高度 - 优化选项累加处理
-            final double minHeight = 120.0; // 增加最小高度以容纳更多选项
-            final double maxHeight = 280.0; // 增加最大高度以容纳更多选项
-            final double baseItemHeight = 32.0; // 基础菜品信息高度
-            final double optionHeight = 14.0; // 增加每个选项的高度以提供更好的可读性
-            final int crossAxisCount = 3; // 3列显示
+    return KeyboardListener(
+      focusNode: FocusNode()..requestFocus(),
+      autofocus: true,
+      onKeyEvent: (KeyEvent event) {
+        _keyboardEventHandler.handle(event, products);
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // 动态计算已点菜品区域高度 - 优化选项累加处理
+              final double minHeight = 120.0; // 增加最小高度以容纳更多选项
+              final double maxHeight = 280.0; // 增加最大高度以容纳更多选项
+              final double baseItemHeight = 32.0; // 基础菜品信息高度
+              final double optionHeight = 14.0; // 增加每个选项的高度以提供更好的可读性
+              final int crossAxisCount = 3; // 3列显示
 
-            // 计算实际需要的高度 - 考虑选项数量和累加效果
-            double maxCardHeight = baseItemHeight;
-            for (var product in orderedProducts) {
-              // 为每个菜品计算高度，包括基础高度、选项高度和内边距
-              double cardHeight = baseItemHeight + (product.options.length * optionHeight) + 16; // 增加padding
-              if (cardHeight > maxCardHeight) maxCardHeight = cardHeight;
-            }
+              // 计算实际需要的高度 - 考虑选项数量和累加效果
+              double maxCardHeight = baseItemHeight;
+              for (var product in orderedProducts) {
+                // 为每个菜品计算高度，包括基础高度、选项高度和内边距
+                double cardHeight = baseItemHeight + (product.options.length * optionHeight) + 16; // 增加padding
+                if (cardHeight > maxCardHeight) maxCardHeight = cardHeight;
+              }
 
-            final int rowCount = (orderedProducts.length / crossAxisCount).ceil();
-            final double calculatedHeight = (rowCount * maxCardHeight) + 32; // 增加容器padding
-            final double actualHeight = calculatedHeight.clamp(minHeight, maxHeight);
+              final int rowCount = (orderedProducts.length / crossAxisCount).ceil();
+              final double calculatedHeight = (rowCount * maxCardHeight) + 32; // 增加容器padding
+              final double actualHeight = calculatedHeight.clamp(minHeight, maxHeight);
 
-            // 为Web环境优化布局计算
-            final screenHeight = constraints.maxHeight;
-            final topSectionHeight = actualHeight; // 动态已点菜品区域
-            final bottomButtonHeight = 60.0; // 减少操作区域高度，使其更紧凑
-            final availableHeight = screenHeight - topSectionHeight - bottomButtonHeight;
+              // 为Web环境优化布局计算
+              final screenHeight = constraints.maxHeight;
+              final topSectionHeight = actualHeight; // 动态已点菜品区域
+              final bottomButtonHeight = 60.0; // 减少操作区域高度，使其更紧凑
+              final availableHeight = screenHeight - topSectionHeight - bottomButtonHeight;
 
-            return Column(
-              children: [
-                // 已点菜品列表 - 动态高度
-                Container(
-                  height: topSectionHeight,
-                  color: Colors.blue[50],
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: orderedProducts.isEmpty
-                        ? Center(
-                            child: Text(
-                              'No items ordered yet',
-                              style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                            ),
-                          )
-                        : ListView(
-                            physics: actualHeight >= maxHeight
-                                ? AlwaysScrollableScrollPhysics()
-                                : NeverScrollableScrollPhysics(),
-                            children: [
-                              Wrap(
-                                spacing: 4,
-                                runSpacing: 4,
-                                children: orderedProducts.map((ordered) {
-                                  // 计算每个卡片的宽度（3列布局，平均分配宽度）
-                                  // 已点菜品区域是跨越整个屏幕宽度的，不需要减去侧边栏
-                                  final availableWidth = constraints.maxWidth - 32; // 只减去容器的padding(16*2)
-                                  final cardWidth = (availableWidth - 8) / 3; // 减去间距，然后除以3列
-
-                                  return SizedBox(
-                                    width: cardWidth,
-                                    child: GestureDetector(
-                                      onTap: () => _selectOrderedProduct(ordered),
-                                      onDoubleTap: () => _duplicateOrderedProduct(ordered),
-                                      child: LayoutBuilder(
-                                        builder: (context, orderedCardConstraints) {
-                                          // 检查当前菜品是否被选中
-                                          final isSelected = selectedOrderedProduct == ordered;
-
-                                          return Card(
-                                            margin: EdgeInsets.zero,
-                                            // 为选中的菜品添加描边效果
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(8),
-                                              side: BorderSide(
-                                                color: isSelected ? Colors.blue[600]! : Colors.grey[300]!,
-                                                width: 1.0,
-                                              ),
-                                            ),
-                                            // 为选中的菜品添加阴影效果
-                                            elevation: isSelected ? 8 : 2,
-                                            shadowColor: isSelected ? Colors.blue[200] : Colors.grey[300],
-                                            // 为选中的菜品添加背景颜色变化
-                                            color: Colors.white,
-                                            child: Container(
-                                              decoration: BoxDecoration(
-                                                borderRadius: BorderRadius.circular(8),
-                                              ),
-                                              child: Padding(
-                                                padding: const EdgeInsets.all(4.0),
-                                                child: Column(
-                                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                                  mainAxisSize: MainAxisSize.min,
-                                                  children: [
-                                                    // 菜品标题行 - 响应式适配，优先级最高
-                                                    Row(
-                                                      children: [
-                                                        Expanded(
-                                                          flex: 4, // 给菜品名称绝对优先权
-                                                          child: Text(
-                                                            ordered.product.title,
-                                                            style: TextStyle(
-                                                              fontWeight: FontWeight.bold,
-                                                              fontSize: _calculateTitleFontSize(ordered.product.title, orderedCardConstraints.maxWidth * 0.7), // 动态字体
-                                                              height: 1.1,
-                                                              color: isSelected ? Colors.blue[800] : Colors.black87,
-                                                            ),
-                                                            maxLines: null, // 允许多行
-                                                            overflow: TextOverflow.visible, // 完全显示
-                                                          ),
-                                                        ),
-                                                        // 数量控制按钮 - 增大尺寸便于点击
-                                                        Row(
-                                                          mainAxisSize: MainAxisSize.min,
-                                                          children: [
-                                                            // 减号按钮
-                                                            GestureDetector(
-                                                              onTap: () => _decreaseQuantity(ordered),
-                                                              child: Container(
-                                                                width: 20,
-                                                                height: 20,
-                                                                margin: EdgeInsets.only(left: 4),
-                                                                decoration: BoxDecoration(
-                                                                  color: Colors.red[100],
-                                                                  borderRadius: BorderRadius.circular(10),
-                                                                  border: Border.all(color: Colors.red[200]!, width: 0.5),
-                                                                ),
-                                                                child: Icon(
-                                                                  Icons.remove,
-                                                                  size: 12,
-                                                                  color: Colors.red[700],
-                                                                ),
-                                                              ),
-                                                            ),
-                                                            // 数量显示
-                                                            Container(
-                                                              width: 28,
-                                                              alignment: Alignment.center,
-                                                              child: Text(
-                                                                '${ordered.quantity}',
-                                                                style: TextStyle(
-                                                                  fontWeight: FontWeight.bold,
-                                                                  fontSize: 12,
-                                                                  color: Colors.blue[700],
-                                                                ),
-                                                              ),
-                                                            ),
-                                                            // 加号按钮 - 增大可点击区域
-                                                            GestureDetector(
-                                                              onTap: () => _increaseQuantity(ordered),
-                                                              child: Container(
-                                                                width: 20,
-                                                                height: 20,
-                                                                decoration: BoxDecoration(
-                                                                  color: Colors.green[100],
-                                                                  borderRadius: BorderRadius.circular(10),
-                                                                  border: Border.all(color: Colors.green[200]!, width: 0.5),
-                                                                ),
-                                                                child: Icon(
-                                                                  Icons.add,
-                                                                  size: 12,
-                                                                  color: Colors.green[700],
-                                                                ),
-                                                              ),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      ],
-                                                    ),
-                                                    // 价格行 - 固定在底部
-                                                    SizedBox(height: 2),
-                                                    Row(
-                                                      children: [
-                                                        Expanded(child: Container()), // 占位
-                                                        Text(
-                                                          '￥${ordered.product.sellingPrice.toStringAsFixed(2)}',
-                                                          style: TextStyle(fontSize: 9, color: Colors.green[700]),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                    // 显示所有选项 - 动态高度
-                                                    ...ordered.options.map((opt) {
-                                                      return Padding(
-                                                        padding: const EdgeInsets.only(top: 1.0),
-                                                        child: Row(
-                                                          children: [
-                                                            Expanded(
-                                                              child: Text(
-                                                                ' - ${opt.option.name}',
-                                                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold,color: Colors.grey[600]),
-                                                                overflow: TextOverflow.ellipsis,
-                                                                maxLines: 1,
-                                                              ),
-                                                            ),
-                                                            if (opt.option.extraCost > 0)
-                                                              Text(
-                                                                '+\$ ${opt.option.extraCost.toStringAsFixed(2)}',
-                                                                style: TextStyle(fontSize: 8,  color: Colors.red),
-                                                              ),
-                                                          ],
-                                                        ),
-                                                      );
-                                                    }),
-                                                  ],
-                                                ),
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  );
-                                }).toList(),
-                              ),
-                            ],
-                          ),
+              return Column(
+                children: [
+                  // 已点菜品列表 - 动态高度
+                  OrderedProductListWidget(
+                    orderedProducts: orderedProducts,
+                    selectedOrderedProduct: selectedOrderedProduct,
+                    onSelect: _selectOrderedProduct,
+                    onDoubleTap: _duplicateOrderedProduct,
+                    onIncrease: _increaseQuantity,
+                    onDecrease: _decreaseQuantity,
+                    minHeight: minHeight,
+                    maxHeight: maxHeight,
+                    baseItemHeight: baseItemHeight,
+                    optionHeight: optionHeight,
+                    crossAxisCount: crossAxisCount,
+                    containerWidth: constraints.maxWidth - 32,
+                    actualHeight: actualHeight,
+                    maxCardHeight: maxCardHeight,
                   ),
-                ),
-                // 主内容区域 - 使用计算出的固定高度
-                SizedBox(
-                  height: availableHeight,
-                  child: Row(
-                    children: [
-                      // 分类侧边栏 - 现在包含菜品选项区
-                      Container(
-                        width: 140, // 增加宽度以提供更好的显示效果
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [Colors.grey[100]!, Colors.grey[200]!],
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black12,
-                              blurRadius: 2,
-                              offset: Offset(2, 0),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          children: [
-                            // 分类标题区域
-                            Container(
-                              height: 45,
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [Colors.blue[300]!, Colors.blue[400]!],
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black12,
-                                    blurRadius: 2,
-                                    offset: Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              alignment: Alignment.center,
-                              child: Text(
-                                'Categories',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                  color: Colors.white,
-                                )
-                              ),
-                            ),
-                            // 分类列表区域
-                            Expanded(
-                              child: Container(
-                                margin: EdgeInsets.all(2), // 减少边距
-                                child: ListView.builder(
-                                  itemCount: categories.where((c) => c.parentId == null).length,
-                                  itemBuilder: (context, index) {
-                                    final parent = categories.where((c) => c.parentId == null).toList()[index];
-                                    final children = categories.where((c) => c.parentId == parent.id).toList();
-
-                                    // 如果没有子分类，显示为普通ListTile
-                                    if (children.isEmpty) {
-                                      return Container(
-                                        margin: EdgeInsets.only(bottom: 1),
-                                        child: Material(
-                                          color: Colors.grey[50],
-                                          child: InkWell(
-                                            onTap: () {
-                                              // TODO: 实现分类筛选功能
-                                            },
-                                            child: Container(
-                                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                              child: Text(
-                                                parent.title,
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: Colors.grey[800],
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    }
-
-                                    // 有子分类时显示ExpansionTile
-                                    return Container(
-                                      margin: EdgeInsets.only(bottom: 1), // 减少间距
-                                      child: ExpansionTile(
-                                        title: Text(
-                                          parent.title,
-                                          style: TextStyle(
-                                            fontSize: 12, // 减小字体
-                                            fontWeight: FontWeight.w600,
-                                            color: Colors.grey[800],
-                                          )
-                                        ),
-                                        backgroundColor: Colors.white,
-                                        collapsedBackgroundColor: Colors.grey[50],
-                                        iconColor: Colors.blue[600],
-                                        collapsedIconColor: Colors.grey[600],
-                                        tilePadding: EdgeInsets.symmetric(horizontal: 8, vertical: 2), // 减少内边距
-                                        childrenPadding: EdgeInsets.zero,
-                                        children: children.map((child) =>
-                                          Material(
-                                            color: Colors.transparent,
-                                            child: InkWell(
-                                              onTap: () {
-                                                // TODO: 实现分类筛选功能
-                                              },
-                                              child: Container(
-                                                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6), // 减少内边距
-                                                child: Row(
-                                                  children: [
-                                                    Icon(Icons.arrow_right, size: 12, color: Colors.grey[600]), // 减小图标
-                                                    SizedBox(width: 4),
-                                                    Expanded(
-                                                      child: Text(
-                                                        child.title,
-                                                        style: TextStyle(
-                                                          fontSize: 11, // 减小字体
-                                                          color: Colors.grey[700],
-                                                        ),
-                                                        overflow: TextOverflow.ellipsis,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ),
-                                          )
-                                        ).toList(),
-                                      ),
-                                    );
+                  // 主内容区域 - 使用计算出的固定高度
+                  SizedBox(
+                    height: availableHeight,
+                    child: Row(
+                      children: [
+                        // 左侧：分类侧边栏 + 菜品选项区
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            children: [
+                              Expanded(
+                                flex: 1,
+                                child: CategorySidebarWidget(
+                                  categories: categories,
+                                  onCategoryTap: (parent, [child]) {
+                                    // TODO: 实现分类筛选功能
                                   },
                                 ),
                               ),
-                            ),
-                            // 菜品选项区 - 优化显示效果
-                            Container(
-                              height: 230, // 增加高度
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [Colors.blue[50]!, Colors.blue[100]!],
-                                ),
-                                border: Border(
-                                  top: BorderSide(color: Colors.blue[200]!, width: 2),
+                              Expanded(
+                                flex: 1,
+                                child: MenuOptionPanelWidget(
+                                  optionGroups: optionGroups,
+                                  orderedProducts: orderedProducts,
+                                  onOptionTap: _showOptionDialog,
                                 ),
                               ),
-                              child: Column(
-                                children: [
-                                  // 选项标题区域
-                                  Container(
-                                    height: 35,
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [Colors.blue[200]!, Colors.blue[300]!],
-                                      ),
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: Text(
-                                      'Options',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 12,
-                                        color: Colors.blue[800],
-                                      )
-                                    ),
-                                  ),
-                                  // 选项按钮区域
-                                  Expanded(
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(6.0),
-                                      child: Column(
-                                        children: optionGroups.keys.map((type) {
-                                          // 获取当前已选择的选项
-                                          String? currentOption;
-                                          if (orderedProducts.isNotEmpty) {
-                                            final lastProduct = orderedProducts.last;
-                                            try {
-                                              final selectedOpt = lastProduct.options.firstWhere(
-                                                (opt) => opt.type == type,
-                                              );
-                                              currentOption = selectedOpt.option.name;
-                                            } catch (e) {
-                                              // 如果没有找到该类型的选项，currentOption保持为null
-                                            }
-                                          }
-
-                                          return Expanded(
-                                            child: Padding(
-                                              padding: const EdgeInsets.only(bottom: 3.0),
-                                              child: SizedBox(
-                                                width: double.infinity,
-                                                child: ElevatedButton(
-                                                  onPressed: () => _showOptionDialog(type),
-                                                  child: Column(
-                                                    mainAxisSize: MainAxisSize.min,
-                                                    children: [
-                                                      Text(
-                                                        type,
-                                                        style: TextStyle(
-                                                          fontSize: 10,
-                                                          fontWeight: FontWeight.bold,
-                                                        ),
-                                                        overflow: TextOverflow.ellipsis,
-                                                        maxLines: 1,
-                                                      ),
-                                                      if (currentOption != null)
-                                                        Text(
-                                                          currentOption,
-                                                          style: TextStyle(
-                                                            fontSize: 8,
-                                                            fontWeight: FontWeight.normal,
-                                                          ),
-                                                          overflow: TextOverflow.ellipsis,
-                                                          maxLines: 1,
-                                                        ),
-                                                    ],
-                                                  ),
-                                                  style: ElevatedButton.styleFrom(
-                                                    backgroundColor: currentOption != null ? Colors.blue[400] : Colors.grey[200],
-                                                    foregroundColor: currentOption != null ? Colors.white : Colors.grey[700],
-                                                    elevation: currentOption != null ? 3 : 1,
-                                                    shadowColor: currentOption != null ? Colors.blue[200] : Colors.grey[300],
-                                                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                                                    minimumSize: Size(0, 0),
-                                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                                    shape: RoundedRectangleBorder(
-                                                      borderRadius: BorderRadius.circular(8),
-                                                      side: BorderSide(
-                                                        color: currentOption != null ? Colors.blue[600]! : Colors.grey[400]!,
-                                                        width: 1,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          );
-                                        }).toList(),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                      // 主内容区
-                      Expanded(
-                        child: Column(
-                          children: [
-                            // 搜索区
-                            Container(
-                              height: 40,
-                              color: Colors.grey[100],
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.search, size: 20),
-                                    SizedBox(width: 8),
-                                    Expanded(
-                                      child: TextField(
-                                        decoration: InputDecoration(
-                                          hintText: 'Search menu...',
-                                          border: InputBorder.none,
-                                          isDense: true,
-                                        ),
-                                        style: TextStyle(fontSize: 14),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            // 菜品网格 - 使用所有剩余空间
-                            Expanded(
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [Colors.grey[50]!, Colors.white],
-                                  ),
-                                ),
+                        Expanded(
+                          flex: 8,
+                          child: Column(
+                            children: [
+                              // 搜索区
+                              Container(
+                                height: 40,
+                                color: Colors.grey[100],
                                 child: Padding(
-                                  padding: const EdgeInsets.all(12.0), // 减少内边距
-                                  child: isLoading
-                                      ? Center(
-                                          child: Column(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              CircularProgressIndicator(color: Colors.blue[400]),
-                                              SizedBox(height: 16),
-                                              Text('Loading menu...', style: TextStyle(color: Colors.grey[600])),
-                                            ],
+                                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.search, size: 20),
+                                      SizedBox(width: 8),
+                                      Expanded(
+                                        child: TextField(
+                                          decoration: InputDecoration(
+                                            hintText: 'Search menu or type acronym...',
+                                            border: InputBorder.none,
+                                            isDense: true,
                                           ),
-                                        )
-                                      : error != null
-                                          ? Center(
-                                              child: Column(
-                                                mainAxisAlignment: MainAxisAlignment.center,
-                                                children: [
-                                                  Icon(Icons.error_outline, size: 48, color: Colors.red[300]),
-                                                  SizedBox(height: 16),
-                                                  Text('Error: ' + error!, style: TextStyle(color: Colors.red[600])),
-                                                ],
-                                              ),
-                                            )
-                                          : GridView.builder(
-                                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                                crossAxisCount: 4,
-                                                crossAxisSpacing: 2,
-                                                mainAxisSpacing: 2,
-                                                childAspectRatio: 1.1,
-                                              ),
-                                              itemCount: products.length,
-                                              itemBuilder: (context, index) {
-                                                final item = products[index];
-                                                return LayoutBuilder(
-                                                  builder: (context, cardConstraints) {
-                                                    final isPressed = _isCardPressed && _pressedCardIndex == index;
-                                                    return AnimatedContainer(
-                                                      duration: Duration(milliseconds: 120),
-                                                      curve: Curves.easeOut,
-                                                      transform: isPressed ? Matrix4.translationValues(0, -6, 0) : Matrix4.identity(),
-                                                      decoration: BoxDecoration(
-                                                        borderRadius: BorderRadius.circular(8),
-                                                        boxShadow: isPressed
-                                                            ? [BoxShadow(color: Colors.blue.withOpacity(0.18), blurRadius: 16, offset: Offset(0, 6))]
-                                                            : [BoxShadow(color: Colors.grey.withOpacity(0.08), blurRadius: 4, offset: Offset(0, 2))],
-                                                      ),
-                                                      child: GestureDetector(
-                                                        onTapDown: (_) {
-                                                          setState(() {
-                                                            _isCardPressed = true;
-                                                            _pressedCardIndex = index;
-                                                          });
-                                                        },
-                                                        onTapUp: (_) async {
-                                                          setState(() {
-                                                            _isCardPressed = false;
-                                                            _pressedCardIndex = null;
-                                                          });
-                                                          await _playClickSound();
-                                                          _addProductIntelligently(item);
-                                                        },
-                                                        onTapCancel: () {
-                                                          setState(() {
-                                                            _isCardPressed = false;
-                                                            _pressedCardIndex = null;
-                                                          });
-                                                        },
-                                                        child: Card(
-                                                          elevation: 2,
-                                                          shadowColor: Colors.grey[300],
-                                                          shape: RoundedRectangleBorder(
-                                                            borderRadius: BorderRadius.circular(8),
-                                                            side: BorderSide(color: Colors.grey[200]!, width: 1),
-                                                          ),
-                                                          child: InkWell(
-                                                            borderRadius: BorderRadius.circular(8),
-                                                            child: Container(
-                                                              decoration: BoxDecoration(
-                                                                borderRadius: BorderRadius.circular(8),
-                                                                gradient: LinearGradient(
-                                                                  begin: Alignment.topCenter,
-                                                                  end: Alignment.bottomCenter,
-                                                                  colors: [Colors.white, Colors.grey[50]!],
-                                                                ),
-                                                              ),
-                                                              child: Stack(
-                                                                children: [
-                                                                  Padding(
-                                                                    padding: const EdgeInsets.all(6.0),
-                                                                    child: Column(
-                                                                      children: [
-                                                                        // 菜品标题 - 绝对优先级，占用所有可用空间
-                                                                        Expanded(
-                                                                          child: Container(
-                                                                            width: double.infinity,
-                                                                            padding: const EdgeInsets.only(right: 20.0), // 为右上角的code留出空间
-                                                                            child: Center(
-                                                                              child: Text(
-                                                                                item.title,
-                                                                                style: TextStyle(
-                                                                                  fontSize: _calculateTitleFontSize(item.title, cardConstraints.maxWidth),
-                                                                                  fontWeight: FontWeight.bold,
-                                                                                  color: Colors.black87,
-                                                                                  height: 1.1, // 紧凑行高
-                                                                                ),
-                                                                                textAlign: TextAlign.center,
-                                                                                maxLines: null, // 允许多行显示
-                                                                                overflow: TextOverflow.visible, // 确保文字完全显示
-                                                                              ),
-                                                                            ),
-                                                                          ),
-                                                                        ),
-                                                                        // 缩写显示 - 固定在底部，只有有空间时才显示
-                                                                        if (cardConstraints.maxHeight > 60) // 只有足够高度时才显示缩写
-                                                                          Container(
-                                                                            margin: EdgeInsets.only(top: 2),
-                                                                            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                                                            decoration: BoxDecoration(
-                                                                              color: Colors.blue[100],
-                                                                              borderRadius: BorderRadius.circular(3),
-                                                                              border: Border.all(color: Colors.blue[300]!, width: 0.5),
-                                                                            ),
-                                                                            child: Text(
-                                                                              item.acronym,
-                                                                              style: TextStyle(
-                                                                                fontSize: 9,
-                                                                                color: Colors.blue[800],
-                                                                                fontWeight: FontWeight.w600,
-                                                                              ),
-                                                                            ),
-                                                                          ),
-                                                                      ],
-                                                                    ),
-                                                                  ),
-                                                                  // 悬浮在右上角的圆形code
-                                                                  Positioned(
-                                                                    top: 4,
-                                                                    right: 4,
-                                                                    child: Text(
-                                                                      item.code.length > 4 ? item.code.substring(0, 4) : item.code,
-                                                                      style: TextStyle(
-                                                                        fontSize: 9,
-                                                                        color: Colors.grey[600],
-                                                                        fontWeight: FontWeight.w500,
-                                                                      ),
-                                                                    ),
-                                                                  ),
-                                                                ],
-                                                              ),
-                                                            ),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                        );
-                                                  },
-                                                );
-                                              },
-                                            ),
-                              ),
-                            ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // 操作区域 - 优化显示效果
-                Container(
-                  height: 60.0, // 减少高度以提供更紧凑的视觉效果
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Colors.grey[200]!, Colors.grey[300]!],
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black12,
-                        blurRadius: 4,
-                        offset: Offset(0, -2),
-                      ),
-                    ],
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
-                  child: Row(
-                    children: [
-                      // VOID按钮
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 3.0),
-                          child: ElevatedButton.icon(
-                            onPressed: _voidOrder,
-                            icon: Icon(Icons.delete_outline, size: 16),
-                            label: Text('VOID', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red[300],
-                              foregroundColor: Colors.white,
-                              elevation: 3,
-                              shadowColor: Colors.red[200],
-                              padding: EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      // CLEAR按钮
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 3.0),
-                          child: ElevatedButton.icon(
-                            onPressed: _clearOrder,
-                            icon: Icon(Icons.clear_all, size: 16),
-                            label: Text('CLEAR', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.orange[300],
-                              foregroundColor: Colors.white,
-                              elevation: 3,
-                              shadowColor: Colors.orange[200],
-                              padding: EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      // X按钮 - 数量设置
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 3.0),
-                          child: ElevatedButton.icon(
-                            onPressed: _showQuantitySelector,
-                            icon: Icon(Icons.add_circle_outline, size: 16),
-                            label: Text('QTY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.purple[300],
-                              foregroundColor: Colors.white,
-                              elevation: 3,
-                              shadowColor: Colors.purple[200],
-                              padding: EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      // Custom按钮
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 3.0),
-                          child: ElevatedButton.icon(
-                            onPressed: _customAction,
-                            icon: Icon(Icons.settings, size: 16),
-                            label: Text('CUSTOM', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue[300],
-                              foregroundColor: Colors.white,
-                              elevation: 3,
-                              shadowColor: Colors.blue[200],
-                              padding: EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      // Order按钮 - 突出显示
-                      Expanded(
-                        flex: 2, // 给Order按钮更大的空间
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 3.0),
-                          child: ElevatedButton.icon(
-                            onPressed: orderedProducts.isEmpty ? null : () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) => CheckoutPage(
-                                    orderedProducts: orderedProducts,
+                                          style: TextStyle(fontSize: 14),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              );
-                            },
-                            icon: Icon(Icons.shopping_cart, size: 18),
-                            label: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text('ORDER', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                                if (orderedProducts.isNotEmpty)
-                                  Text('${orderedProducts.length} items', style: TextStyle(fontSize: 9)),
-                              ],
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: orderedProducts.isEmpty ? Colors.grey[400] : Colors.green[500],
-                              foregroundColor: Colors.white,
-                              elevation: orderedProducts.isEmpty ? 1 : 6,
-                              shadowColor: orderedProducts.isEmpty ? Colors.grey[300] : Colors.green[300],
-                              padding: EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
                               ),
-                              animationDuration: Duration(milliseconds: 200),
-                            ),
+                              // 菜品网格 - 使用所有剩余空间
+                              Expanded(
+                                child: MenuGridWidget(
+                                  products: products,
+                                  isLoading: isLoading,
+                                  error: error,
+                                  onTap: (item) async {
+                                    final index = products.indexOf(item);
+                                    setState(() {
+                                      _isCardPressed = true;
+                                      _pressedCardIndex = index;
+                                    });
+                                    // 150ms后自动恢复动画
+                                    Future.delayed(Duration(milliseconds: 150), () {
+                                      if (mounted) {
+                                        setState(() {
+                                          _isCardPressed = false;
+                                          _pressedCardIndex = null;
+                                        });
+                                      }
+                                    });
+                                    // 声音和添加菜品异步进行
+                                    _playClickSound();
+                                    _addProductIntelligently(item);
+                                  },
+                                  calculateTitleFontSize: _calculateTitleFontSize,
+                                  isCardPressed: _isCardPressed,
+                                  pressedCardIndex: _pressedCardIndex,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            );
-          },
+                  // 操作区域 - 优化显示效果
+                  OrderActionBarWidget(
+                    onVoidOrder: _voidOrder,
+                    onClearOrder: _clearOrder,
+                    onShowQuantitySelector: _showQuantitySelector,
+                    onCustomAction: _customAction,
+                    onOrder: orderedProducts.isEmpty
+                        ? null
+                        : () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => CheckoutPage(
+                                  orderedProducts: orderedProducts,
+                                ),
+                              ),
+                            );
+                          },
+                    orderedCount: orderedProducts.length,
+                    orderEnabled: orderedProducts.isNotEmpty,
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
   }
-}
-
-class SelectedProduct {
-  final MenuItem product;
-  List<SelectedOption> options;
-  int quantity; // 添加数量属性
-
-  SelectedProduct({
-    required this.product,
-    required this.options,
-    this.quantity = 1, // 默认数量为1
-  });
-}
-
-class SelectedOption {
-  final String type;
-  final MenuOption option;
-
-  SelectedOption({required this.type, required this.option});
 }
