@@ -23,6 +23,10 @@ import '../keyboard_handlers/navigation_key_handler.dart';
 import '../keyboard_handlers/digit_key_handler.dart';
 import '../keyboard_handlers/enter_key_handler.dart';
 import '../keyboard_handlers/quick_input_handler.dart';
+import '../utils/option_quick_input_manager.dart';
+import '../widgets/option_quick_input_overlay.dart';
+
+enum OrderPageMode { normal, optionConfig }
 
 class OrderPage extends StatefulWidget {
   @override
@@ -46,6 +50,13 @@ class _OrderPageState extends State<OrderPage> {
   final _quickInputManager = QuickInputManager();
   OverlayEntry? _quickInputOverlay;
   late final KeyboardEventHandler _keyboardEventHandler;
+
+  OrderPageMode mode = OrderPageMode.normal;
+
+  final OptionQuickInputManager _optionQuickInputManager = OptionQuickInputManager();
+  OverlayEntry? _optionQuickInputOverlay;
+
+  final TextEditingController _searchInputController = TextEditingController();
 
   @override
   void initState() {
@@ -100,6 +111,7 @@ class _OrderPageState extends State<OrderPage> {
   @override
   void dispose() {
     _audioPlayer.dispose();
+    _searchInputController.dispose();
     super.dispose();
   }
 
@@ -678,6 +690,72 @@ class _OrderPageState extends State<OrderPage> {
     _quickInputOverlay = null;
   }
 
+  void _showOptionQuickInputOverlay(List<MenuOption> allOptions) {
+    _removeOptionQuickInputOverlay();
+    _optionQuickInputOverlay = OverlayEntry(
+      builder: (context) => OptionQuickInputOverlay(
+        input: _optionQuickInputManager.input,
+        searchResults: _optionQuickInputManager.searchResults,
+        highlightedIndex: _optionQuickInputManager.highlightedIndex,
+        onClose: () {
+          _removeOptionQuickInputOverlay();
+          setState(() {
+            mode = OrderPageMode.normal;
+          });
+        },
+        onItemTap: (option) {
+          _addOptionToLastProduct(option.type, option);
+          _removeOptionQuickInputOverlay();
+          setState(() {
+            mode = OrderPageMode.normal;
+          });
+        },
+        onMoveHighlightUp: () {
+          _optionQuickInputManager.moveHighlightUp();
+          _optionQuickInputOverlay?.markNeedsBuild();
+        },
+        onMoveHighlightDown: () {
+          _optionQuickInputManager.moveHighlightDown();
+          _optionQuickInputOverlay?.markNeedsBuild();
+        },
+        onInputChar: (char) {
+          _optionQuickInputManager.addChar(char, allOptions);
+          _optionQuickInputOverlay?.markNeedsBuild();
+        },
+        onBackspace: () {
+          _optionQuickInputManager.removeChar(allOptions);
+          _optionQuickInputOverlay?.markNeedsBuild();
+        },
+        onEnter: () {
+          final option = _optionQuickInputManager.highlightedOption;
+          if (option != null) {
+            _addOptionToLastProduct(option.type, option);
+            _optionQuickInputManager.clear(allOptions);
+            _optionQuickInputOverlay?.markNeedsBuild();
+          }
+        },
+        onCtrl: () {
+          _removeOptionQuickInputOverlay();
+          setState(() { mode = OrderPageMode.normal; });
+        },
+        onEsc: () {
+          _removeOptionQuickInputOverlay();
+          setState(() { mode = OrderPageMode.normal; });
+        },
+      ),
+    );
+    Overlay.of(context)?.insert(_optionQuickInputOverlay!);
+  }
+
+  void _removeOptionQuickInputOverlay() {
+    _optionQuickInputOverlay?.remove();
+    _optionQuickInputOverlay = null;
+  }
+
+  List<MenuOption> get _allOptionsFlatList {
+    return optionGroups.values.expand((list) => list).toList();
+  }
+
   // 设置菜品数量
   void _setProductQuantity(int quantity) {
     if (orderedProducts.isEmpty) return;
@@ -736,7 +814,66 @@ class _OrderPageState extends State<OrderPage> {
       focusNode: FocusNode()..requestFocus(),
       autofocus: true,
       onKeyEvent: (KeyEvent event) {
-        _keyboardEventHandler.handle(event, products);
+        // 模式切换逻辑
+        if (event.logicalKey == LogicalKeyboardKey.controlLeft || event.logicalKey == LogicalKeyboardKey.controlRight) {
+          if (event is KeyDownEvent) {
+            if (mode != OrderPageMode.optionConfig) {
+              setState(() {
+                mode = OrderPageMode.optionConfig;
+              });
+              _optionQuickInputManager.clear(_allOptionsFlatList);
+              _showOptionQuickInputOverlay(_allOptionsFlatList);
+            } else {
+              // 再次按Ctrl退出选项配置模式
+              _removeOptionQuickInputOverlay();
+              setState(() { mode = OrderPageMode.normal; });
+            }
+            return;
+          }
+        }
+        // 选项配置模式下处理选项输入
+        if (mode == OrderPageMode.optionConfig) {
+          if (event is KeyDownEvent) {
+            if (event.logicalKey == LogicalKeyboardKey.escape) {
+              _removeOptionQuickInputOverlay();
+              setState(() { mode = OrderPageMode.normal; });
+              return;
+            } else if (event.logicalKey == LogicalKeyboardKey.enter) {
+              final option = _optionQuickInputManager.highlightedOption;
+              if (option != null) {
+                _addOptionToLastProduct(option.type, option);
+                // 录入后不退出弹窗和模式，只清空输入和重置高亮
+                _optionQuickInputManager.clear(_allOptionsFlatList);
+                _optionQuickInputOverlay?.markNeedsBuild();
+              }
+              return;
+            } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+              _optionQuickInputManager.moveHighlightUp();
+              _optionQuickInputOverlay?.markNeedsBuild();
+              return;
+            } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+              _optionQuickInputManager.moveHighlightDown();
+              _optionQuickInputOverlay?.markNeedsBuild();
+              return;
+            } else if (event.logicalKey == LogicalKeyboardKey.backspace) {
+              _optionQuickInputManager.removeChar(_allOptionsFlatList);
+              _optionQuickInputOverlay?.markNeedsBuild();
+              return;
+            } else if (event.character != null && event.character!.length == 1 && RegExp(r'[a-zA-Z0-9\u4e00-\u9fa5]').hasMatch(event.character!)) {
+              _optionQuickInputManager.addChar(event.character!, _allOptionsFlatList);
+              _optionQuickInputOverlay?.markNeedsBuild();
+              return;
+            }
+          }
+          // 选项配置模式下不处理其它输入
+          return;
+        }
+        // 仅 normal 模式下处理快捷输入
+        if (mode == OrderPageMode.normal) {
+          _keyboardEventHandler.handle(event, products);
+          _searchInputController.text = _quickInputManager.input;
+          _searchInputController.selection = TextSelection.fromPosition(TextPosition(offset: _searchInputController.text.length));
+        }
       },
       child: Scaffold(
         body: SafeArea(
@@ -831,13 +968,19 @@ class _OrderPageState extends State<OrderPage> {
                                       Icon(Icons.search, size: 20),
                                       SizedBox(width: 8),
                                       Expanded(
-                                        child: TextField(
-                                          decoration: InputDecoration(
-                                            hintText: 'Search menu or type acronym...',
-                                            border: InputBorder.none,
-                                            isDense: true,
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            _quickInputManager.input.isEmpty
+                                              ? 'Type name or acronym to search ...'
+                                              : _quickInputManager.input,
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              color: _quickInputManager.input.isEmpty
+                                                ? Colors.grey[600]
+                                                : Colors.black,
+                                            ),
                                           ),
-                                          style: TextStyle(fontSize: 14),
                                         ),
                                       ),
                                     ],
