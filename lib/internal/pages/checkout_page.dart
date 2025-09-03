@@ -334,45 +334,54 @@ class _CheckoutPageState extends State<CheckoutPage> {
                     ElevatedButton(
                       onPressed: () async {
                         try {
-                          // Use local transaction order service instead of direct API call
                           final orderService = OrderService();
 
-                          // Prepare order items for local transaction
-                          final orderItems = widget.orderedProducts.map((p) => {
-                            'id': p.product.id,
-                            'name': p.product.title,
-                            'price': p.product.sellingPrice,
-                            'quantity': p.quantity,
-                            'options': p.options.map((o) => {
+                          // 准备订单项目
+                          final orderItems = widget.orderedProducts.map((p) {
+                            // 计算选项的额外费用
+                            final options = p.options.map((o) => {
                               'type': o.type,
                               'option_id': o.option.id,
                               'option_name': o.option.name,
-                            }).toList(),
-                            'note': '',
+                              'extra_price': o.option.extraCost, // 添加选项的额外费用
+                            }).toList();
+
+                            return {
+                              'id': p.product.id,
+                              'name': p.product.title,
+                              'price': p.product.sellingPrice,
+                              'quantity': p.quantity,
+                              'options': options,
+                              'note': '',
+                            };
                           }).toList();
 
-                          // Calculate total amount
+                          // 计算总金额
                           double totalAmount = 0;
                           for (var product in widget.orderedProducts) {
-                            totalAmount += product.product.sellingPrice * product.quantity;
+                            double itemTotal = product.product.sellingPrice;
                             for (var option in product.options) {
-                              totalAmount += option.option.extraCost * product.quantity;
+                              itemTotal += option.option.extraCost;
                             }
+                            totalAmount += itemTotal * product.quantity;
                           }
 
-                          // Place order using local transaction system
+                          // 下单，包含所有新增字段
                           final orderId = await orderService.placeOrder(
                             items: orderItems,
                             totalAmount: totalAmount,
+                            discountAmount: 0.0, // 默认无折扣
+                            taxRate: 10.0,      // 默认税率 10%
+                            serviceFee: 0.0,    // 默认无服务费
                             cashAmount: isCash ? receivedAmount : 0.0,
                             posAmount: isCash ? 0.0 : receivedAmount,
                           );
 
-                          // Show success dialog
+                          // 显示成功对话框
                           _showOrderSuccessDialog(orderId, totalAmount);
 
                         } catch (e) {
-                          // Show error dialog
+                          // 显示错误对话框
                           _showErrorDialog('Order placement failed: $e');
                         }
                       },
@@ -530,3 +539,4 @@ class _CheckoutPageState extends State<CheckoutPage> {
     );
   }
 }
+

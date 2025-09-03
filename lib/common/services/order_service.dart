@@ -23,6 +23,21 @@ class OrderService {
     return _instance!;
   }
 
+  // 生成当天的订单编号
+  Future<String> _generateOrderNo() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    // 获取今天的所有订单
+    final todayOrders = await _databaseService.getOrdersByDate(today);
+
+    // 计算今天的订单数量 + 1
+    final orderCount = todayOrders.length + 1;
+
+    // 格式化订单编号：B + 3位序号，例如：B001
+    return 'B${orderCount.toString().padLeft(3, '0')}';
+  }
+
   /// 下单核心流程：本地事务思维
   /// 1. 先本地落单（pending状态）
   /// 2. 异步同步到后端
@@ -30,19 +45,30 @@ class OrderService {
   Future<String> placeOrder({
     required List<Map<String, dynamic>> items,
     required double totalAmount,
+    double discountAmount = 0.0,
+    double taxRate = 10.0,
+    double serviceFee = 0.0,
     double cashAmount = 0.0,
     double posAmount = 0.0,
   }) async {
     final String orderId = _uuid.v4();
     final DateTime orderTime = DateTime.now();
+    final String orderNo = await _generateOrderNo();
 
     try {
+      // 直接使用传入的 items，不再覆盖 extra_price 字段
+      final List<Map<String, dynamic>> updatedItems = items;
+
       // 第一步：本地落单
       final order = OrderModel(
         id: orderId,
+        orderNo: orderNo,
         orderTime: orderTime,
-        items: jsonEncode(items),
+        items: jsonEncode(updatedItems),
         totalAmount: totalAmount,
+        discountAmount: discountAmount,
+        taxRate: taxRate,
+        serviceFee: serviceFee,
         cashAmount: cashAmount,
         posAmount: posAmount,
         orderStatus: OrderStatus.pending,
@@ -51,7 +77,7 @@ class OrderService {
 
       // 保存到本地数据库（关键：先落单）
       await _databaseService.insertOrder(order);
-      _logger.i('订单本地落单成功: $orderId');
+      _logger.i('订单本地落单成功: $orderId, 订单编号: $orderNo');
 
       // 第二步：异步同步到后端
       _syncToBackend(orderId);

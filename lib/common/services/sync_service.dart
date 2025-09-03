@@ -54,20 +54,36 @@ class SyncService {
         throw Exception('订单不存在: $orderId');
       }
 
+      // 打印原始订单数据
+      print('\n========== 订单同步开始 ==========');
+      print('原始订单数据:');
+      print('--------------------------------');
+
       _logger.i('开始同步订单到后端: $orderId');
 
       // 构建请求数据
       final requestData = {
         'order_id': order.id,
+        'order_no': order.orderNo, // 假设订单编号与ID相同
         'order_time': order.orderTime.toIso8601String(),
         'items': jsonDecode(order.items),
         'total_amount': order.totalAmount,
+        'discount_amount': order.discountAmount,
+        'tax_rate': order.taxRate,
+        'service_fee': order.serviceFee,
+        'cash_amount': order.cashAmount,
+        'pos_amount': order.posAmount,
         'local_created_at': order.orderTime.toIso8601String(),
       };
 
+      // 打印格式化的请求数据
+      print('\n发送到后端的数据:');
+      print(const JsonEncoder.withIndent('  ').convert(requestData));
+      print('--------------------------------');
+
       // 发送到后端API
       final response = await _dio.post(
-        '/orders/place', // 移除 /api 前缀，因为baseUrl已经包含了
+        '/orders/staff-place',
         data: requestData,
         options: Options(
           headers: {
@@ -76,6 +92,13 @@ class SyncService {
           },
         ),
       );
+
+      // 打印响应数据
+      print('\n后端响应数据:');
+      print('状态码: ${response.statusCode}');
+      print('响应数据:');
+      print(const JsonEncoder.withIndent('  ').convert(response.data));
+      print('========== 订单同步结束 ==========\n');
 
       // 检查响应
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -87,9 +110,20 @@ class SyncService {
       }
 
     } on DioException catch (e) {
+      print('\n========== 同步错误信息 ==========');
+      print('错误类型: DioException');
+      print('错误消息: ${e.message}');
+      print('错误响应: ${e.response?.data != null ? const JsonEncoder.withIndent('  ').convert(e.response?.data) : "无响应数据"}');
+      print('================================\n');
+
       await _handleSyncError(orderId, e);
       rethrow;
     } catch (e) {
+      print('\n========== 同步错误信息 ==========');
+      print('错误类型: ${e.runtimeType}');
+      print('错误消息: $e');
+      print('================================\n');
+
       await _handleSyncError(orderId, e);
       rethrow;
     }

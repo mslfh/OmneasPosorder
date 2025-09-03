@@ -20,9 +20,13 @@ enum PrintStatus {
 // 订单模型
 class OrderModel {
   final String id;           // UUID
+  final String orderNo;      // 订单编号 (当天第几单)
   final DateTime orderTime;  // 下单时间
   final String items;        // 菜品详情 JSON
   final double totalAmount;  // 总金额
+  final double discountAmount; // 折扣金额
+  final double taxRate;      // 税率
+  final double serviceFee;   // 服务费
   final double cashAmount;   // 现金金额
   final double posAmount;    // POS金额
   final OrderStatus orderStatus;  // 订单状态
@@ -35,9 +39,13 @@ class OrderModel {
 
   OrderModel({
     required this.id,
+    required this.orderNo,
     required this.orderTime,
     required this.items,
     required this.totalAmount,
+    this.discountAmount = 0.0,
+    this.taxRate = 10.0,
+    this.serviceFee = 0.0,
     this.cashAmount = 0.0,
     this.posAmount = 0.0,
     this.orderStatus = OrderStatus.pending,
@@ -53,9 +61,13 @@ class OrderModel {
   factory OrderModel.fromMap(Map<String, dynamic> map) {
     return OrderModel(
       id: map['id'],
+      orderNo: map['order_no'],
       orderTime: DateTime.parse(map['order_time']),
       items: map['items'],
       totalAmount: map['total_amount'],
+      discountAmount: map['discount_amount']?.toDouble() ?? 0.0,
+      taxRate: map['tax_rate']?.toDouble() ?? 10.0,
+      serviceFee: map['service_fee']?.toDouble() ?? 0.0,
       cashAmount: map['cash_amount']?.toDouble() ?? 0.0,
       posAmount: map['pos_amount']?.toDouble() ?? 0.0,
       orderStatus: OrderStatus.values[map['order_status']],
@@ -78,9 +90,13 @@ class OrderModel {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'order_no': orderNo,
       'order_time': orderTime.toIso8601String(),
       'items': items,
       'total_amount': totalAmount,
+      'discount_amount': discountAmount,
+      'tax_rate': taxRate,
+      'service_fee': serviceFee,
       'cash_amount': cashAmount,
       'pos_amount': posAmount,
       'order_status': orderStatus.index,
@@ -96,9 +112,13 @@ class OrderModel {
   // 复制并更新
   OrderModel copyWith({
     String? id,
+    String? orderNo,
     DateTime? orderTime,
     String? items,
     double? totalAmount,
+    double? discountAmount,
+    double? taxRate,
+    double? serviceFee,
     double? cashAmount,
     double? posAmount,
     OrderStatus? orderStatus,
@@ -111,9 +131,13 @@ class OrderModel {
   }) {
     return OrderModel(
       id: id ?? this.id,
+      orderNo: orderNo ?? this.orderNo,
       orderTime: orderTime ?? this.orderTime,
       items: items ?? this.items,
       totalAmount: totalAmount ?? this.totalAmount,
+      discountAmount: discountAmount ?? this.discountAmount,
+      taxRate: taxRate ?? this.taxRate,
+      serviceFee: serviceFee ?? this.serviceFee,
       cashAmount: cashAmount ?? this.cashAmount,
       posAmount: posAmount ?? this.posAmount,
       orderStatus: orderStatus ?? this.orderStatus,

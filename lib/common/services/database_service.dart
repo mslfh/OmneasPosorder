@@ -66,9 +66,13 @@ class DatabaseService {
     await db.execute('''
       CREATE TABLE orders (
         id TEXT PRIMARY KEY,
+        order_no TEXT NOT NULL,
         order_time TEXT NOT NULL,
         items TEXT NOT NULL,
         total_amount REAL NOT NULL,
+        discount_amount REAL NOT NULL DEFAULT 0,
+        tax_rate REAL NOT NULL DEFAULT 10,
+        service_fee REAL NOT NULL DEFAULT 0,
         cash_amount REAL NOT NULL DEFAULT 0,
         pos_amount REAL NOT NULL DEFAULT 0,
         order_status INTEGER NOT NULL DEFAULT 0,
@@ -98,6 +102,7 @@ class DatabaseService {
     // 创建索引
     await db.execute('CREATE INDEX idx_orders_status ON orders(order_status, print_status)');
     await db.execute('CREATE INDEX idx_orders_time ON orders(order_time)');
+    await db.execute('CREATE INDEX idx_orders_no ON orders(order_no)');
     await db.execute('CREATE INDEX idx_logs_order_id ON logs(order_id)');
 
     _logger.i('数据库表创建完成');
@@ -241,6 +246,27 @@ class DatabaseService {
     } catch (e) {
       _logger.e('获取日期范围订单失败: $e');
       throw e;
+    }
+  }
+
+  /// 获取指定日期的所有订单
+  Future<List<OrderModel>> getOrdersByDate(DateTime date) async {
+    final db = await database;
+    final startDate = DateTime(date.year, date.month, date.day).toIso8601String();
+    final endDate = DateTime(date.year, date.month, date.day, 23, 59, 59, 999).toIso8601String();
+
+    try {
+      final List<Map<String, dynamic>> results = await db.query(
+        'orders',
+        where: 'order_time BETWEEN ? AND ?',
+        whereArgs: [startDate, endDate],
+        orderBy: 'order_time ASC',
+      );
+
+      return results.map((map) => OrderModel.fromMap(map)).toList();
+    } catch (e) {
+      _logger.e('获取日期订单失败: $e');
+      return [];
     }
   }
 
