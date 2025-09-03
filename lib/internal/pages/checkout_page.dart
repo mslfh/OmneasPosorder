@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'order_page.dart';
 import '../../common/services/order_service.dart';
 import 'order_list_page.dart';
 import '../utils/order_selected.dart';
@@ -39,8 +38,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
     }
     return sum;
   }
-
-  double get change => receivedAmount > totalPrice ? receivedAmount - totalPrice : 0.0;
+  double get change => receivedAmount - totalPrice;
 
   void updateReceivedAmount(double value) {
     setState(() {
@@ -129,7 +127,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                             Row(
                               children: [
                                 Text('Unit price: \$${itemPrice.toStringAsFixed(2)}',
-                                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                                  style: TextStyle(fontSize: 14, color: Colors.grey[600])),
                               ],
                             ),
                             ...p.options.map((opt) => Padding(
@@ -157,7 +155,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('Total', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  Text('\$${totalPrice.toStringAsFixed(2)}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text('\$${totalPrice.toStringAsFixed(2)}', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 ],
               ),
               SizedBox(height: 16),
@@ -192,35 +190,15 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 ],
               ),
               SizedBox(height: 16),
-              // Card and Quick Cash area (side by side, left aligned)
+              // Card area：仅保留左侧 Pos 按钮
               Row(
+                mainAxisAlignment: MainAxisAlignment.start,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          ElevatedButton(
-                            onPressed: () {
-                              updateReceivedAmount(totalPrice);
-                            },
-                            child: Text('Pos'),
-                          ),
-                          Text('Quick Cash', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                          SizedBox(width: 8),
-                          for (var cash in [5, 10, 20, 50])
-                            Padding(
-                              padding: const EdgeInsets.only(right: 8.0),
-                              child: ElevatedButton(
-                                onPressed: () {
-                                  updateReceivedAmount(receivedAmount + cash);
-                                },
-                                child: Text('\$$cash'),
-                              ),
-                            ),
-                        ],
-                      ),
-                     ],
+                  ElevatedButton(
+                    onPressed: () {
+                      updateReceivedAmount(totalPrice);
+                    },
+                    child: Text('Pos'),
                   ),
                 ],
               ),
@@ -246,11 +224,28 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 ],
               ),
               SizedBox(height: 16),
+              // Change 显示（仅一处）
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Change', style: TextStyle(fontSize: 16)),
-                  Text('\$${change.toStringAsFixed(2)}', style: TextStyle(fontSize: 16, color: Colors.green)),
+                  Text('Change',
+                    style: TextStyle(
+                      fontSize: 17,
+                      color: change < 0
+                          ? Colors.red
+                          : (change > 0 ? Colors.deepOrangeAccent : Colors.grey),
+                      fontWeight: FontWeight.bold,
+                    )),
+                  Text(
+                    (change < 0 ? '-\$${change.abs().toStringAsFixed(2)}' : '\$${change.toStringAsFixed(2)}'),
+                    style: TextStyle(
+                      fontSize: 20,
+                      color: change < 0
+                          ? Colors.red
+                          : (change > 0 ? Colors.deepOrangeAccent : Colors.grey),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ],
               ),
               SizedBox(height: 16),
@@ -267,24 +262,23 @@ class _CheckoutPageState extends State<CheckoutPage> {
                         // Prepare order items for local transaction
                         final orderItems = widget.orderedProducts.map((p) => {
                           'id': p.product.id,
-                          'name': p.product.title, // 使用title而不是name
-                          'price': p.product.sellingPrice, // 使用sellingPrice而不是price
+                          'name': p.product.title,
+                          'price': p.product.sellingPrice,
                           'quantity': p.quantity,
                           'options': p.options.map((o) => {
                             'type': o.type,
                             'option_id': o.option.id,
                             'option_name': o.option.name,
                           }).toList(),
-                          'note': '', // Add notes if needed
+                          'note': '',
                         }).toList();
 
                         // Calculate total amount
                         double totalAmount = 0;
                         for (var product in widget.orderedProducts) {
-                          totalAmount += product.product.sellingPrice * product.quantity; // 使用sellingPrice
-                          // Add option prices if any
+                          totalAmount += product.product.sellingPrice * product.quantity;
                           for (var option in product.options) {
-                            totalAmount += option.option.extraCost * product.quantity; // 使用extraCost而不是price
+                            totalAmount += option.option.extraCost * product.quantity;
                           }
                         }
 
@@ -292,6 +286,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
                         final orderId = await orderService.placeOrder(
                           items: orderItems,
                           totalAmount: totalAmount,
+                          cashAmount: isCash ? receivedAmount : 0.0,
+                          posAmount: isCash ? 0.0 : receivedAmount,
                         );
 
                         // Show success dialog

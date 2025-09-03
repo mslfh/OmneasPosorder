@@ -30,6 +30,8 @@ class OrderService {
   Future<String> placeOrder({
     required List<Map<String, dynamic>> items,
     required double totalAmount,
+    double cashAmount = 0.0,
+    double posAmount = 0.0,
   }) async {
     final String orderId = _uuid.v4();
     final DateTime orderTime = DateTime.now();
@@ -41,6 +43,8 @@ class OrderService {
         orderTime: orderTime,
         items: jsonEncode(items),
         totalAmount: totalAmount,
+        cashAmount: cashAmount,
+        posAmount: posAmount,
         orderStatus: OrderStatus.pending,
         printStatus: PrintStatus.pending,
       );
