@@ -72,7 +72,6 @@ class ApiService {
     );
     print('[API] response.statusCode: ' + response.statusCode.toString());
     print('[API] response.headers: ' + response.headers.toString());
-    print('[API] response.data: ' + response.data.toString());
     return response;
   }
 

@@ -36,7 +36,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2, // 升级数据库版本号
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -82,6 +82,10 @@ class DatabaseService {
         last_retry_time TEXT,
         synced_time TEXT,
         printed_time TEXT,
+        note TEXT,
+        type TEXT,
+        cash_change REAL NOT NULL DEFAULT 0,
+        voucher_amount REAL NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     ''');
@@ -108,10 +112,14 @@ class DatabaseService {
     _logger.i('数据库表创建完成');
   }
 
-  // 数据库升级
+  // 数据库升级：新增cash_change和voucher_amount字段
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // 暂时不需要升级逻辑
-    _logger.i('数据库升级从版本 $oldVersion 到 $newVersion');
+    if (oldVersion < 2) {
+      // v2: 新增找零和券金额字段
+      await db.execute('ALTER TABLE orders ADD COLUMN cash_change REAL NOT NULL DEFAULT 0');
+      await db.execute('ALTER TABLE orders ADD COLUMN voucher_amount REAL NOT NULL DEFAULT 0');
+      _logger.i('数据库升级到v2，新增cash_change和voucher_amount字段');
+    }
   }
 
   // ========== 订单操作 ==========

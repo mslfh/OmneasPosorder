@@ -26,9 +26,6 @@ class SyncService {
     _dio.options.receiveTimeout = Duration(seconds: 10);
     _dio.options.sendTimeout = Duration(seconds: 10);
 
-    // 设置默认的API地址（演示用）
-    _dio.options.baseUrl = 'https://api.example.com';
-
     // 添加请求拦截器记录日志
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) {
@@ -73,7 +70,10 @@ class SyncService {
         'service_fee': order.serviceFee,
         'cash_amount': order.cashAmount,
         'pos_amount': order.posAmount,
+        'cash_change': order.cashChange, // 新增找零字段同步到后端
         'local_created_at': order.orderTime.toIso8601String(),
+        'note': order.note,
+        'type': order.type,
       };
 
       // 打印格式化的请求数据

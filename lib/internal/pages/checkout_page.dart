@@ -18,6 +18,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
   String orderType = 'TAKE AWAY'; // 添加订单类型状态
   final TextEditingController _controller = TextEditingController();
   final FocusNode _amountInputFocusNode = FocusNode(); // 金额输入框的焦点节点
+  final TextEditingController _noteController = TextEditingController(); // 订单备注输入框
+  bool keepChange = false; // 新增：是否放弃找零
 
   @override
   void initState() {
@@ -33,6 +35,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
   void dispose() {
     _controller.dispose();
     _amountInputFocusNode.dispose();
+    _noteController.dispose();
     super.dispose();
   }
 
@@ -67,17 +70,14 @@ class _CheckoutPageState extends State<CheckoutPage> {
     return Focus(
       // 使用 Focus widget 包裹整个页面，捕获全局键盘事件
       onKeyEvent: (FocusNode node, KeyEvent event) {
-        // 处理按键事件
-        if (event is KeyDownEvent) {
-          print('Key down: ${event.logicalKey.keyLabel}');
-          
+        // 仅当金额输入框有焦点时才处理快捷键
+        if (_amountInputFocusNode.hasFocus && event is KeyDownEvent) {
           // Ctrl 键：切换订单类型（Dine in/Take away）
           if (event.logicalKey == LogicalKeyboardKey.controlLeft || 
               event.logicalKey == LogicalKeyboardKey.controlRight) {
             _toggleOrderType();
             return KeyEventResult.handled; // 标记事件已处理
           }
-          
           // 空格键：同 Pos 按钮功能，将 Received Amount 设为 Total
           if (event.logicalKey == LogicalKeyboardKey.space) {
             setState(() {
@@ -283,7 +283,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                       child: TextField(
                         keyboardType: TextInputType.numberWithOptions(decimal: true),
                         decoration: InputDecoration(
-                          labelText: 'Received Amount',
+                          labelText: '\$ Received Amount',
                           border: OutlineInputBorder(),
                           // 添加提示文本，告知用户快捷键
                           helperText: 'Ctrl: Switch DINE IN / TAKE AWAY, Blank: POS Payment',
@@ -302,25 +302,65 @@ class _CheckoutPageState extends State<CheckoutPage> {
                   ],
                 ),
                 SizedBox(height: 16),
+                // 订单备注输入框
+                TextField(
+                  controller: _noteController,
+                  decoration: InputDecoration(
+                    labelText: 'Order Note',
+                    border: OutlineInputBorder(),
+                    hintText: 'Enter order note (optional)',
+                  ),
+                  maxLines: 1,
+                ),
+                SizedBox(height: 16),
                 // Change 显示（仅一处）
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Change',
-                      style: TextStyle(
-                        fontSize: 17,
-                        color: change < 0
-                            ? Colors.red
-                            : (change > 0 ? Colors.deepOrangeAccent : Colors.grey),
-                        fontWeight: FontWeight.bold,
-                      )),
+                    Row(
+                      children: [
+                        Text(
+                          'Change',
+                          style: TextStyle(
+                            fontSize: 17,
+                            color: change < 0
+                                ? Colors.red
+                                : (change > 0 ? Colors.black : Colors.grey),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        if (change > 0.009)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 8.0),
+                            child: ElevatedButton(
+                              onPressed: keepChange
+                                  ? null
+                                  : () {
+                                      setState(() {
+                                        keepChange = true;
+                                      });
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: keepChange ? Colors.grey : Colors.deepOrange,
+                                foregroundColor: Colors.white,
+                                padding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                textStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                minimumSize: Size(0, 0),
+                              ),
+                              child: Text(keepChange ? 'Kept Change' : 'Keep'),
+                            ),
+                          ),
+                      ],
+                    ),
                     Text(
-                      (change < 0 ? '-\$${change.abs().toStringAsFixed(2)}' : '\$${change.toStringAsFixed(2)}'),
+                      keepChange
+                        ? '\$0.00'
+                        : (change < 0 ? '-\$${change.abs().toStringAsFixed(2)}' : '\$${change.toStringAsFixed(2)}'),
                       style: TextStyle(
                         fontSize: 20,
                         color: change < 0
                             ? Colors.red
-                            : (change > 0 ? Colors.deepOrangeAccent : Colors.grey),
+                            : (change > 0 ? Colors.black : Colors.grey),
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -352,7 +392,6 @@ class _CheckoutPageState extends State<CheckoutPage> {
                               'price': p.product.sellingPrice,
                               'quantity': p.quantity,
                               'options': options,
-                              'note': '',
                             };
                           }).toList();
 
@@ -375,7 +414,12 @@ class _CheckoutPageState extends State<CheckoutPage> {
                             serviceFee: 0.0,    // 默认无服务费
                             cashAmount: isCash ? receivedAmount : 0.0,
                             posAmount: isCash ? 0.0 : receivedAmount,
+                            note: _noteController.text.trim(),
+                            type: orderType == 'DINE IN' ? 'dinein' : 'takeaway',
+                            cashChange: isCash ? (keepChange ? 0.0 : double.parse((receivedAmount - totalAmount).toStringAsFixed(2))) : 0.0, // 放弃找零逻辑
+                            voucherAmount: 0.0, // 新增券金额字段，默认为0.00
                           );
+                          setState(() { keepChange = false; }); // 下单后重置
 
                           // 显示成功对话框
                           _showOrderSuccessDialog(orderId, totalAmount);
@@ -539,4 +583,3 @@ class _CheckoutPageState extends State<CheckoutPage> {
     );
   }
 }
-

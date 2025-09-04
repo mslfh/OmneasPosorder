@@ -29,6 +29,8 @@ class OrderModel {
   final double serviceFee;   // 服务费
   final double cashAmount;   // 现金金额
   final double posAmount;    // POS金额
+  final double cashChange;    // 现金找零
+  final double voucherAmount; // 券金额
   final OrderStatus orderStatus;  // 订单状态
   final PrintStatus printStatus;  // 打印状态
   final String? errorMessage;     // 错误信息
@@ -36,6 +38,8 @@ class OrderModel {
   final DateTime? lastRetryTime;  // 最后重试时间
   final DateTime? syncedTime;     // 同步时间
   final DateTime? printedTime;    // 打印时间
+  final String? note;         // 订单备注
+  final String? type;         // 订单类型（takeaway/dinein）
 
   OrderModel({
     required this.id,
@@ -55,6 +59,10 @@ class OrderModel {
     this.lastRetryTime,
     this.syncedTime,
     this.printedTime,
+    this.note,
+    this.type,
+    this.cashChange = 0.0,
+    this.voucherAmount = 0.0,
   });
 
   // 从数据库转换
@@ -83,6 +91,10 @@ class OrderModel {
       printedTime: map['printed_time'] != null
           ? DateTime.parse(map['printed_time'])
           : null,
+      note: map['note'],
+      type: map['type'],
+      cashChange: map['cash_change']?.toDouble() ?? 0.0,
+      voucherAmount: map['voucher_amount']?.toDouble() ?? 0.0,
     );
   }
 
@@ -106,6 +118,10 @@ class OrderModel {
       'last_retry_time': lastRetryTime?.toIso8601String(),
       'synced_time': syncedTime?.toIso8601String(),
       'printed_time': printedTime?.toIso8601String(),
+      'note': note,
+      'type': type,
+      'cash_change': cashChange,
+      'voucher_amount': voucherAmount,
     };
   }
 
@@ -128,6 +144,10 @@ class OrderModel {
     DateTime? lastRetryTime,
     DateTime? syncedTime,
     DateTime? printedTime,
+    String? note,
+    String? type,
+    double? cashChange,
+    double? voucherAmount,
   }) {
     return OrderModel(
       id: id ?? this.id,
@@ -147,6 +167,10 @@ class OrderModel {
       lastRetryTime: lastRetryTime ?? this.lastRetryTime,
       syncedTime: syncedTime ?? this.syncedTime,
       printedTime: printedTime ?? this.printedTime,
+      note: note ?? this.note,
+      type: type ?? this.type,
+      cashChange: cashChange ?? this.cashChange,
+      voucherAmount: voucherAmount ?? this.voucherAmount,
     );
   }
 

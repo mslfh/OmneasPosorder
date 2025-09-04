@@ -50,6 +50,10 @@ class OrderService {
     double serviceFee = 0.0,
     double cashAmount = 0.0,
     double posAmount = 0.0,
+    String? note,
+    String? type,
+    double cashChange = 0.0, // 新增找零参数
+    double voucherAmount = 0.0, // 新增券金额参数
   }) async {
     final String orderId = _uuid.v4();
     final DateTime orderTime = DateTime.now();
@@ -73,6 +77,10 @@ class OrderService {
         posAmount: posAmount,
         orderStatus: OrderStatus.pending,
         printStatus: PrintStatus.pending,
+        note: note,
+        type: type,
+        cashChange: cashChange, // 传递找零
+        voucherAmount: voucherAmount, // 传递券金额
       );
 
       // 保存到本地数据库（关键：先落单）
