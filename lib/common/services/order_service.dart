@@ -40,8 +40,8 @@ class OrderService {
 
   /// 下单核心流程：本地事务思维
   /// 1. 先本地落单（pending状态）
-  /// 2. 异步同步到后端
-  /// 3. 异步打印
+  /// 2. 异步打印（先打印小票）
+  /// 3. 异步同步到后端（同步时传递print_status）
   Future<String> placeOrder({
     required List<Map<String, dynamic>> items,
     required double totalAmount,
@@ -87,11 +87,19 @@ class OrderService {
       await _databaseService.insertOrder(order);
       _logger.i('订单本地落单成功: $orderId, 订单编号: $orderNo');
 
-      // 第二步：异步同步到后端
-      _syncToBackend(orderId);
+      // 第二步：异步打印（先打印小票）
+      await _addToPrintQueue(orderId);
 
-      // 第三步：异步打印
-      _addToPrintQueue(orderId);
+      // 获取最新的订单（含最新printStatus）
+      final printedOrder = await _databaseService.getOrder(orderId);
+
+      // 第三步：异步同步到后端（同步时传递print_status）
+      if (printedOrder != null) {
+        _syncToBackendWithPrintStatus(printedOrder);
+      } else {
+        // fallback: 兼容老逻辑
+        _syncToBackend(orderId);
+      }
 
       return orderId;
 
@@ -108,6 +116,43 @@ class OrderService {
       ));
 
       rethrow;
+    }
+  }
+
+  /// 异步同步到后端（带printStatus）
+  Future<void> _syncToBackendWithPrintStatus(OrderModel order) async {
+    try {
+      // 更新状态为pending_sync
+      await _databaseService.updateOrder(
+        order.copyWith(orderStatus: OrderStatus.pendingSync)
+      );
+
+      // 调用同步服务，传递printStatus
+      await _syncService.syncOrder(order.id, printStatus: order.printStatus);
+
+    } catch (e) {
+      _logger.e('同步到后端失败: ${order.id}, 错误: $e');
+
+      // 更新错误信息和重试计数
+      final latestOrder = await _databaseService.getOrder(order.id);
+      if (latestOrder != null) {
+        await _databaseService.updateOrder(
+          latestOrder.copyWith(
+            errorMessage: '同步失败: $e',
+            retryCount: latestOrder.retryCount + 1,
+            lastRetryTime: DateTime.now(),
+          )
+        );
+      }
+
+      // 记录日志
+      await _databaseService.insertLog(LogModel(
+        orderId: order.id,
+        action: 'sync',
+        status: 'error',
+        message: '同步失败: $e',
+        timestamp: DateTime.now(),
+      ));
     }
   }
 

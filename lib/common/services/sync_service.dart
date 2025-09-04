@@ -43,8 +43,8 @@ class SyncService {
     ));
   }
 
-  /// 同步单个订单到后端
-  Future<void> syncOrder(String orderId) async {
+  /// 同步单个订单到后端（支持传递printStatus）
+  Future<void> syncOrder(String orderId, {PrintStatus? printStatus}) async {
     try {
       final order = await _databaseService.getOrder(orderId);
       if (order == null) {
@@ -58,10 +58,10 @@ class SyncService {
 
       _logger.i('开始同步订单到后端: $orderId');
 
-      // 构建请求数据
+      // 构建请求数据，增加print_status字段
       final requestData = {
         'order_id': order.id,
-        'order_no': order.orderNo, // 假设订单编号与ID相同
+        'order_no': order.orderNo,
         'order_time': order.orderTime.toIso8601String(),
         'items': jsonDecode(order.items),
         'total_amount': order.totalAmount,
@@ -70,10 +70,11 @@ class SyncService {
         'service_fee': order.serviceFee,
         'cash_amount': order.cashAmount,
         'pos_amount': order.posAmount,
-        'cash_change': order.cashChange, // 新增找零字段同步到后端
+        'cash_change': order.cashChange,
         'local_created_at': order.orderTime.toIso8601String(),
         'note': order.note,
         'type': order.type,
+        'print_status': (printStatus ?? order.printStatus).toString().split('.').last, // 传递打印状态
       };
 
       // 打印格式化的请求数据
@@ -88,7 +89,7 @@ class SyncService {
         options: Options(
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer ${await _getAuthToken()}',
+            'Authorization': 'Bearer \'${await _getAuthToken()}\'',
           },
         ),
       );
