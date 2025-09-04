@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:logger/logger.dart';
 import '../models/order_model.dart';
+import 'dart:convert';
 
 // 添加平台检测导入
 import 'dart:io' show Platform;
@@ -36,9 +37,9 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 2, // 升级数据库版本号
+      version: 1, // 只需全新建表即可
       onCreate: _onCreate,
-      onUpgrade: _onUpgrade,
+      // 不再需要 onUpgrade
     );
   }
 
@@ -86,6 +87,8 @@ class DatabaseService {
         type TEXT,
         cash_change REAL NOT NULL DEFAULT 0,
         voucher_amount REAL NOT NULL DEFAULT 0,
+        remote_order_id INTEGER,
+        remote_order_number TEXT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     ''');
@@ -103,23 +106,39 @@ class DatabaseService {
       )
     ''');
 
+    // 创建服务器订单表（完整字段）
+    await db.execute('''
+      CREATE TABLE server_orders (
+        id INTEGER PRIMARY KEY, -- 服务器订单id
+        order_number TEXT NOT NULL,
+        order_no TEXT,
+        type TEXT,
+        print_status TEXT,
+        sync_status TEXT,
+        status TEXT,
+        total_amount TEXT,
+        tax_rate TEXT,
+        tax_amount TEXT,
+        discount_amount TEXT,
+        final_amount TEXT,
+        paid_amount TEXT,
+        note TEXT,
+        remark TEXT,
+        synced_at TEXT,
+        created_at TEXT,
+        updated_at TEXT,
+        items TEXT,
+        additions TEXT
+      )
+    ''');
+
     // 创建索引
     await db.execute('CREATE INDEX idx_orders_status ON orders(order_status, print_status)');
     await db.execute('CREATE INDEX idx_orders_time ON orders(order_time)');
     await db.execute('CREATE INDEX idx_orders_no ON orders(order_no)');
     await db.execute('CREATE INDEX idx_logs_order_id ON logs(order_id)');
-
+    // 注意：不再为 server_orders 创建 remote_order_id 索引
     _logger.i('数据库表创建完成');
-  }
-
-  // 数据库升级：新增cash_change和voucher_amount字段
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      // v2: 新增找零和券金额字段
-      await db.execute('ALTER TABLE orders ADD COLUMN cash_change REAL NOT NULL DEFAULT 0');
-      await db.execute('ALTER TABLE orders ADD COLUMN voucher_amount REAL NOT NULL DEFAULT 0');
-      _logger.i('数据库升级到v2，新增cash_change和voucher_amount字段');
-    }
   }
 
   // ========== 订单操作 ==========
@@ -372,6 +391,74 @@ class DatabaseService {
       _logger.e('获取订单统计失败: $e');
       throw e;
     }
+  }
+
+  // ========== 服务器订单相关 ==========
+
+  /// 获取本地已同步的最大 remote_order_id
+  Future<int?> getMaxRemoteOrderId() async {
+    final db = await database;
+    final result = await db.rawQuery('SELECT MAX(remote_order_id) as maxId FROM orders');
+    if (result.isNotEmpty && result.first['maxId'] != null) {
+      return result.first['maxId'] as int;
+    }
+    return null;
+  }
+
+  /// 插入服务器订单到 server_orders 表（完整字段）
+  Future<void> insertServerOrder(Map<String, dynamic> serverOrder) async {
+    final db = await database;
+
+    // 明确构建数据映射，避免直接复制包含 List 的原始数据
+    final data = <String, dynamic>{
+      'id': serverOrder['id'],
+      'order_number': serverOrder['order_number'],
+      'order_no': serverOrder['order_no'],
+      'type': serverOrder['type'],
+      'print_status': serverOrder['print_status'],
+      'sync_status': serverOrder['sync_status'],
+      'status': serverOrder['status'],
+      'total_amount': serverOrder['total_amount'],
+      'tax_rate': serverOrder['tax_rate'],
+      'tax_amount': serverOrder['tax_amount'],
+      'discount_amount': serverOrder['discount_amount'],
+      'final_amount': serverOrder['final_amount'],
+      'paid_amount': serverOrder['paid_amount'],
+      'note': serverOrder['note'],
+      'remark': serverOrder['remark'],
+      'synced_at': serverOrder['synced_at'],
+      'created_at': serverOrder['created_at'],
+      'updated_at': serverOrder['updated_at'],
+    };
+
+    // items 字段处理
+    final items = serverOrder['items'];
+    if (items is String) {
+      data['items'] = items;
+    } else if (items is List) {
+      data['items'] = jsonEncode(items);
+    } else {
+      data['items'] = '[]';
+    }
+
+    // additions 字段处理
+    final additions = serverOrder['additions'];
+    if (additions is String) {
+      data['additions'] = additions;
+    } else if (additions is List) {
+      data['additions'] = jsonEncode(additions);
+    } else {
+      data['additions'] = '[]';
+    }
+
+    await db.insert('server_orders', data, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// 判断本地 orders 表是否已存在指定 remote_order_number
+  Future<bool> existsOrderByRemoteNumber(String remoteOrderNumber) async {
+    final db = await database;
+    final result = await db.query('orders', where: 'remote_order_number = ?', whereArgs: [remoteOrderNumber]);
+    return result.isNotEmpty;
   }
 
   // 关闭数据库

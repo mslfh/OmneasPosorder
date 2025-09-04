@@ -321,4 +321,60 @@ class SyncService {
     _dio.options.baseUrl = baseUrl;
     _logger.i('后端API地址已配置: $baseUrl');
   }
+
+  /// 拉取服务器新订单并同步到本地数据库
+  Future<void> fetchAndSyncRemoteOrders() async {
+    try {
+      // 1. 获取本地已同步的最大 remote_order_id
+      int latestId = await _databaseService.getMaxRemoteOrderId() ?? 0;
+      _logger.i('本地最新remote_order_id: $latestId');
+
+      // 2. 拉取服务器新订单
+      final response = await _dio.get('orders/fetch-new-order/$latestId');
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        final List<dynamic> orders = response.data['data'] ?? [];
+        _logger.i('拉取到${orders.length}个新订单');
+        for (final orderJson in orders) {
+          // 3. 插入server_orders表
+          await _databaseService.insertServerOrder(orderJson);
+          final remoteOrderNumber = orderJson['order_number'];
+          final remoteOrderId = orderJson['id'];
+          // 4. 本地orders表去重
+          final exists = await _databaseService.existsOrderByRemoteNumber(remoteOrderNumber);
+          if (!exists) {
+            // 映射为本地OrderModel
+            final orderModel = OrderModel(
+              id: remoteOrderNumber, // 本地id用服务器order_number，保证唯一
+              orderNo: orderJson['order_no'] ?? '',
+              orderTime: DateTime.parse(orderJson['created_at']),
+              items: jsonEncode(orderJson['items'] ?? []),
+              totalAmount: double.tryParse(orderJson['total_amount'] ?? '0') ?? 0.0,
+              discountAmount: double.tryParse(orderJson['discount_amount'] ?? '0') ?? 0.0,
+              taxRate: double.tryParse(orderJson['tax_rate'] ?? '10') ?? 10.0,
+              serviceFee: 0.0,
+              cashAmount: 0.0, // 线下支付，初始为0
+              posAmount: 0.0,  // 线下支付，初始为0
+              orderStatus: OrderStatus.pending,
+              printStatus: PrintStatus.pending,
+              note: orderJson['note'],
+              type: orderJson['type'],
+              cashChange: 0.0,
+              voucherAmount: 0.0,
+              remoteOrderId: remoteOrderId,
+              remoteOrderNumber: remoteOrderNumber,
+            );
+            await _databaseService.insertOrder(orderModel);
+            _logger.i('新订单已同步到本地并待打印: $remoteOrderNumber');
+            // TODO: 触发打印流程，可调用 print_service
+          } else {
+            _logger.i('订单已存在本地: $remoteOrderNumber');
+          }
+        }
+      } else {
+        _logger.w('拉取服务器订单失败: ${response.data['message'] ?? response.statusMessage}');
+      }
+    } catch (e, stack) {
+      _logger.e('同步服务器订单异常: $e\n$stack');
+    }
+  }
 }

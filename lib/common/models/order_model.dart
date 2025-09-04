@@ -40,6 +40,8 @@ class OrderModel {
   final DateTime? printedTime;    // 打印时间
   final String? note;         // 订单备注
   final String? type;         // 订单类型（takeaway/dinein）
+  final int? remoteOrderId;      // 服务器订单id
+  final String? remoteOrderNumber; // 服务器订单号
 
   OrderModel({
     required this.id,
@@ -63,6 +65,8 @@ class OrderModel {
     this.type,
     this.cashChange = 0.0,
     this.voucherAmount = 0.0,
+    this.remoteOrderId,
+    this.remoteOrderNumber,
   });
 
   // 从数据库转换
@@ -95,6 +99,8 @@ class OrderModel {
       type: map['type'],
       cashChange: map['cash_change']?.toDouble() ?? 0.0,
       voucherAmount: map['voucher_amount']?.toDouble() ?? 0.0,
+      remoteOrderId: map['remote_order_id'],
+      remoteOrderNumber: map['remote_order_number'],
     );
   }
 
@@ -122,6 +128,8 @@ class OrderModel {
       'type': type,
       'cash_change': cashChange,
       'voucher_amount': voucherAmount,
+      'remote_order_id': remoteOrderId,
+      'remote_order_number': remoteOrderNumber,
     };
   }
 
@@ -148,6 +156,8 @@ class OrderModel {
     String? type,
     double? cashChange,
     double? voucherAmount,
+    int? remoteOrderId,
+    String? remoteOrderNumber,
   }) {
     return OrderModel(
       id: id ?? this.id,
@@ -171,6 +181,8 @@ class OrderModel {
       type: type ?? this.type,
       cashChange: cashChange ?? this.cashChange,
       voucherAmount: voucherAmount ?? this.voucherAmount,
+      remoteOrderId: remoteOrderId ?? this.remoteOrderId,
+      remoteOrderNumber: remoteOrderNumber ?? this.remoteOrderNumber,
     );
   }
 

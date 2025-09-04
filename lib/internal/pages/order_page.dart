@@ -6,6 +6,7 @@ import '../../common/models/menu_item.dart';
 import '../../common/models/category.dart';
 import '../../common/services/api_service.dart';
 import '../../common/models/menu_option.dart';
+import '../../common/services/sync_service.dart';
 import '../utils/quick_input_manager.dart';
 import '../widgets/quick_input_overlay.dart';
 import 'checkout_page.dart';
@@ -808,6 +809,25 @@ class _OrderPageState extends State<OrderPage> {
     });
   }
 
+  // 拉单测试按钮回调
+  Future<void> _syncRemoteOrders() async {
+    try {
+      final syncService = SyncService();
+      await syncService.fetchAndSyncRemoteOrders();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('拉取并同步服务器订单完成')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('拉单失败: \\${e.toString()}')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return KeyboardListener(
@@ -1042,6 +1062,7 @@ class _OrderPageState extends State<OrderPage> {
                           },
                     orderedCount: orderedProducts.length,
                     orderEnabled: orderedProducts.isNotEmpty,
+                    onSyncRemoteOrders: _syncRemoteOrders, // 新增
                   ),
                 ],
               );

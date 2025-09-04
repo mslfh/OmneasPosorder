@@ -7,6 +7,7 @@ class OrderActionBarWidget extends StatelessWidget {
   final VoidCallback onShowQuantitySelector;
   final VoidCallback onCustomAction;
   final VoidCallback? onOrder;
+  final VoidCallback onSyncRemoteOrders;
   final int orderedCount;
   final bool orderEnabled;
 
@@ -19,6 +20,7 @@ class OrderActionBarWidget extends StatelessWidget {
     required this.onOrder,
     required this.orderedCount,
     required this.orderEnabled,
+    required this.onSyncRemoteOrders,
   }) : super(key: key);
 
   @override
@@ -126,6 +128,27 @@ class OrderActionBarWidget extends StatelessWidget {
               ),
             ),
           ),
+          // 拉单按钮
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3.0),
+              child: ElevatedButton.icon(
+                onPressed: onSyncRemoteOrders,
+                icon: Icon(Icons.cloud_download, size: 16),
+                label: Text('拉单', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green[400],
+                  foregroundColor: Colors.white,
+                  elevation: 3,
+                  shadowColor: Colors.green[200],
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+          ),
           // Order按钮 - 突出显示
           Expanded(
             flex: 2,
@@ -161,4 +184,3 @@ class OrderActionBarWidget extends StatelessWidget {
     );
   }
 }
-
