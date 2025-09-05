@@ -133,7 +133,7 @@ class QuickInputOverlay extends StatelessWidget {
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: Text(
-                                  item.acronym,
+                                  item.acronym ?? '', // 兼容null
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 12,

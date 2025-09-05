@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../common/models/category.dart';
 
-class CategorySidebarWidget extends StatelessWidget {
+class CategorySidebarWidget extends StatefulWidget {
   final List<Category> categories;
-  final void Function(Category parent, [Category? child])? onCategoryTap;
+  final void Function(Category? parent, [Category? child])? onCategoryTap;
 
   const CategorySidebarWidget({
     Key? key,
@@ -12,7 +12,19 @@ class CategorySidebarWidget extends StatelessWidget {
   }) : super(key: key);
 
   @override
+  State<CategorySidebarWidget> createState() => _CategorySidebarWidgetState();
+}
+
+class _CategorySidebarWidgetState extends State<CategorySidebarWidget> {
+  Set<int> expandedIds = {};
+
+  @override
   Widget build(BuildContext context) {
+    final parents = widget.categories.where((c) => c.parentId == null).toList();
+    final childrenMap = <int, List<Category>>{};
+    for (var parent in parents) {
+      childrenMap[parent.id] = widget.categories.where((c) => c.parentId == parent.id).toList();
+    }
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -54,64 +66,98 @@ class CategorySidebarWidget extends StatelessWidget {
               ),
             ),
           ),
+          // 顶部“全部”按钮
+          Material(
+            color: Colors.white,
+            child: InkWell(
+              onTap: () => widget.onCategoryTap?.call(null),
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                child: Row(
+                  children: [
+                    Icon(Icons.apps, size: 16, color: Colors.blue[600]),
+                    SizedBox(width: 6),
+                    Text(
+                      '全部',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: Colors.blue[700],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
           Expanded(
             child: Container(
               margin: EdgeInsets.all(2),
               child: ListView.builder(
-                itemCount: categories.where((c) => c.parentId == null).length,
+                itemCount: parents.length,
                 itemBuilder: (context, index) {
-                  final parent = categories.where((c) => c.parentId == null).toList()[index];
-                  final children = categories.where((c) => c.parentId == parent.id).toList();
-                  if (children.isEmpty) {
-                    return Container(
-                      margin: EdgeInsets.only(bottom: 1),
-                      child: Material(
+                  final parent = parents[index];
+                  final children = childrenMap[parent.id]!;
+                  final isExpanded = expandedIds.contains(parent.id);
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Material(
                         color: Colors.grey[50],
                         child: InkWell(
-                          onTap: () => onCategoryTap?.call(parent),
+                          onTap: () {
+                            if (children.isEmpty) {
+                              widget.onCategoryTap?.call(parent);
+                            } else {
+                              setState(() {
+                                if (isExpanded) {
+                                  expandedIds.remove(parent.id);
+                                } else {
+                                  expandedIds.add(parent.id);
+                                }
+                              });
+                            }
+                          },
                           child: Container(
-                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                            child: Text(
-                              parent.title,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey[800],
-                              ),
+                            height: 20,
+                            padding: EdgeInsets.symmetric(horizontal: 8),
+                            alignment: Alignment.centerLeft,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    parent.title,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey[800],
+                                    ),
+                                  ),
+                                ),
+                                if (children.isNotEmpty)
+                                  Icon(
+                                    isExpanded ? Icons.expand_more : Icons.chevron_right,
+                                    size: 16,
+                                    color: Colors.grey[600],
+                                  ),
+                              ],
                             ),
                           ),
                         ),
                       ),
-                    );
-                  }
-                  return Container(
-                    margin: EdgeInsets.only(bottom: 1),
-                    child: ExpansionTile(
-                      title: Text(
-                        parent.title,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey[800],
-                        ),
-                      ),
-                      backgroundColor: Colors.white,
-                      collapsedBackgroundColor: Colors.grey[50],
-                      iconColor: Colors.blue[600],
-                      collapsedIconColor: Colors.grey[600],
-                      tilePadding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      childrenPadding: EdgeInsets.zero,
-                      children: children.map((child) =>
-                        Material(
+                      if (isExpanded && children.isNotEmpty)
+                        ...children.map((child) => Material(
                           color: Colors.transparent,
                           child: InkWell(
-                            onTap: () => onCategoryTap?.call(parent, child),
+                            onTap: () => widget.onCategoryTap?.call(parent, child),
                             child: Container(
-                              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                              height: 20,
+                              padding: EdgeInsets.symmetric(horizontal: 20),
+                              alignment: Alignment.centerLeft,
                               child: Row(
                                 children: [
                                   Icon(Icons.arrow_right, size: 12, color: Colors.grey[600]),
-                                  SizedBox(width: 4),
+                                  SizedBox(width: 2),
                                   Expanded(
                                     child: Text(
                                       child.title,
@@ -126,9 +172,8 @@ class CategorySidebarWidget extends StatelessWidget {
                               ),
                             ),
                           ),
-                        ),
-                      ).toList(),
-                    ),
+                        )),
+                    ],
                   );
                 },
               ),
@@ -139,4 +184,3 @@ class CategorySidebarWidget extends StatelessWidget {
     );
   }
 }
-

@@ -89,9 +89,9 @@ class QuickInputManager {
 
     final lowerInput = _input.toLowerCase();
 
-    // 优先匹配acronym前缀
+    // 优先匹配acronym前缀，兼容acronym为null
     final acronymMatches = allProducts.where((product) =>
-      product.acronym.toLowerCase().startsWith(lowerInput)
+      (product.acronym ?? '').toLowerCase().startsWith(lowerInput)
     ).toList();
 
     if (acronymMatches.isNotEmpty) {

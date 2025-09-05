@@ -129,7 +129,7 @@ class MenuGridWidget extends StatelessWidget {
                                       border: Border.all(color: Colors.blue[300]!, width: 0.5),
                                     ),
                                     child: Text(
-                                      item.acronym,
+                                      item.acronym ?? '', // 兼容null
                                       style: TextStyle(
                                         fontSize: 9,
                                         color: Colors.blue[800],
@@ -165,4 +165,3 @@ class MenuGridWidget extends StatelessWidget {
     );
   }
 }
-

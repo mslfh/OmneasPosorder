@@ -36,6 +36,7 @@ class OrderPage extends StatefulWidget {
 
 class _OrderPageState extends State<OrderPage> {
   List<MenuItem> products = [];
+  List<MenuItem> allProducts = []; // 新增，保存所有原始数据
   List<Category> categories = [];
   bool isLoading = true;
   String? error;
@@ -134,9 +135,9 @@ class _OrderPageState extends State<OrderPage> {
       print('[DEBUG] 缓存为空，从API获取数据');
       await fetchData();
     } else {
-      // 使用缓存数据
       setState(() {
-        products = productsBox.values.map((e) => e.toMenuItem()).toList();
+        allProducts = productsBox.values.map((e) => e.toMenuItem()).toList(); // 保存原始数据
+        products = List<MenuItem>.from(allProducts); // 默认显示全部
         products.sort((a, b) => a.sort.compareTo(b.sort));
         categories = categoriesBox.values.map((e) => e.toCategory()).toList();
         isLoading = false;
@@ -150,10 +151,20 @@ class _OrderPageState extends State<OrderPage> {
       final api = ApiService();
       final prodRes = await api.get('products/active');
       final catRes = await api.get('categories/active');
-      final prodData = prodRes.data['data'] as List;
+      print('[DEBUG] prodRes.data["data"]: ' + prodRes.data['data'].toString());
+      print('[DEBUG] prodRes.data["data"] type: ' + prodRes.data['data'].runtimeType.toString());
+      final prodDataRaw = prodRes.data['data'];
+      List prodData;
+      if (prodDataRaw is List) {
+        prodData = prodDataRaw;
+      } else {
+        print('[ERROR] products/active 返回的 data 不是 List，实际类型: ' + prodDataRaw.runtimeType.toString());
+        prodData = [];
+      }
       final catData = catRes.data['data'] as List;
       setState(() {
-        products = prodData.map((e) => MenuItem.fromJson(e)).toList();
+        allProducts = prodData.where((e) => e is Map<String, dynamic>).map((e) => MenuItem.fromJson(e as Map<String, dynamic>)).toList(); // 保存原始数据
+        products = List<MenuItem>.from(allProducts); // 默认显示全部
         products.sort((a, b) => a.sort.compareTo(b.sort));
         categories = catData.map((e) => Category.fromJson(e)).toList();
         isLoading = false;
@@ -958,7 +969,19 @@ class _OrderPageState extends State<OrderPage> {
                                 child: CategorySidebarWidget(
                                   categories: categories,
                                   onCategoryTap: (parent, [child]) {
-                                    // TODO: 实现分类筛选功能
+                                    if (parent == null) {
+                                      // “全部”按钮，显示所有菜品
+                                      setState(() {
+                                        products = List<MenuItem>.from(allProducts);
+                                        products.sort((a, b) => a.sort.compareTo(b.sort));
+                                      });
+                                    } else {
+                                      int selectedCategoryId = child?.id ?? parent.id;
+                                      setState(() {
+                                        products = allProducts.where((item) => item.categoryIds.contains(selectedCategoryId)).toList();
+                                        products.sort((a, b) => a.sort.compareTo(b.sort));
+                                      });
+                                    }
                                   },
                                 ),
                               ),
