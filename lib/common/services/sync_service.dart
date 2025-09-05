@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:logger/logger.dart';
 import '../models/order_model.dart';
 import 'database_service.dart';
+import 'print_service.dart';
 
 class SyncService {
   static final Logger _logger = Logger();
@@ -105,7 +106,7 @@ class SyncService {
       if (response.statusCode == 200 || response.statusCode == 201) {
         // 同步成功，更新本地状态
         await _updateOrderSyncSuccess(order);
-        _logger.i('订单同步成功: $orderId');
+        _logger.i('订单����成功: $orderId');
       } else {
         throw Exception('后端返回错误状态: ${response.statusCode}');
       }
@@ -186,7 +187,7 @@ class SyncService {
   Future<bool> checkNetworkConnectivity() async {
     try {
       final response = await _dio.get(
-        '/health', // 移除 /api 前缀，因为baseUrl已经包含了
+        '/health', // 移除 /api ��缀，因为baseUrl已经包含了
         options: Options(
           receiveTimeout: Duration(seconds: 5),
         ),
@@ -286,7 +287,7 @@ class SyncService {
   /// 获取认证Token（从本地存储或其他来源）
   Future<String> _getAuthToken() async {
     // 这里应该从安全存储中获取token
-    // 暂时返回空字符串，实际项目中需要实现
+    // 暂时返回空字符串，实��项��中需要实现
     return '';
   }
 
@@ -326,28 +327,42 @@ class SyncService {
   Future<void> fetchAndSyncRemoteOrders() async {
     try {
       // 1. 获取本地已同步的最大 remote_order_id
-      int latestId = await _databaseService.getMaxRemoteOrderId() ?? 0;
+      //int latestId = await _databaseService.getMaxRemoteOrderId() ?? 0;
+      //Debug for 0
+      int latestId = 6;
       _logger.i('本地最新remote_order_id: $latestId');
 
       // 2. 拉取服务器新订单
       final response = await _dio.get('orders/fetch-new-order/$latestId');
       if (response.statusCode == 200 && response.data['success'] == true) {
         final List<dynamic> orders = response.data['data'] ?? [];
-        _logger.i('拉取到${orders.length}个新订单');
+        _logger.i('拉���到${orders.length}个新订单');
         for (final orderJson in orders) {
+          print('拉取到新订单: ${const JsonEncoder.withIndent('  ').convert(orderJson)}');
           // 3. 插入server_orders表
-          await _databaseService.insertServerOrder(orderJson);
+          // await _databaseService.insertServerOrder(orderJson);
           final remoteOrderNumber = orderJson['order_number'];
           final remoteOrderId = orderJson['id'];
           // 4. 本地orders表去重
           final exists = await _databaseService.existsOrderByRemoteNumber(remoteOrderNumber);
           if (!exists) {
+            // 映射为OrderModel可用的Items
+            final items = (orderJson['items'] as List<dynamic>? ?? []).map((item) {
+              print(item);
+              return {
+                'id': item['product_id'],
+                'name': item['product_title'],
+                'price': double.tryParse(item['final_amount']?.toString() ?? '0') ?? 0.0,
+                'quantity': item['quantity'] ?? 1,
+              };
+            }).toList();
+
             // 映射为本地OrderModel
             final orderModel = OrderModel(
               id: remoteOrderNumber, // 本地id用服务器order_number，保证唯一
               orderNo: orderJson['order_no'] ?? '',
               orderTime: DateTime.parse(orderJson['created_at']),
-              items: jsonEncode(orderJson['items'] ?? []),
+              items: jsonEncode(items),
               totalAmount: double.tryParse(orderJson['total_amount'] ?? '0') ?? 0.0,
               discountAmount: double.tryParse(orderJson['discount_amount'] ?? '0') ?? 0.0,
               taxRate: double.tryParse(orderJson['tax_rate'] ?? '10') ?? 10.0,
@@ -363,9 +378,12 @@ class SyncService {
               remoteOrderId: remoteOrderId,
               remoteOrderNumber: remoteOrderNumber,
             );
-            await _databaseService.insertOrder(orderModel);
+            // await _databaseService.insertOrder(orderModel);
             _logger.i('新订单已同步到本地并待打印: $remoteOrderNumber');
-            // TODO: 触发打印流程，可调用 print_service
+            // 触发打印流程
+            final printService = PrintService();
+            // 使用样式打印双联小票（顾客用+后厨用）
+            await printService.printOrderWithTemplates(orderModel);
           } else {
             _logger.i('订单已存在本地: $remoteOrderNumber');
           }

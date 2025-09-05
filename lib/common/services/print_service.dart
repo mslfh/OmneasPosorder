@@ -6,6 +6,8 @@ import '../models/report_models.dart';
 import 'database_service.dart';
 import 'settings_service.dart';
 
+enum ReceiptType { customer, kitchen } /// 小票类型枚举（顾客用/后厨用）
+
 class PrintService {
   static final Logger _logger = Logger();
   final DatabaseService _databaseService = DatabaseService();
@@ -216,7 +218,7 @@ class PrintService {
       // 等待一小段时间确保数据发送完成
       await Future.delayed(Duration(milliseconds: 500));
 
-      _logger.i('数据发送到打印机成功，长度: ${printData.length} bytes');
+      _logger.i('数据发送到打印��功，长度: ${printData.length} bytes');
     } catch (e) {
       _logger.e('网络打印机通信失败: $e');
       throw Exception('网络打印机连接失败: $e');
@@ -228,6 +230,47 @@ class PrintService {
       } catch (e) {
         _logger.w('关闭打印机连接时出错: $e');
       }
+    }
+  }
+
+  /// 发送原始ESC/POS命令到打印机
+  Future<void> _sendToPrinterRaw(List<int> printData) async {
+    try {
+      final settingsService = SettingsService();
+      final settings = settingsService.getSettings();
+      final printerIP = settings.printerAddress;
+      final printerPort = settings.printerPort;
+
+      if (printerIP.isEmpty) {
+        throw Exception('打印机IP地址未配置');
+      }
+
+      _logger.i('连接打印机: $printerIP:$printerPort');
+
+      Socket? socket;
+      try {
+        socket = await Socket.connect(printerIP, printerPort)
+            .timeout(Duration(seconds: 10));
+
+        socket.add(printData);
+        await socket.flush();
+        await Future.delayed(Duration(milliseconds: 500));
+
+        _logger.i('数据发送到打印成功，长度: ${printData.length} bytes');
+      } catch (e) {
+        _logger.e('网络打印机通信失败: $e');
+        throw Exception('网络打印机连接失败: $e');
+      } finally {
+        try {
+          await socket?.close();
+          _logger.d('打印机连接已��闭');
+        } catch (e) {
+          _logger.w('关闭打印机连接时出错: $e');
+        }
+      }
+    } catch (e) {
+      _logger.e('发送到打印机失败: $e');
+      throw Exception('打印机通信失败: $e');
     }
   }
 
@@ -244,7 +287,7 @@ class PrintService {
     // 设置字体大小（正常）
     commands.addAll([0x1D, 0x21, 0x00]); // GS ! 0 - 正常字体
 
-    // 设置左对齐
+    // 设置���对齐
     commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 - 左对齐
 
     // 添加打印内容
@@ -253,7 +296,7 @@ class PrintService {
     // 切纸命令（部分切纸）
     commands.addAll([0x1D, 0x56, 0x01]); // GS V 1 - 部分切纸
 
-    // 或者使用全切纸（如果打印机支持）
+    // 或者使用全切纸（如果打印机支持���
     // commands.addAll([0x1D, 0x56, 0x00]); // GS V 0 - 全切纸
 
     return commands;
@@ -456,13 +499,386 @@ class PrintService {
     return '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')}';
   }
 
-  /// 配置打印机设置
+  /// 配置打印��设置
   void configurePrinter({
     String? printerIP,
     int? printerPort,
     String? encoding,
   }) {
-    // 保存打印机配置到本地存储
+    // 保存打印机配置到本地存�����������
     _logger.i('打印机配置已更新');
+  }
+
+  /// 按模板打印订单（支持顾客用和后厨用）
+  Future<void> printOrderWithTemplate(OrderModel order, {required ReceiptType receiptType}) async {
+    try {
+      String printContent = '';
+      // 预留：可通过API获取模板内容
+      switch (receiptType) {
+        case ReceiptType.customer:
+          printContent = await _generateCustomerReceiptTemplate(order);
+          break;
+        case ReceiptType.kitchen:
+          printContent = await _generateKitchenReceiptTemplate(order);
+          break;
+      }
+      await _sendToPrinter(printContent);
+      await _markPrintSuccess(order);
+      _logger.i('订单${order.id} ${receiptType == ReceiptType.customer ? "顾客用" : "后厨用"}小票打印成功');
+    } catch (e) {
+      await _handlePrintError(order.id, e);
+      rethrow;
+    }
+  }
+
+  /// 合并打印顾客用和后厨用小票（一次性发送，切纸分隔）
+  Future<void> printOrderWithTemplates(OrderModel order) async {
+    try {
+      // 生成顾客用小票内容
+      final customerContent = await _generateCustomerReceiptTemplate(order);
+      // 生成后厨用小票内容
+      final kitchenContent = await _generateKitchenReceiptTemplate(order);
+      // 生成ESC/POS命令（合并两段内容，中���切纸）
+      final printData = _generateCombinedESCPOSCommands(customerContent, kitchenContent);
+      // 发送到打印机
+      await _sendToPrinterRaw(printData);
+      // 标记打印成功
+      await _markPrintSuccess(order);
+      _logger.i('订单${order.id} 顾客用+后厨用小票打印成功');
+    } catch (e) {
+      await _handlePrintError(order.id, e);
+      rethrow;
+    }
+  }
+
+  /// 生成合并的ESC/POS命令（分块处理，精确控制每部分样式）
+  List<int> _generateCombinedESCPOSCommands(String customerContent, String kitchenContent) {
+    List<int> commands = [];
+
+    // ========== 顾客用小票 ==========
+    commands.addAll([0x1B, 0x40]); // ESC @ 初始化
+    
+    // 解析顾客用小票内容
+    final customerOrder = _parseCustomerReceipt(customerContent);
+    
+    // 块1: 店铺信息 - 居中对齐，正常字体
+    commands.addAll([0x1B, 0x61, 0x01]); // ESC a 1 居中
+    for (String line in customerOrder['header'] ?? []) {
+      commands.addAll(utf8.encode(line));
+      commands.add(0x0A); // LF
+    }
+    
+    // 块2: 订单号和分割线 - 左对齐，加粗字体
+    commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
+    for (String line in customerOrder['orderInfo'] ?? []) {
+      commands.addAll([0x1B, 0x45, 0x01]); // ESC E 1 加粗
+      commands.addAll([0x1D, 0x21, 0x08]);
+      commands.addAll(utf8.encode(line));
+      commands.add(0x0A); // LF
+      commands.addAll([0x1B, 0x45, 0x00]); // ESC E 0 取消加粗
+    }
+    
+    // 块3: 菜品项目 - 左对齐
+    commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
+    for (String line in customerOrder['items'] ?? []) {
+      commands.addAll([0x1B, 0x45, 0x01]); // ESC E 1 加粗
+      commands.addAll([0x1D, 0x21, 0x08]);
+      commands.addAll(utf8.encode(line));
+      commands.add(0x0A); // LF
+      commands.addAll([0x1B, 0x45, 0x00]); // ESC E 0 取消加粗
+    }
+    
+    // 块4: Note信息 - 左对齐，只加粗标准字体（12号）
+    final notes = customerOrder['notes'] ?? [];
+    if (notes.isNotEmpty) {
+      commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
+      for (String line in notes) {
+        commands.addAll([0x1B, 0x45, 0x01]); // ESC E 1 加粗
+        commands.addAll([0x1D, 0x21, 0x09]);
+        commands.addAll(utf8.encode(line));
+        commands.add(0x0A); // LF
+        commands.addAll([0x1B, 0x45, 0x00]); // ESC E 0 取消加粗
+      }
+    }
+    
+    // 块5: 总计和税费信息 - 左对齐，加粗字体
+    for (String line in customerOrder['totals'] ?? []) {
+      commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
+      commands.addAll([0x1B, 0x45, 0x01]); // ESC E 1 加粗
+      commands.addAll([0x1D, 0x21, 0x08]);
+      commands.addAll(utf8.encode(line));
+      commands.add(0x0A); // LF
+      commands.addAll([0x1B, 0x45, 0x00]); // ESC E 0 取消加粗
+    }
+    
+    // 块6: 时间和结尾 - 左对齐，正常字体
+    commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
+    for (String line in customerOrder['footer'] ?? []) {
+      commands.addAll(utf8.encode(line));
+      commands.add(0x0A); // LF
+    }
+
+    // 走纸和切纸
+    commands.addAll([0x0A, 0x0A, 0x0A, 0x0A, 0x0A]); // 5行走纸
+    commands.addAll([0x1D, 0x56, 0x01]); // GS V 1 切纸
+
+    // ========== 后厨用小票 ==========
+    commands.addAll([0x1B, 0x40]); // ESC @ 初始化
+    
+    // 解析后厨用小票内容
+    final kitchenOrder = _parseKitchenReceipt(kitchenContent);
+    
+    // 块1: 标题和订单号 - 左对齐，正常字体
+    commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
+    for (String line in kitchenOrder['header'] ?? []) {
+      commands.addAll(utf8.encode(line));
+      commands.add(0x0A); // LF
+    }
+    
+    // 块2: 菜品项目 - 左对齐，倍高显示
+    commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
+    for (String line in kitchenOrder['items'] ?? []) {
+      commands.addAll([0x1D, 0x21, 0x11]); // GS ! 16 倍高
+      commands.addAll(utf8.encode(line));
+      commands.add(0x0A); // LF
+      commands.addAll([0x1D, 0x21, 0x00]); // GS ! 0 还原字体
+    }
+    
+    // 块3: 时间和结尾 - 左对齐，正常字体
+    commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
+    for (String line in kitchenOrder['footer'] ?? []) {
+      commands.addAll(utf8.encode(line));
+      commands.add(0x0A); // LF
+    }
+
+    // 走纸和切纸
+    commands.addAll([0x0A, 0x0A, 0x0A, 0x0A, 0x0A]); // 5行走纸
+    commands.addAll([0x1D, 0x56, 0x01]); // GS V 1 切纸
+
+    return commands;
+  }
+
+  /// 解析顾客用小票内容��分块返回
+  Map<String, List<String>> _parseCustomerReceipt(String content) {
+    final lines = content.split('\n');
+    final result = {
+      'header': <String>[],
+      'orderInfo': <String>[],
+      'items': <String>[],
+      'notes': <String>[],
+      'totals': <String>[],
+      'footer': <String>[],
+    };
+    
+    String currentSection = 'header';
+    
+    for (String line in lines) {
+      if (line.trim().isEmpty) continue;
+      
+      if (line.contains('ORDER #')) {
+        currentSection = 'orderInfo';
+        result[currentSection]!.add(line);
+      } else if (line.contains('--------------------------------') && currentSection == 'orderInfo') {
+        result[currentSection]!.add(line);
+        currentSection = 'items';
+      } else if (line.contains('Note:')) {
+        currentSection = 'notes';
+        result[currentSection]!.add(line);
+      } else if (line.contains('--------------------------------') && currentSection == 'items') {
+        currentSection = 'totals';
+        result[currentSection]!.add(line);
+      } else if (line.contains('Order Time:')) {
+        currentSection = 'footer';
+        result[currentSection]!.add(line);
+      } else if (line.contains('================================') && currentSection == 'totals') {
+        result[currentSection]!.add(line);
+        currentSection = 'footer';
+      } else {
+        result[currentSection]!.add(line);
+      }
+    }
+    
+    return result;
+  }
+
+  /// 解析后厨用小票内容，分块返回
+  Map<String, List<String>> _parseKitchenReceipt(String content) {
+    final lines = content.split('\n');
+    final result = {
+      'header': <String>[],
+      'items': <String>[],
+      'footer': <String>[],
+    };
+    
+    String currentSection = 'header';
+    
+    for (String line in lines) {
+      if (line.trim().isEmpty) continue;
+      
+      if (line.contains('ORDER #')) {
+        result[currentSection]!.add(line);
+      } else if (line.contains('--------------------------------') && currentSection == 'header') {
+        result[currentSection]!.add(line);
+        currentSection = 'items';
+      } else if (line.contains('--------------------------------') && currentSection == 'items') {
+        currentSection = 'footer';
+        result[currentSection]!.add(line);
+      } else if (line.contains('Order Time:') || line.contains('CLERK')) {
+        currentSection = 'footer';
+        result[currentSection]!.add(line);
+      } else {
+        result[currentSection]!.add(line);
+      }
+    }
+    
+    return result;
+  }
+
+  /// 测试打印样式命令（用于调试）
+  Future<void> testPrintStyles() async {
+    try {
+      List<int> testCommands = [];
+
+      // 基本初始化
+      testCommands.addAll([0x1B, 0x40]); // ESC @ 初始化
+
+      // 测试加粗命令
+      testCommands.addAll([0x1B, 0x45, 0x01]); // ESC E 1 加粗开
+      testCommands.addAll(utf8.encode("BOLD TEXT TEST\n"));
+      testCommands.addAll([0x1B, 0x45, 0x00]); // ESC E 0 加粗关
+
+      // 测试倍宽命令
+      testCommands.addAll([0x1D, 0x21, 0x20]); // GS ! 32 倍宽
+      testCommands.addAll(utf8.encode("DOUBLE WIDTH\n"));
+      testCommands.addAll([0x1D, 0x21, 0x00]); // GS ! 0 还原
+
+      // 测试倍高命令
+      testCommands.addAll([0x1D, 0x21, 0x10]); // GS ! 16 倍高
+      testCommands.addAll(utf8.encode("DOUBLE HEIGHT\n"));
+      testCommands.addAll([0x1D, 0x21, 0x00]); // GS ! 0 还原
+
+      // 正常内容
+      testCommands.addAll(utf8.encode("Normal text\n"));
+
+      // 测试走纸
+      testCommands.addAll([0x0A, 0x0A, 0x0A, 0x0A, 0x0A]); // 5个换行
+
+      // 切纸
+      testCommands.addAll([0x1D, 0x56, 0x01]); // GS V 1 切纸
+
+      await _sendToPrinterRaw(testCommands);
+      _logger.i('样式测试打印发送成功');
+    } catch (e) {
+      _logger.e('样式测试打印失败: $e');
+      rethrow;
+    }
+  }
+
+  /// 专门测试走纸效果的方法（测试多种走纸命令）
+  Future<void> testPaperFeed() async {
+    try {
+      List<int> testCommands = [];
+
+      // 基本初始化
+      testCommands.addAll([0x1B, 0x40]); // ESC @ 初始化
+
+      // 测试内容1 - 普通换行
+      testCommands.addAll(utf8.encode("=== 测试1: 普通换行 ===\n"));
+      testCommands.addAll(utf8.encode("这是普通换行测���\n"));
+      testCommands.addAll(utf8.encode("Line 1\n"));
+      testCommands.addAll(utf8.encode("Line 2\n"));
+      testCommands.addAll(utf8.encode("Line 3\n"));
+
+      // 测试内容2 - 多个LF走纸
+      testCommands.addAll(utf8.encode("=== 测试2: 5个LF走纸 ===\n"));
+      testCommands.addAll([0x0A, 0x0A, 0x0A, 0x0A, 0x0A]); // 5个LF
+
+      // 测试内容3 - ESC J n 走纸命令（如果支持）
+      testCommands.addAll(utf8.encode("=== 测试3: ESC J 走纸命令 ===\n"));
+      testCommands.addAll([0x1B, 0x4A, 60]); // ESC J 60 走纸约6mm
+
+      // 测试内容4 - 更多LF走纸
+      testCommands.addAll(utf8.encode("=== 测试4: 10个LF走纸 ===\n"));
+      testCommands.addAll([0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A]); // 10个LF
+
+      // 测试内容5 - ESC d n 走纸命令（另一种走纸命令）
+      testCommands.addAll(utf8.encode("=== 测试5: ESC d 走纸命令 ===\n"));
+      testCommands.addAll([0x1B, 0x64, 5]); // ESC d 5 走纸5行
+
+      // 测试内容6 - 组合走纸
+      testCommands.addAll(utf8.encode("=== 测试6: 组合走纸 ===\n"));
+      testCommands.addAll([0x0A, 0x0A, 0x0A]); // 3个LF
+      testCommands.addAll([0x1B, 0x4A, 40]); // ESC J 40
+      testCommands.addAll([0x0A, 0x0A]); // 2个LF
+
+      // 结束标记
+      testCommands.addAll(utf8.encode("=== 走纸测试结束 ===\n"));
+
+      // 最后大量走纸便于撕纸
+      testCommands.addAll([0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A]); // 10个LF
+
+      // 切纸
+      testCommands.addAll([0x1D, 0x56, 0x01]); // GS V 1 切纸
+
+      await _sendToPrinterRaw(testCommands);
+      _logger.i('走纸测试打印发送成功');
+    } catch (e) {
+      _logger.e('走纸测试打印失败: $e');
+      rethrow;
+    }
+  }
+
+  /// 顾客用小票模板（默认实现，后续可通过API获取模板）
+  Future<String> _generateCustomerReceiptTemplate(OrderModel order) async {
+    final items = jsonDecode(order.items) as List;
+    final StringBuffer content = StringBuffer();
+    // 店铺信息（可扩展为从设置或API获取）
+    content.writeln("----------Customer Rep---------");
+    content.writeln("DAVE'S NOODLES");
+    content.writeln("Shop 2/129 Wilson St");
+    content.writeln("Burnie Tas. 7320");
+    content.writeln("Phone -03 6431 8818");
+    content.writeln("ABN 76 147 759 135");
+    content.writeln("Tax Invoice /Receipt");
+    content.writeln("================================");
+    content.writeln("ORDER #${order.id}");
+    content.writeln("--------------------------------");
+    for (var item in items) {
+      final name = item['name'] ?? '';
+      final quantity = item['quantity'] ?? 1;
+      final price = (item['price'] ?? 0).toDouble();
+      final subtotal = quantity * price;
+      content.writeln('${name.padRight(20)} x${quantity}  \$${price.toStringAsFixed(2)} = \$${subtotal.toStringAsFixed(2)}');
+
+    }
+    content.writeln("--------------------------------");
+    content.writeln("CASH"); // 可扩展为实际支付方式
+    content.writeln(" \$${order.totalAmount.toStringAsFixed(2)}");
+    content.writeln("TAX SALES: \$${(order.totalAmount * 0.91).toStringAsFixed(2)}");
+    content.writeln("G.S.T.: \$${(order.totalAmount * 0.09).toStringAsFixed(2)}");
+    if (order.note != null) {
+      content.writeln('Note: ${order.note}');
+    }
+    content.writeln("Order Time: ${_formatDateTime(order.orderTime)}");
+    content.writeln("================================");
+    return content.toString();
+  }
+
+  /// 后厨用小票模板（默认实现，后续可通过API获取模板���
+  Future<String> _generateKitchenReceiptTemplate(OrderModel order) async {
+    final items = jsonDecode(order.items) as List;
+    final StringBuffer content = StringBuffer();
+    content.writeln("----------Kitchen Rep-----------");
+    content.writeln("ORDER #${order.id}");
+    content.writeln("--------------------------------");
+    for (var item in items) {
+      final name = item['name'] ?? '';
+      final quantity = item['quantity'] ?? 1;
+      content.writeln('${name.toUpperCase()} x${quantity}');
+    }
+    content.writeln("--------------------------------");
+    content.writeln("Order Time: ${_formatDateTime(order.orderTime)}");
+    content.writeln("CLERK 001"); // 可扩展为实际操作员
+    return content.toString();
   }
 }
