@@ -61,12 +61,12 @@ class PrintService {
     // Order information
     content.writeln('Order ID: ${order.id.substring(0, 8)}');
     content.writeln('Order Time: ${_formatDateTime(order.orderTime)}');
-    content.writeln('--------------------------------');
+    content.writeln('--------------------------------------');
     content.writeln();
 
     // Items detail
     content.writeln('Items:');
-    content.writeln('--------------------------------');
+    content.writeln('--------------------------------------');
 
     double totalAmount = 0;
     for (var item in items) {
@@ -86,14 +86,14 @@ class PrintService {
       content.writeln();
     }
 
-    content.writeln('--------------------------------');
+    content.writeln('--------------------------------------');
     content.writeln('Total: \$${totalAmount.toStringAsFixed(2)}');
     content.writeln('================================');
     content.writeln();
 
     // Print time
     content.writeln('Print Time: ${_formatDateTime(DateTime.now())}');
-    content.writeln('--------------------------------');
+    content.writeln('--------------------------------------');
     content.writeln('Thank you for your business!');
     content.writeln();
     content.writeln();
@@ -135,31 +135,31 @@ class PrintService {
     content.writeln('From: ${_formatDate(startDate)}');
     content.writeln('To:   ${_formatDate(endDate)}');
     content.writeln('Generated: ${_formatDateTime(DateTime.now())}');
-    content.writeln('--------------------------------');
+    content.writeln('--------------------------------------');
     content.writeln();
 
     // 销售总览
     content.writeln('SALES OVERVIEW:');
-    content.writeln('--------------------------------');
+    content.writeln('--------------------------------------');
     content.writeln('Total Revenue:     \$${stats.totalRevenue.toStringAsFixed(2)}');
     content.writeln('Total Orders:      ${stats.totalOrders}');
     content.writeln('Completed Orders:  ${stats.completedOrders}');
     content.writeln('Cancelled Orders:  ${stats.cancelledOrders}');
     content.writeln('Average Order:     \$${stats.averageOrderValue.toStringAsFixed(2)}');
-    content.writeln('--------------------------------');
+    content.writeln('--------------------------------------');
     content.writeln();
 
     // 热销商品
     if (stats.topSellingItems.isNotEmpty) {
       content.writeln('TOP SELLING ITEMS:');
-      content.writeln('--------------------------------');
+      content.writeln('--------------------------------------');
       for (int i = 0; i < stats.topSellingItems.length; i++) {
         final item = stats.topSellingItems[i];
         content.writeln('${i + 1}. ${item.name}');
         content.writeln('   Quantity: ${item.quantity}');
         content.writeln();
       }
-      content.writeln('--------------------------------');
+      content.writeln('--------------------------------------');
     }
 
     content.writeln();
@@ -568,13 +568,13 @@ class PrintService {
       commands.add(0x0A); // LF
     }
     
-    // 块2: 订单号和分割线 - 左对齐，加粗字体
-    commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
+    // 块2: 订单号和分割线 - 居中对齐，加粗字体
     for (String line in customerOrder['orderInfo'] ?? []) {
       commands.addAll([0x1B, 0x45, 0x01]); // ESC E 1 加粗
-      commands.addAll([0x1D, 0x21, 0x08]);
+      commands.addAll([0x1D, 0x21, 0x11]); // GS ! 16 倍高
       commands.addAll(utf8.encode(line));
       commands.add(0x0A); // LF
+      commands.addAll([0x1D, 0x21, 0x00]); // GS ! 0 还原字体
       commands.addAll([0x1B, 0x45, 0x00]); // ESC E 0 取消加粗
     }
     
@@ -582,9 +582,10 @@ class PrintService {
     commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
     for (String line in customerOrder['items'] ?? []) {
       commands.addAll([0x1B, 0x45, 0x01]); // ESC E 1 加粗
-      commands.addAll([0x1D, 0x21, 0x08]);
+      commands.addAll([0x1D, 0x21, 0x08]); // GS ! 8 标准字体
       commands.addAll(utf8.encode(line));
       commands.add(0x0A); // LF
+      commands.addAll([0x1D, 0x21, 0x00]); // GS ! 0 还原字体
       commands.addAll([0x1B, 0x45, 0x00]); // ESC E 0 取消加粗
     }
     
@@ -594,7 +595,6 @@ class PrintService {
       commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
       for (String line in notes) {
         commands.addAll([0x1B, 0x45, 0x01]); // ESC E 1 加粗
-        commands.addAll([0x1D, 0x21, 0x09]);
         commands.addAll(utf8.encode(line));
         commands.add(0x0A); // LF
         commands.addAll([0x1B, 0x45, 0x00]); // ESC E 0 取消加粗
@@ -605,9 +605,10 @@ class PrintService {
     for (String line in customerOrder['totals'] ?? []) {
       commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
       commands.addAll([0x1B, 0x45, 0x01]); // ESC E 1 加粗
-      commands.addAll([0x1D, 0x21, 0x08]);
+      commands.addAll([0x1D, 0x21, 0x09]);  // GS ! 9 标准字体+倍宽
       commands.addAll(utf8.encode(line));
       commands.add(0x0A); // LF
+      commands.addAll([0x1D, 0x21, 0x00]); // GS ! 0 还原字体
       commands.addAll([0x1B, 0x45, 0x00]); // ESC E 0 取消加粗
     }
     
@@ -628,19 +629,23 @@ class PrintService {
     // 解析后厨用小票内容
     final kitchenOrder = _parseKitchenReceipt(kitchenContent);
     
-    // 块1: 标题和订单号 - 左对齐，正常字体
-    commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
+    // 块1: 标题和订单号 - 居中对齐，正常字体
+    commands.addAll([0x1B, 0x61, 0x01]); // ESC a 1 居中对齐
     for (String line in kitchenOrder['header'] ?? []) {
+      commands.addAll([0x1D, 0x21, 0x09]); // GS ! 9 标准字体+倍宽
       commands.addAll(utf8.encode(line));
       commands.add(0x0A); // LF
+      commands.addAll([0x1D, 0x21, 0x00]); // GS ! 0 还原字体
     }
     
     // 块2: 菜品项目 - 左对齐，倍高显示
     commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
     for (String line in kitchenOrder['items'] ?? []) {
+      commands.addAll([0x1B, 0x45, 0x01]); // ESC E 1 加粗
       commands.addAll([0x1D, 0x21, 0x11]); // GS ! 16 倍高
       commands.addAll(utf8.encode(line));
       commands.add(0x0A); // LF
+      commands.addAll([0x1B, 0x45, 0x00]); // ESC E 0 取消加粗
       commands.addAll([0x1D, 0x21, 0x00]); // GS ! 0 还原字体
     }
     
@@ -652,13 +657,13 @@ class PrintService {
     }
 
     // 走纸和切纸
-    commands.addAll([0x0A, 0x0A, 0x0A, 0x0A, 0x0A]); // 5行走纸
+    commands.addAll([0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A]); // 5行走纸
     commands.addAll([0x1D, 0x56, 0x01]); // GS V 1 切纸
 
     return commands;
   }
 
-  /// 解析顾客用小票内容��分块返回
+  /// 解析顾客用小票内容分块返回
   Map<String, List<String>> _parseCustomerReceipt(String content) {
     final lines = content.split('\n');
     final result = {
@@ -672,36 +677,64 @@ class PrintService {
     
     String currentSection = 'header';
     
+    final sectionMap = {
+      '[HEADER]': 'header',
+      '[ORDER_INFO]': 'orderInfo',
+      '[ITEMS]': 'items',
+      '[NOTES]': 'notes',
+      '[TOTALS]': 'totals',
+      '[FOOTER]': 'footer',
+    };
+
     for (String line in lines) {
-      if (line.trim().isEmpty) continue;
-      
-      if (line.contains('ORDER #')) {
-        currentSection = 'orderInfo';
-        result[currentSection]!.add(line);
-      } else if (line.contains('--------------------------------') && currentSection == 'orderInfo') {
-        result[currentSection]!.add(line);
-        currentSection = 'items';
-      } else if (line.contains('Note:')) {
-        currentSection = 'notes';
-        result[currentSection]!.add(line);
-      } else if (line.contains('--------------------------------') && currentSection == 'items') {
-        currentSection = 'totals';
-        result[currentSection]!.add(line);
-      } else if (line.contains('Order Time:')) {
-        currentSection = 'footer';
-        result[currentSection]!.add(line);
-      } else if (line.contains('================================') && currentSection == 'totals') {
-        result[currentSection]!.add(line);
-        currentSection = 'footer';
-      } else {
-        result[currentSection]!.add(line);
+      if (sectionMap.containsKey(line.trim())) {
+        currentSection = sectionMap[line.trim()]!;
+        continue;
       }
+      if (line.trim().isEmpty) continue;
+      result[currentSection]!.add(line);
     }
     
     return result;
   }
 
-  /// 解析后厨用小票内容，分块返回
+  /// 后厨用小票模板（带分块标识）
+  Future<String> _generateKitchenReceiptTemplate(OrderModel order) async {
+    final items = jsonDecode(order.items) as List;
+    final StringBuffer content = StringBuffer();
+    // 分块标识：HEADER
+    content.writeln('[HEADER]');
+    content.writeln("------------------------------");
+    content.writeln("ORDER #"+order.orderNo);
+    content.writeln(order.type);
+    content.writeln("------------------------------");
+    // 分块标识：ITEMS
+    content.writeln('[ITEMS]');
+    for (var item in items) {
+      final name = item['name'] ?? '';
+      final quantity = item['quantity'] ?? 1;
+      if(order.type == 'dinein') {
+        content.writeln('*${name.toUpperCase()} x${quantity}'.padRight(18) + ' /E');
+      } else {
+        content.writeln('*${name.toUpperCase()} x${quantity}'.padRight(18) + ' /T');
+      }
+      // 打印options
+      if (item['options'] != null && item['options'] is List) {
+        for (var opt in item['options']) {
+          final optName = opt['option_name'] ?? '';
+            content.writeln('    - $optName');
+        }
+      }
+    }
+    content.writeln("------------------------");
+    // 分块标识：FOOTER
+    content.writeln('[FOOTER]');
+    content.writeln("Order Time: "+_formatDateTime(order.orderTime));
+    content.writeln("CLERK 001"); // 可扩展为实际操作员
+    return content.toString();
+  }
+
+  /// 解析后厨用小票内容，分块返回（忽略分块标识）
   Map<String, List<String>> _parseKitchenReceipt(String content) {
     final lines = content.split('\n');
     final result = {
@@ -709,176 +742,77 @@ class PrintService {
       'items': <String>[],
       'footer': <String>[],
     };
-    
     String currentSection = 'header';
-    
+    final sectionMap = {
+      '[HEADER]': 'header',
+      '[ITEMS]': 'items',
+      '[FOOTER]': 'footer',
+    };
     for (String line in lines) {
-      if (line.trim().isEmpty) continue;
-      
-      if (line.contains('ORDER #')) {
-        result[currentSection]!.add(line);
-      } else if (line.contains('--------------------------------') && currentSection == 'header') {
-        result[currentSection]!.add(line);
-        currentSection = 'items';
-      } else if (line.contains('--------------------------------') && currentSection == 'items') {
-        currentSection = 'footer';
-        result[currentSection]!.add(line);
-      } else if (line.contains('Order Time:') || line.contains('CLERK')) {
-        currentSection = 'footer';
-        result[currentSection]!.add(line);
-      } else {
-        result[currentSection]!.add(line);
+      if (sectionMap.containsKey(line.trim())) {
+        currentSection = sectionMap[line.trim()]!;
+        continue;
       }
+      if (line.trim().isEmpty) continue;
+      result[currentSection]!.add(line);
     }
-    
     return result;
   }
 
-  /// 测试打印样式命令（用于调试）
-  Future<void> testPrintStyles() async {
-    try {
-      List<int> testCommands = [];
-
-      // 基本初始化
-      testCommands.addAll([0x1B, 0x40]); // ESC @ 初始化
-
-      // 测试加粗命令
-      testCommands.addAll([0x1B, 0x45, 0x01]); // ESC E 1 加粗开
-      testCommands.addAll(utf8.encode("BOLD TEXT TEST\n"));
-      testCommands.addAll([0x1B, 0x45, 0x00]); // ESC E 0 加粗关
-
-      // 测试倍宽命令
-      testCommands.addAll([0x1D, 0x21, 0x20]); // GS ! 32 倍宽
-      testCommands.addAll(utf8.encode("DOUBLE WIDTH\n"));
-      testCommands.addAll([0x1D, 0x21, 0x00]); // GS ! 0 还原
-
-      // 测试倍高命令
-      testCommands.addAll([0x1D, 0x21, 0x10]); // GS ! 16 倍高
-      testCommands.addAll(utf8.encode("DOUBLE HEIGHT\n"));
-      testCommands.addAll([0x1D, 0x21, 0x00]); // GS ! 0 还原
-
-      // 正常内容
-      testCommands.addAll(utf8.encode("Normal text\n"));
-
-      // 测试走纸
-      testCommands.addAll([0x0A, 0x0A, 0x0A, 0x0A, 0x0A]); // 5个换行
-
-      // 切纸
-      testCommands.addAll([0x1D, 0x56, 0x01]); // GS V 1 切纸
-
-      await _sendToPrinterRaw(testCommands);
-      _logger.i('样式测试打印发送成功');
-    } catch (e) {
-      _logger.e('样式测试打印失败: $e');
-      rethrow;
-    }
-  }
-
-  /// 专门测试走纸效果的方法（测试多种走纸命令）
-  Future<void> testPaperFeed() async {
-    try {
-      List<int> testCommands = [];
-
-      // 基本初始化
-      testCommands.addAll([0x1B, 0x40]); // ESC @ 初始化
-
-      // 测试内容1 - 普通换行
-      testCommands.addAll(utf8.encode("=== 测试1: 普通换行 ===\n"));
-      testCommands.addAll(utf8.encode("这是普通换行测���\n"));
-      testCommands.addAll(utf8.encode("Line 1\n"));
-      testCommands.addAll(utf8.encode("Line 2\n"));
-      testCommands.addAll(utf8.encode("Line 3\n"));
-
-      // 测试内容2 - 多个LF走纸
-      testCommands.addAll(utf8.encode("=== 测试2: 5个LF走纸 ===\n"));
-      testCommands.addAll([0x0A, 0x0A, 0x0A, 0x0A, 0x0A]); // 5个LF
-
-      // 测试内容3 - ESC J n 走纸命令（如果支持）
-      testCommands.addAll(utf8.encode("=== 测试3: ESC J 走纸命令 ===\n"));
-      testCommands.addAll([0x1B, 0x4A, 60]); // ESC J 60 走纸约6mm
-
-      // 测试内容4 - 更多LF走纸
-      testCommands.addAll(utf8.encode("=== 测试4: 10个LF走纸 ===\n"));
-      testCommands.addAll([0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A]); // 10个LF
-
-      // 测试内容5 - ESC d n 走纸命令（另一种走纸命令）
-      testCommands.addAll(utf8.encode("=== 测试5: ESC d 走纸命令 ===\n"));
-      testCommands.addAll([0x1B, 0x64, 5]); // ESC d 5 走纸5行
-
-      // 测试内容6 - 组合走纸
-      testCommands.addAll(utf8.encode("=== 测试6: 组合走纸 ===\n"));
-      testCommands.addAll([0x0A, 0x0A, 0x0A]); // 3个LF
-      testCommands.addAll([0x1B, 0x4A, 40]); // ESC J 40
-      testCommands.addAll([0x0A, 0x0A]); // 2个LF
-
-      // 结束标记
-      testCommands.addAll(utf8.encode("=== 走纸测试结束 ===\n"));
-
-      // 最后大量走纸便于撕纸
-      testCommands.addAll([0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A]); // 10个LF
-
-      // 切纸
-      testCommands.addAll([0x1D, 0x56, 0x01]); // GS V 1 切纸
-
-      await _sendToPrinterRaw(testCommands);
-      _logger.i('走纸测试打印发送成功');
-    } catch (e) {
-      _logger.e('走纸测试打印失败: $e');
-      rethrow;
-    }
-  }
-
-  /// 顾客用小票模板（默认实现，后续可通过API获取模板）
+  /// 顾客用小票模板（带分块标识）
   Future<String> _generateCustomerReceiptTemplate(OrderModel order) async {
     final items = jsonDecode(order.items) as List;
     final StringBuffer content = StringBuffer();
-    // 店铺信息（可扩展为从设置或API获取）
-    content.writeln("----------Customer Rep---------");
+    // 分块标识：HEADER
+    content.writeln('[HEADER]');
     content.writeln("DAVE'S NOODLES");
     content.writeln("Shop 2/129 Wilson St");
     content.writeln("Burnie Tas. 7320");
     content.writeln("Phone -03 6431 8818");
     content.writeln("ABN 76 147 759 135");
     content.writeln("Tax Invoice /Receipt");
-    content.writeln("================================");
-    content.writeln("ORDER #${order.id}");
-    content.writeln("--------------------------------");
+    content.writeln("Type: " + (order.type ?? ""));
+    // 分块标识：ORDER_INFO
+    content.writeln('[ORDER_INFO]');
+    content.writeln("========================");
+    content.writeln("ORDER #"+order.orderNo);
+    content.writeln("------------------------");
+    // 分块标识：ITEMS
+    content.writeln('[ITEMS]');
     for (var item in items) {
       final name = item['name'] ?? '';
       final quantity = item['quantity'] ?? 1;
       final price = (item['price'] ?? 0).toDouble();
       final subtotal = quantity * price;
-      content.writeln('${name.padRight(20)} x${quantity}  \$${price.toStringAsFixed(2)} = \$${subtotal.toStringAsFixed(2)}');
-
+      content.writeln('${quantity} x ${name.padRight(28)}  \$${subtotal.toStringAsFixed(2)}');
+      // 打印options
+      if (item['options'] != null && item['options'] is List) {
+        for (var opt in item['options']) {
+          final optName = opt['option_name'] ?? '';
+          final optPrice = (opt['extra_price'] ?? 0).toDouble();
+          if (optPrice > 0) {
+            content.writeln('    - $optName (+\$${optPrice.toStringAsFixed(2)})');
+          } else {
+            content.writeln('    - $optName');
+          }
+        }
+      }
     }
-    content.writeln("--------------------------------");
-    content.writeln("CASH"); // 可扩展为实际支付方式
-    content.writeln(" \$${order.totalAmount.toStringAsFixed(2)}");
-    content.writeln("TAX SALES: \$${(order.totalAmount * 0.91).toStringAsFixed(2)}");
-    content.writeln("G.S.T.: \$${(order.totalAmount * 0.09).toStringAsFixed(2)}");
+    // 分块标识：NOTES
     if (order.note != null) {
-      content.writeln('Note: ${order.note}');
+      content.writeln('[NOTES]');
+      content.writeln('Note: ' + (order.note ?? ""));
     }
-    content.writeln("Order Time: ${_formatDateTime(order.orderTime)}");
+    // 分块标识：TOTALS
+    content.writeln('[TOTALS]');
+    content.writeln("-----------------------------------------------");
+    content.writeln("Total:".padRight(38)+"\$"+order.totalAmount.toStringAsFixed(2));
+    content.writeln("TAX SALES:".padRight(38)+"\$"+(order.totalAmount*0.91).toStringAsFixed(2));
+    content.writeln("G.S.T.".padRight(38)+"\$"+(order.totalAmount*0.09).toStringAsFixed(2));
+    // 分块标识：FOOTER
+    content.writeln('[FOOTER]');
+    content.writeln("Order Time: "+_formatDateTime(order.orderTime));
     content.writeln("================================");
-    return content.toString();
-  }
-
-  /// 后厨用小票模板（默认实现，后续可通过API获取模板���
-  Future<String> _generateKitchenReceiptTemplate(OrderModel order) async {
-    final items = jsonDecode(order.items) as List;
-    final StringBuffer content = StringBuffer();
-    content.writeln("----------Kitchen Rep-----------");
-    content.writeln("ORDER #${order.id}");
-    content.writeln("--------------------------------");
-    for (var item in items) {
-      final name = item['name'] ?? '';
-      final quantity = item['quantity'] ?? 1;
-      content.writeln('${name.toUpperCase()} x${quantity}');
-    }
-    content.writeln("--------------------------------");
-    content.writeln("Order Time: ${_formatDateTime(order.orderTime)}");
-    content.writeln("CLERK 001"); // 可扩展为实际操作员
     return content.toString();
   }
 }

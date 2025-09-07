@@ -88,7 +88,7 @@ class OrderService {
       _logger.i('订单本地落单成功: $orderId, 订单编号: $orderNo');
 
       // 第二步：异步打印（先打印小票）
-      await _addToPrintQueue(orderId);
+      await _addToPrintQueue(order);
 
       // 获取最新的订单（含最新printStatus）
       final printedOrder = await _databaseService.getOrder(orderId);
@@ -197,22 +197,22 @@ class OrderService {
   }
 
   /// 添加到打印队列
-  Future<void> _addToPrintQueue(String orderId) async {
+  Future<void> _addToPrintQueue(OrderModel order) async {
     try {
       // 调用打印服务
-      await _printService.printOrder(orderId);
+      await _printService.printOrderWithTemplates(order);
 
     } catch (e) {
-      _logger.e('添加到打印队列失败: $orderId, 错误: $e');
+      _logger.e('添加到打印队列失败: , 错误: $e');
 
       // 更新打印状态为失败
-      final order = await _databaseService.getOrder(orderId);
-      if (order != null) {
+      final dbOrder = await _databaseService.getOrder(order.id);
+      if (dbOrder != null) {
         await _databaseService.updateOrder(
-          order.copyWith(
+          dbOrder.copyWith(
             printStatus: PrintStatus.printFailed,
             errorMessage: '打印失败: $e',
-            retryCount: order.retryCount + 1,
+            retryCount: dbOrder.retryCount + 1,
             lastRetryTime: DateTime.now(),
           )
         );
@@ -220,7 +220,7 @@ class OrderService {
 
       // 记录日志
       await _databaseService.insertLog(LogModel(
-        orderId: orderId,
+        orderId: order.id,
         action: 'print',
         status: 'error',
         message: '打印失败: $e',
@@ -243,8 +243,9 @@ class OrderService {
   /// 手动重新打印订单
   Future<void> retryPrintOrder(String orderId) async {
     try {
+      final order = await _databaseService.getOrder(orderId);
       _logger.i('手动重试打印订单: $orderId');
-      await _addToPrintQueue(orderId);
+      await _addToPrintQueue(order!);
     } catch (e) {
       _logger.e('手动重试打印失败: $orderId, 错误: $e');
       rethrow;
@@ -305,7 +306,7 @@ class OrderService {
           continue;
         }
 
-        await _addToPrintQueue(order.id);
+        await _addToPrintQueue(order);
 
         // 延迟避免打印机压力过大
         await Future.delayed(Duration(seconds: 1));

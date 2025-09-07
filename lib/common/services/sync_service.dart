@@ -106,7 +106,7 @@ class SyncService {
       if (response.statusCode == 200 || response.statusCode == 201) {
         // 同步成功，更新本地状态
         await _updateOrderSyncSuccess(order);
-        _logger.i('订单����成功: $orderId');
+        _logger.i('订单同步成功: $orderId');
       } else {
         throw Exception('后端返回错误状态: ${response.statusCode}');
       }
@@ -187,7 +187,7 @@ class SyncService {
   Future<bool> checkNetworkConnectivity() async {
     try {
       final response = await _dio.get(
-        '/health', // 移除 /api ��缀，因为baseUrl已经包含了
+        '/health', // 移除 /api 前缀，因为baseUrl已经包含了
         options: Options(
           receiveTimeout: Duration(seconds: 5),
         ),
@@ -287,7 +287,7 @@ class SyncService {
   /// 获取认证Token（从本地存储或其他来源）
   Future<String> _getAuthToken() async {
     // 这里应该从安全存储中获取token
-    // 暂时返回空字符串，实��项��中需要实现
+    // 暂时返回空字符串，实际项目中需要实现
     return '';
   }
 
@@ -336,7 +336,7 @@ class SyncService {
       final response = await _dio.get('orders/fetch-new-order/$latestId');
       if (response.statusCode == 200 && response.data['success'] == true) {
         final List<dynamic> orders = response.data['data'] ?? [];
-        _logger.i('拉���到${orders.length}个新订单');
+        _logger.i('拉取到${orders.length}个新订单');
         for (final orderJson in orders) {
           print('拉取到新订单: ${const JsonEncoder.withIndent('  ').convert(orderJson)}');
           // 3. 插入server_orders表
@@ -346,17 +346,8 @@ class SyncService {
           // 4. 本地orders表去重
           final exists = await _databaseService.existsOrderByRemoteNumber(remoteOrderNumber);
           if (!exists) {
-            // 映射为OrderModel可用的Items
-            final items = (orderJson['items'] as List<dynamic>? ?? []).map((item) {
-              print(item);
-              return {
-                'id': item['product_id'],
-                'name': item['product_title'],
-                'price': double.tryParse(item['final_amount']?.toString() ?? '0') ?? 0.0,
-                'quantity': item['quantity'] ?? 1,
-              };
-            }).toList();
-
+            // 使用方法映射items和options
+            final items = _mapServerItemsToLocalItems(orderJson['items'] as List<dynamic>? ?? []);
             // 映射为本地OrderModel
             final orderModel = OrderModel(
               id: remoteOrderNumber, // 本地id用服务器order_number，保证唯一
@@ -394,5 +385,53 @@ class SyncService {
     } catch (e, stack) {
       _logger.e('同步服务器订单异常: $e\n$stack');
     }
+  }
+
+  /// 服务器items映射为本地OrderModel的items和options
+  List<Map<String, dynamic>> _mapServerItemsToLocalItems(List<dynamic> serverItems) {
+    return (serverItems ?? []).map((item) {
+      final customizations = item['customization'] as List<dynamic>? ?? [];
+      final List<Map<String, dynamic>> options = [];
+      for (final c in customizations) {
+        if (c['type'] == 'replacement') {
+          options.add({
+            'type': 'CHANGE',
+            'option_id': null,
+            'option_name': c['replacementName'],
+            'extra_price': double.tryParse(c['priceChange']?.toString() ?? '0') ?? 0.0,
+          });
+        } else if (c['type'] == 'quantity') {
+          final int original = int.tryParse(c['originalQuantity']?.toString() ?? '0') ?? 0;
+          final int current = int.tryParse(c['currentQuantity']?.toString() ?? '0') ?? 0;
+          final int diff = current - original;
+          if (diff > 0) {
+            final double priceChange = double.tryParse(c['priceChange']?.toString() ?? '0') ?? 0.0;
+            final double singlePrice = diff > 0 ? priceChange / diff : priceChange;
+            for (int i = 0; i < diff; i++) {
+              options.add({
+                'type': 'EXTRA',
+                'option_id': null,
+                'option_name': c['ingredientName'],
+                'extra_price': singlePrice,
+              });
+            }
+          } else if (diff < 0 && current == 0) {
+            options.add({
+              'type': 'NO',
+              'option_id': null,
+              'option_name': 'No ' + (c['ingredientName'] ?? ''),
+              'extra_price': 0.0,
+            });
+          }
+        }
+      }
+      return {
+        'id': item['product_id'],
+        'name': item['product_title'],
+        'price': double.tryParse(item['final_amount']?.toString() ?? '0') ?? 0.0,
+        'quantity': item['quantity'] ?? 1,
+        'options': options,
+      };
+    }).toList();
   }
 }

@@ -108,26 +108,27 @@ class OrderActionBarWidget extends StatelessWidget {
             ),
           ),
           // Custom按钮
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 3.0),
-              child: ElevatedButton.icon(
-                onPressed: onCustomAction,
-                icon: Icon(Icons.settings, size: 16),
-                label: Text('CUSTOM', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue[300],
-                  foregroundColor: Colors.white,
-                  elevation: 3,
-                  shadowColor: Colors.blue[200],
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-            ),
-          ),
+          // Expanded(
+          //   child: Padding(
+          //     padding: const EdgeInsets.symmetric(horizontal: 3.0),
+          //     child: ElevatedButton.icon(
+          //       onPressed: onCustomAction,
+          //       icon: Icon(Icons.settings, size: 16),
+          //       label: Text('CUSTOM', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600)),
+          //       style: ElevatedButton.styleFrom(
+          //         backgroundColor: Colors.blue[300],
+          //         foregroundColor: Colors.white,
+          //         elevation: 3,
+          //         shadowColor: Colors.blue[200],
+          //         padding: EdgeInsets.symmetric(vertical: 12),
+          //         shape: RoundedRectangleBorder(
+          //           borderRadius: BorderRadius.circular(8),
+          //         ),
+          //       ),
+          //     ),
+          //   ),
+          // ),
+
           // 拉单按钮
           Expanded(
             child: Padding(
@@ -135,12 +136,12 @@ class OrderActionBarWidget extends StatelessWidget {
               child: ElevatedButton.icon(
                 onPressed: onSyncRemoteOrders,
                 icon: Icon(Icons.cloud_download, size: 16),
-                label: Text('拉单', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                label: Text('SYNC', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green[400],
+                  backgroundColor: Colors.blueAccent,
                   foregroundColor: Colors.white,
                   elevation: 3,
-                  shadowColor: Colors.green[200],
+                  shadowColor: Colors.blue,
                   padding: EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
