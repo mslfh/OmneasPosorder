@@ -641,12 +641,27 @@ class PrintService {
     // 块2: 菜品项目 - 左对齐，倍高显示
     commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
     for (String line in kitchenOrder['items'] ?? []) {
+      // 每个菜品中间稍作间隔
+      if(line.startsWith('*')){
+        commands.addAll([0x0A]); // LF
+      }
       commands.addAll([0x1B, 0x45, 0x01]); // ESC E 1 加粗
       commands.addAll([0x1D, 0x21, 0x11]); // GS ! 16 倍高
       commands.addAll(utf8.encode(line));
       commands.add(0x0A); // LF
       commands.addAll([0x1B, 0x45, 0x00]); // ESC E 0 取消加粗
       commands.addAll([0x1D, 0x21, 0x00]); // GS ! 0 还原字体
+    }
+    // 备注信息
+    final kitchenNotes = kitchenOrder['notes'] ?? [];
+    if (kitchenNotes.isNotEmpty) {
+      commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
+      for (String line in kitchenNotes) {
+        commands.addAll([0x1B, 0x45, 0x01]); // ESC E 1 加粗
+        commands.addAll(utf8.encode(line));
+        commands.add(0x0A); // LF
+        commands.addAll([0x1B, 0x45, 0x00]); // ESC E 0 取消加粗
+      }
     }
     
     // 块3: 时间和结尾 - 左对齐，正常字体
@@ -713,18 +728,27 @@ class PrintService {
     for (var item in items) {
       final name = item['name'] ?? '';
       final quantity = item['quantity'] ?? 1;
+      List<String> lines = [];
       if(order.type == 'dinein') {
-        content.writeln('*${name.toUpperCase()} x${quantity}'.padRight(18) + ' /E');
+        lines.add('* ${name.toUpperCase()} x${quantity}'.padRight(18) + ' /E');
       } else {
-        content.writeln('*${name.toUpperCase()} x${quantity}'.padRight(18) + ' /T');
+        lines.add('* ${name.toUpperCase()} x${quantity}'.padRight(18) + ' /T');
       }
-      // 打印options
       if (item['options'] != null && item['options'] is List) {
         for (var opt in item['options']) {
           final optName = opt['option_name'] ?? '';
-            content.writeln('    - $optName');
+          lines.add('    - $optName');
         }
       }
+      for (var l in lines) {
+        content.writeln(l);
+      }
+      content.writeln(); // 菜品组之间加空行
+    }
+    //备注
+    if (order.note != null && order.note!.isNotEmpty) {
+      content.writeln('Note: ' + (order.note ?? ""));
+      content.writeln();
     }
     content.writeln("------------------------");
     // 分块标识：FOOTER

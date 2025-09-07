@@ -8,7 +8,6 @@ import '../../common/services/print_service.dart';
 import '../../common/services/api_service.dart';
 import '../../common/services/app_initialization_service.dart';
 import '../internal_app.dart';
-import 'login_page.dart';
 
 class SettingsPage extends StatefulWidget {
   @override
@@ -24,6 +23,9 @@ class _SettingsPageState extends State<SettingsPage> {
   late AppSettings _settings;
   bool _isLoading = true;
   bool _isSaving = false;
+  // 新增测试状态变量
+  bool _isTestingConnection = false;
+  bool _isTestingPrinter = false;
 
   // Form controllers
   final _apiUrlController = TextEditingController();
@@ -115,6 +117,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _testConnection() async {
+    setState(() => _isTestingConnection = true);
     try {
       final isConnected = await _syncService.checkNetworkConnectivity();
       if (isConnected) {
@@ -124,10 +127,13 @@ class _SettingsPageState extends State<SettingsPage> {
       }
     } catch (e) {
       _showErrorSnackBar('Connection test failed: $e');
+    } finally {
+      setState(() => _isTestingConnection = false);
     }
   }
 
   Future<void> _testPrinter() async {
+    setState(() => _isTestingPrinter = true);
     try {
       final isReady = await _printService.checkPrinterStatus();
       if (isReady) {
@@ -137,6 +143,8 @@ class _SettingsPageState extends State<SettingsPage> {
       }
     } catch (e) {
       _showErrorSnackBar('Printer test failed: $e');
+    } finally {
+      setState(() => _isTestingPrinter = false);
     }
   }
 
@@ -236,7 +244,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   controller: _apiUrlController,
                   decoration: InputDecoration(
                     labelText: 'API Server URL',
-                    hintText: 'https://api.example.com',
+                    hintText: 'http://127.0.0.1:8000/api',
                     prefixIcon: Icon(Icons.language),
                     border: OutlineInputBorder(),
                   ),
@@ -247,9 +255,11 @@ class _SettingsPageState extends State<SettingsPage> {
                   children: [
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: _testConnection,
-                        icon: Icon(Icons.wifi_find),
-                        label: Text('Test Connection'),
+                        onPressed: _isTestingConnection ? null : _testConnection,
+                        icon: _isTestingConnection
+                          ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                          : Icon(Icons.wifi_find),
+                        label: Text(_isTestingConnection ? 'Testing...' : 'Test Connection'),
                       ),
                     ),
                   ],
@@ -285,8 +295,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                   items: [
                     DropdownMenuItem(value: 'network', child: Text('Network Printer')),
-                    DropdownMenuItem(value: 'usb', child: Text('USB Printer')),
-                    DropdownMenuItem(value: 'bluetooth', child: Text('Bluetooth Printer')),
+                    // DropdownMenuItem(value: 'usb', child: Text('USB Printer')),
+                    // DropdownMenuItem(value: 'bluetooth', child: Text('Bluetooth Printer')),
                   ],
                   onChanged: (value) {
                     if (value != null) {
@@ -323,9 +333,11 @@ class _SettingsPageState extends State<SettingsPage> {
                   children: [
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: _testPrinter,
-                        icon: Icon(Icons.print_outlined),
-                        label: Text('Test Printer'),
+                        onPressed: _isTestingPrinter ? null : _testPrinter,
+                        icon: _isTestingPrinter
+                          ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                          : Icon(Icons.print_outlined),
+                        label: Text(_isTestingPrinter ? 'Testing...' : 'Test Printer'),
                       ),
                     ),
                   ],
@@ -376,7 +388,7 @@ class _SettingsPageState extends State<SettingsPage> {
               child: ElevatedButton.icon(
                 onPressed: _logout,
                 icon: Icon(Icons.logout),
-                label: Text('退出登录'),
+                label: Text('LOG OUT'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.red,
                   foregroundColor: Colors.white,

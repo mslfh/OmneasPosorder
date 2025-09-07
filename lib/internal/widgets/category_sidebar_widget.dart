@@ -78,7 +78,7 @@ class _CategorySidebarWidgetState extends State<CategorySidebarWidget> {
                     Icon(Icons.apps, size: 16, color: Colors.blue[600]),
                     SizedBox(width: 6),
                     Text(
-                      '全部',
+                      'ALL',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
@@ -119,7 +119,7 @@ class _CategorySidebarWidgetState extends State<CategorySidebarWidget> {
                             }
                           },
                           child: Container(
-                            height: 20,
+                            height: 30,
                             padding: EdgeInsets.symmetric(horizontal: 8),
                             alignment: Alignment.centerLeft,
                             child: Row(

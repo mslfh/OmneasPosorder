@@ -3,7 +3,6 @@ import 'package:hive/hive.dart';
 import 'pages/order_page.dart';
 import 'pages/report_page.dart';
 import 'pages/settings_page.dart';
-import 'pages/place_order_page.dart';
 import 'pages/order_list_page.dart';
 import 'pages/login_page.dart';
 import '../../common/services/api_service.dart';
@@ -17,7 +16,6 @@ class _InternalAppState extends State<InternalApp> {
   int _selectedIndex = 0;
   final List<Widget> _pages = [
     OrderPage(),
-    PlaceOrderPage(),
     OrderListPage(),
     ReportPage(),
     SettingsPage(),
@@ -92,10 +90,6 @@ class _InternalAppState extends State<InternalApp> {
           BottomNavigationBarItem(
             icon: Icon(Icons.restaurant_menu),
             label: 'Menu',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.add_shopping_cart),
-            label: 'Order Demo',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.receipt_long),

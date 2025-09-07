@@ -97,11 +97,10 @@ class OrderService {
       if (printedOrder != null) {
         _syncToBackendWithPrintStatus(printedOrder);
       } else {
-        // fallback: 兼容老逻辑
-        _syncToBackend(orderId);
+        _logger.w('无法找到打印后的订单进行同步: $orderId');
       }
-
-      return orderId;
+      // 返回订单编号
+      return orderNo;
 
     } catch (e) {
       _logger.e('下单失败: $orderId, 错误: $e');
@@ -156,46 +155,6 @@ class OrderService {
     }
   }
 
-  /// 异步同步到后端
-  Future<void> _syncToBackend(String orderId) async {
-    try {
-      // 更新状态为pending_sync
-      final order = await _databaseService.getOrder(orderId);
-      if (order == null) return;
-
-      await _databaseService.updateOrder(
-        order.copyWith(orderStatus: OrderStatus.pendingSync)
-      );
-
-      // 调用同步服务
-      await _syncService.syncOrder(orderId);
-
-    } catch (e) {
-      _logger.e('同步到后端失败: $orderId, 错误: $e');
-
-      // 更新错误信息和重试计数
-      final order = await _databaseService.getOrder(orderId);
-      if (order != null) {
-        await _databaseService.updateOrder(
-          order.copyWith(
-            errorMessage: '同步失败: $e',
-            retryCount: order.retryCount + 1,
-            lastRetryTime: DateTime.now(),
-          )
-        );
-      }
-
-      // 记录日志
-      await _databaseService.insertLog(LogModel(
-        orderId: orderId,
-        action: 'sync',
-        status: 'error',
-        message: '同步失败: $e',
-        timestamp: DateTime.now(),
-      ));
-    }
-  }
-
   /// 添加到打印队列
   Future<void> _addToPrintQueue(OrderModel order) async {
     try {
@@ -232,8 +191,12 @@ class OrderService {
   /// 手动重新同步订单
   Future<void> retrySyncOrder(String orderId) async {
     try {
+      final order = await _databaseService.getOrder(orderId);
+      if (order == null) {
+        throw Exception('订单不存在: $orderId');
+      }
       _logger.i('手动重试同步订单: $orderId');
-      await _syncToBackend(orderId);
+      await _syncToBackendWithPrintStatus(order);
     } catch (e) {
       _logger.e('手动重试同步失败: $orderId, 错误: $e');
       rethrow;
@@ -273,7 +236,7 @@ class OrderService {
           continue;
         }
 
-        await _syncToBackend(order.id);
+        await _syncToBackendWithPrintStatus(order);
 
         // 避免并发过多，延迟一下
         await Future.delayed(Duration(milliseconds: 500));

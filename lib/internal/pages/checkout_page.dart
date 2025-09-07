@@ -476,10 +476,17 @@ class _CheckoutPageState extends State<CheckoutPage> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Order ID: ${orderId.substring(0, 8)}'),
+            Text('Order ID: ${orderId} - $orderType'),
+            SizedBox(height: 8),
+            Text('Note: ${_noteController.text.trim().isEmpty ? 'None' : _noteController.text.trim()}'),
+            SizedBox(height: 8),
+            Text('Paid By: ${isCash ? 'Cash' : 'POS'}'),
             SizedBox(height: 8),
             Text('Total Amount: \$${totalAmount.toStringAsFixed(2)}'),
-            SizedBox(height: 12),
+            SizedBox(height: 8),
+            Text('Change: \$${keepChange ? '0.00 (Kept)' : change < 0 ? change.toStringAsFixed(2) + '(Insufficient！)' : change.toStringAsFixed(2)}'),
+            SizedBox(height: 8),
+
             Container(
               padding: EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -503,11 +510,11 @@ class _CheckoutPageState extends State<CheckoutPage> {
                   SizedBox(height: 4),
                   Row(
                     children: [
-                      Icon(Icons.sync, color: Colors.orange, size: 16),
+                      Icon(Icons.sync, color: Colors.deepOrangeAccent, size: 16),
                       SizedBox(width: 4),
                       Text(
-                        'Syncing to server in background',
-                        style: TextStyle(color: Colors.orange, fontSize: 12),
+                        'Syncing to server',
+                        style: TextStyle(color: Colors.deepOrangeAccent, fontSize: 12),
                       ),
                     ],
                   ),
@@ -517,7 +524,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                       Icon(Icons.print, color: Colors.blue, size: 16),
                       SizedBox(width: 4),
                       Text(
-                        'Sending to printer in background',
+                        'Sending to printer',
                         style: TextStyle(color: Colors.blue, fontSize: 12),
                       ),
                     ],
