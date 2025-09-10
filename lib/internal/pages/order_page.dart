@@ -7,6 +7,7 @@ import '../../common/models/category.dart';
 import '../../common/services/api_service.dart';
 import '../../common/models/menu_option.dart';
 import '../../common/services/sync_service.dart';
+import '../keyboard_handlers/action_key_handler.dart';
 import '../utils/quick_input_manager.dart';
 import '../widgets/quick_input_overlay.dart';
 import 'checkout_page.dart';
@@ -80,17 +81,7 @@ class _OrderPageState extends State<OrderPage> {
         playClickSound: _playClickSound,
       ),
     );
-    // Enter键：快捷输入选择
-    _keyboardEventHandler.addHandler(
-      enterKeyHandler(
-        quickInputManager: _quickInputManager,
-        addProductIntelligently: _addProductIntelligently,
-        playClickSound: _playClickSound,
-        clearQuickInput: _quickInputManager.clear,
-        removeQuickInputOverlay: _removeQuickInputOverlay,
-        refreshUI: () => setState(() {}),
-      ),
-    );
+
     // 方向键：切换已点菜品区
     _keyboardEventHandler.addHandler(
       navigationKeyHandler(
@@ -99,12 +90,53 @@ class _OrderPageState extends State<OrderPage> {
         playClickSound: _playClickSound,
       ),
     );
-    // 快捷输入处理（字母/Backspace/ESC/上下箭头等）
+
+    // 快捷输入处理（字母/Backspace/ESC/上下箭头等）- 必须在Enter键处理器之前
     _keyboardEventHandler.addHandler(
       quickInputHandler(
         quickInputManager: _quickInputManager,
         updateQuickInputOverlay: _updateQuickInputOverlay,
         setState: setState,
+      ),
+    );
+
+    // Enter键：快捷输入选择 + 下单 - 必须在快捷输入处理器之后
+    _keyboardEventHandler.addHandler(
+      enterKeyHandler(
+        quickInputManager: _quickInputManager,
+        addProductIntelligently: _addProductIntelligently,
+        playClickSound: _playClickSound,
+        clearQuickInput: _quickInputManager.clear,
+        removeQuickInputOverlay: _removeQuickInputOverlay,
+        refreshUI: () => setState(() {}),
+        onOrder: () {
+          // 动态检查是否有菜品，而不是在注册时检查
+          if (orderedProducts.isNotEmpty) {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => CheckoutPage(
+                  orderedProducts: orderedProducts,
+                ),
+              ),
+            );
+          }
+        },
+        hasOrderedProducts: () => orderedProducts.isNotEmpty,
+      ),
+    );
+
+    // 操作键：Backspace (VOID) 和 Delete (CLEAR)
+    _keyboardEventHandler.addHandler(
+      actionKeyHandler(
+        orderedProducts: orderedProducts,
+        selectedOrderedProduct: selectedOrderedProduct,
+        voidOrder: _voidOrder,
+        clearOrder: _clearOrder,
+        playClickSound: _playClickSound,
+        setSelectedOrderedProduct: (product) => setState(() {
+          selectedOrderedProduct = product;
+        }),
+        refreshUI: () => setState(() {}),
       ),
     );
     // 你可以继续添加更多 handler ...
@@ -1034,6 +1066,7 @@ class _OrderPageState extends State<OrderPage> {
                               Expanded(
                                 child: MenuGridWidget(
                                   products: products,
+                                  categories: categories, // 新增
                                   isLoading: isLoading,
                                   error: error,
                                   onTap: (item) async {
@@ -1074,14 +1107,19 @@ class _OrderPageState extends State<OrderPage> {
                     onCustomAction: _customAction,
                     onOrder: orderedProducts.isEmpty
                         ? null
-                        : () {
-                            Navigator.of(context).push(
+                        : () async {
+                            final result = await Navigator.of(context).push(
                               MaterialPageRoute(
                                 builder: (context) => CheckoutPage(
                                   orderedProducts: orderedProducts,
                                 ),
                               ),
                             );
+                            if (result == true) {
+                              setState(() {
+                                orderedProducts.clear(); // 清空已点菜品
+                              });
+                            }
                           },
                     orderedCount: orderedProducts.length,
                     orderEnabled: orderedProducts.isNotEmpty,

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../common/models/menu_item.dart';
+import '../../common/models/category.dart';
+import '../utils/category_color_mapper.dart';
 
 class MenuGridWidget extends StatelessWidget {
   final List<MenuItem> products;
+  final List<Category> categories; // 新增
   final bool isLoading;
   final String? error;
   final void Function(MenuItem) onTap;
@@ -13,6 +16,7 @@ class MenuGridWidget extends StatelessWidget {
   const MenuGridWidget({
     Key? key,
     required this.products,
+    required this.categories, // 新增
     required this.isLoading,
     required this.error,
     required this.onTap,
@@ -57,6 +61,10 @@ class MenuGridWidget extends StatelessWidget {
       itemCount: products.length,
       itemBuilder: (context, index) {
         final item = products[index];
+        // 获取分类背景色
+        final backgroundColor = CategoryColorMapper.getCategoryBackgroundColor(item.categoryIds, categories);
+        final borderColor = CategoryColorMapper.getCategoryBorderColor(item.categoryIds, categories);
+
         return LayoutBuilder(
           builder: (context, cardConstraints) {
             final isPressed = isCardPressed && pressedCardIndex == index;
@@ -80,7 +88,7 @@ class MenuGridWidget extends StatelessWidget {
                   shadowColor: Colors.grey[300],
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
-                    side: BorderSide(color: Colors.grey[200]!, width: 1),
+                    side: BorderSide(color: borderColor, width: 1),
                   ),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(8),
@@ -90,7 +98,7 @@ class MenuGridWidget extends StatelessWidget {
                         gradient: LinearGradient(
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
-                          colors: [Colors.white, Colors.grey[50]!],
+                          colors: [backgroundColor, backgroundColor.withOpacity(0.8)],
                         ),
                       ),
                       child: Stack(

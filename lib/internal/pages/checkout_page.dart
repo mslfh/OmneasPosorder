@@ -19,7 +19,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _amountInputFocusNode = FocusNode(); // 金额输入框的焦点节点
   final TextEditingController _noteController = TextEditingController(); // 订单备注输入框
+  final FocusNode _noteInputFocusNode = FocusNode(); // 备注输入框的焦点节点
   bool keepChange = false; // 新增：是否放弃找零
+  bool isPlacingOrder = false; // 新增：下单任务进行中状态
 
   @override
   void initState() {
@@ -36,6 +38,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
     _controller.dispose();
     _amountInputFocusNode.dispose();
     _noteController.dispose();
+    _noteInputFocusNode.dispose(); // 添加备注输入框焦点节点的dispose
     super.dispose();
   }
 
@@ -85,6 +88,18 @@ class _CheckoutPageState extends State<CheckoutPage> {
               updateReceivedAmount(totalPrice);
             });
             return KeyEventResult.handled; // 标记事件已处理
+          }
+        }
+        // 处理 Enter 和 Esc 键
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.enter) {
+            // Enter 键：触发下单
+            _placeOrder();
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.escape) {
+            // Esc 键：返回上一个页面
+            Navigator.of(context).pop();
+            return KeyEventResult.handled;
           }
         }
         return KeyEventResult.ignored; // 未处理的事件继续传递
@@ -311,6 +326,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                     hintText: 'Enter order note (optional)',
                   ),
                   maxLines: 1,
+                  focusNode: _noteInputFocusNode, // 绑定焦点节点
                 ),
                 SizedBox(height: 16),
                 // Change 显示（仅一处）
@@ -372,7 +388,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     ElevatedButton(
-                      onPressed: () async {
+                      onPressed: isPlacingOrder ? null : () async {
+                        setState(() { isPlacingOrder = true; });
                         try {
                           final orderService = OrderService();
 
@@ -423,14 +440,14 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
                           // 显示成功对话框
                           _showOrderSuccessDialog(orderId, totalAmount);
-
                         } catch (e) {
-                          // 显示错误对话框
                           _showErrorDialog('Order placement failed: $e');
+                        } finally {
+                          setState(() { isPlacingOrder = false; });
                         }
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
+                        backgroundColor: isPlacingOrder ? Colors.grey : Colors.green,
                         foregroundColor: Colors.white,
                         padding: EdgeInsets.symmetric(vertical: 16, horizontal: 32),
                         textStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -444,7 +461,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                         children: [
                           Icon(Icons.shopping_cart_checkout, size: 20),
                           SizedBox(width: 8),
-                          Text('Place Order'),
+                          Text(isPlacingOrder ? 'Placing Order...' : 'Place Order'),
                         ],
                       ),
                     ),
@@ -461,101 +478,111 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
   /// Show order success dialog
   void _showOrderSuccessDialog(String orderId, double totalAmount) {
+    final continueButtonFocusNode = FocusNode();
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.green, size: 32),
-            SizedBox(width: 8),
-            Text('Order Placed Successfully'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Order ID: ${orderId} - $orderType'),
-            SizedBox(height: 8),
-            Text('Note: ${_noteController.text.trim().isEmpty ? 'None' : _noteController.text.trim()}'),
-            SizedBox(height: 8),
-            Text('Paid By: ${isCash ? 'Cash' : 'POS'}'),
-            SizedBox(height: 8),
-            Text('Total Amount: \$${totalAmount.toStringAsFixed(2)}'),
-            SizedBox(height: 8),
-            Text('Change: \$${keepChange ? '0.00 (Kept)' : change < 0 ? change.toStringAsFixed(2) + '(Insufficient！)' : change.toStringAsFixed(2)}'),
-            SizedBox(height: 8),
+      builder: (context) {
+        // 弹窗构建后自动让 Continue 按钮获取焦点
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (continueButtonFocusNode.canRequestFocus) {
+            continueButtonFocusNode.requestFocus();
+          }
+        });
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.green, size: 32),
+              SizedBox(width: 8),
+              Text('Order Placed Successfully'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Order ID: ${orderId} - $orderType'),
+              SizedBox(height: 8),
+              Text('Note: ${_noteController.text.trim().isEmpty ? 'None' : _noteController.text.trim()}'),
+              SizedBox(height: 8),
+              Text('Paid By: ${isCash ? 'Cash' : 'POS'}'),
+              SizedBox(height: 8),
+              Text('Total Amount: \$${totalAmount.toStringAsFixed(2)}'),
+              SizedBox(height: 8),
+              Text('Change: \$${keepChange ? '0.00 (Kept)' : change < 0 ? change.toStringAsFixed(2) + '(Insufficient！)' : change.toStringAsFixed(2)}'),
+              SizedBox(height: 8),
 
-            Container(
-              padding: EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue.withOpacity(0.3)),
+              Container(
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.check_circle, color: Colors.green, size: 16),
+                        SizedBox(width: 4),
+                        Text(
+                          'Order saved locally',
+                          style: TextStyle(color: Colors.green, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.sync, color: Colors.deepOrangeAccent, size: 16),
+                        SizedBox(width: 4),
+                        Text(
+                          'Syncing to server',
+                          style: TextStyle(color: Colors.deepOrangeAccent, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.print, color: Colors.blue, size: 16),
+                        SizedBox(width: 4),
+                        Text(
+                          'Sending to printer',
+                          style: TextStyle(color: Colors.blue, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.check_circle, color: Colors.green, size: 16),
-                      SizedBox(width: 4),
-                      Text(
-                        'Order saved locally',
-                        style: TextStyle(color: Colors.green, fontSize: 12),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Icon(Icons.sync, color: Colors.deepOrangeAccent, size: 16),
-                      SizedBox(width: 4),
-                      Text(
-                        'Syncing to server',
-                        style: TextStyle(color: Colors.deepOrangeAccent, fontSize: 12),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Icon(Icons.print, color: Colors.blue, size: 16),
-                      SizedBox(width: 4),
-                      Text(
-                        'Sending to printer',
-                        style: TextStyle(color: Colors.blue, fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              focusNode: continueButtonFocusNode,
+              onPressed: () {
+                Navigator.of(context).pop(true); // 返回 true，通知上层清空点单
+                Navigator.of(context).pop(); // Return to previous page
+              },
+              child: Text('Continue'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop(); // Close dialog
+                Navigator.of(context).pop(); // Return to previous page
+                // Navigate to order management
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => OrderListPage()),
+                );
+              },
+              child: Text('View Orders'),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop(); // Close dialog
-              Navigator.of(context).pop(); // Return to previous page
-            },
-            child: Text('Continue'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).pop(); // Close dialog
-              Navigator.of(context).pop(); // Return to previous page
-              // Navigate to order management
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => OrderListPage()),
-              );
-            },
-            child: Text('View Orders'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -563,6 +590,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
   void _showErrorDialog(String message) {
     showDialog(
       context: context,
+      barrierDismissible: true, // 修正参数名
       builder: (context) => AlertDialog(
         title: Row(
           children: [
@@ -588,5 +616,65 @@ class _CheckoutPageState extends State<CheckoutPage> {
         ],
       ),
     );
+  }
+
+  /// 下单方法，提取为单独函数以便重用
+  void _placeOrder() async {
+    setState(() { isPlacingOrder = true; });
+    try {
+      final orderService = OrderService();
+
+      // 准备订单项目
+      final orderItems = widget.orderedProducts.map((p) {
+        // 计算选项的额外费用
+        final options = p.options.map((o) => {
+          'type': o.type,
+          'option_id': o.option.id,
+          'option_name': o.option.name,
+          'extra_price': o.option.extraCost, // 添加选项的额外费用
+        }).toList();
+
+        return {
+          'id': p.product.id,
+          'name': p.product.title,
+          'price': p.product.sellingPrice,
+          'quantity': p.quantity,
+          'options': options,
+        };
+      }).toList();
+
+      // 计算总金额
+      double totalAmount = 0;
+      for (var product in widget.orderedProducts) {
+        double itemTotal = product.product.sellingPrice;
+        for (var option in product.options) {
+          itemTotal += option.option.extraCost;
+        }
+        totalAmount += itemTotal * product.quantity;
+      }
+
+      // 下单，包含所有新增字段
+      final orderId = await orderService.placeOrder(
+        items: orderItems,
+        totalAmount: totalAmount,
+        discountAmount: 0.0, // 默认无折扣
+        taxRate: 10.0,      // 默认税率 10%
+        serviceFee: 0.0,    // 默认无服务费
+        cashAmount: isCash ? receivedAmount : 0.0,
+        posAmount: isCash ? 0.0 : receivedAmount,
+        note: _noteController.text.trim(),
+        type: orderType == 'DINE IN' ? 'dinein' : 'takeaway',
+        cashChange: isCash ? (keepChange ? 0.0 : double.parse((receivedAmount - totalAmount).toStringAsFixed(2))) : 0.0, // 放弃找零逻辑
+        voucherAmount: 0.0, // 新增券金额字段，默认为0.00
+      );
+      setState(() { keepChange = false; }); // 下单后重置
+
+      // 显示成功对话框
+      _showOrderSuccessDialog(orderId, totalAmount);
+    } catch (e) {
+      _showErrorDialog('Order placement failed: $e');
+    } finally {
+      setState(() { isPlacingOrder = false; });
+    }
   }
 }
