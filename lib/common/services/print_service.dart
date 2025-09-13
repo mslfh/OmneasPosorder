@@ -641,12 +641,16 @@ class PrintService {
     // 块2: 菜品项目 - 左对齐，倍高显示
     commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
     for (String line in kitchenOrder['items'] ?? []) {
-      // 每个菜品中间稍作间隔
+      commands.addAll([0x1B, 0x45, 0x01]); // ESC E 1 加粗
+      // 菜品
       if(line.startsWith('*')){
         commands.addAll([0x0A]); // LF
+        commands.addAll([0x1D, 0x21, 0x11]); // GS ! 16 倍高
       }
-      commands.addAll([0x1B, 0x45, 0x01]); // ESC E 1 加粗
-      commands.addAll([0x1D, 0x21, 0x11]); // GS ! 16 倍高
+      // 选项
+      else{
+        commands.addAll([0x1D, 0x21, 0x11]); // GS ! 10 标准字体+倍宽
+      }
       commands.addAll(utf8.encode(line));
       commands.add(0x0A); // LF
       commands.addAll([0x1B, 0x45, 0x00]); // ESC E 0 取消加粗
@@ -655,6 +659,7 @@ class PrintService {
     // 备注信息
     final kitchenNotes = kitchenOrder['notes'] ?? [];
     if (kitchenNotes.isNotEmpty) {
+      commands.addAll([0x0A]); // LF
       commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 左对齐
       for (String line in kitchenNotes) {
         commands.addAll([0x1B, 0x45, 0x01]); // ESC E 1 加粗

@@ -43,6 +43,9 @@ class OrderModel {
   final int? remoteOrderId;      // 服务器订单id
   final String? remoteOrderNumber; // 服务器订单号
 
+  // 是否为服务器拉取订单
+  bool get isOnlineOrder => remoteOrderId != null;
+
   OrderModel({
     required this.id,
     required this.orderNo,

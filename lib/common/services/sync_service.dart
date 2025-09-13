@@ -51,6 +51,11 @@ class SyncService {
       if (order == null) {
         throw Exception('订单不存在: $orderId');
       }
+      // 新增：如果是服务器订单，直接跳过同步
+      if (order.isOnlineOrder) {
+        _logger.i('Online Order不需要同步到服务器: $orderId');
+        return;
+      }
 
       // 打印原始订单数据
       print('\n========== 订单同步开始 ==========');
@@ -327,9 +332,9 @@ class SyncService {
   Future<void> fetchAndSyncRemoteOrders() async {
     try {
       // 1. 获取本地已同步的最大 remote_order_id
-      //int latestId = await _databaseService.getMaxRemoteOrderId() ?? 0;
+      int latestId = await _databaseService.getMaxRemoteOrderId() ?? 0;
       //Debug for 0
-      int latestId = 6;
+      // int latestId = 9;
       _logger.i('本地最新remote_order_id: $latestId');
 
       // 2. 拉取服务器新订单
@@ -340,7 +345,7 @@ class SyncService {
         for (final orderJson in orders) {
           print('拉取到新订单: ${const JsonEncoder.withIndent('  ').convert(orderJson)}');
           // 3. 插入server_orders表
-          // await _databaseService.insertServerOrder(orderJson);
+          await _databaseService.insertServerOrder(orderJson);
           final remoteOrderNumber = orderJson['order_number'];
           final remoteOrderId = orderJson['id'];
           // 4. 本地orders表去重
@@ -360,7 +365,7 @@ class SyncService {
               serviceFee: 0.0,
               cashAmount: 0.0, // 线下支付，初始为0
               posAmount: 0.0,  // 线下支付，初始为0
-              orderStatus: OrderStatus.pending,
+              orderStatus: OrderStatus.synced, // 服务器订单状态应为已同步
               printStatus: PrintStatus.pending,
               note: orderJson['note'],
               type: orderJson['type'],
@@ -369,8 +374,18 @@ class SyncService {
               remoteOrderId: remoteOrderId,
               remoteOrderNumber: remoteOrderNumber,
             );
-            // await _databaseService.insertOrder(orderModel);
+
+            // 插入本地orders表并触发打印
+            await _databaseService.insertOrder(orderModel);
             _logger.i('新订单已同步到本地并待打印: $remoteOrderNumber');
+            // 记录拉取日志
+            await _databaseService.insertLog(LogModel(
+              orderId: orderModel.id,
+              action: 'fetch_remote',
+              status: 'success',
+              message: '服务器新订单已拉取并同步到本地',
+              timestamp: DateTime.now(),
+            ));
             // 触发打印流程
             final printService = PrintService();
             // 使用样式打印双联小票（顾客用+后厨用）
@@ -382,6 +397,7 @@ class SyncService {
       } else {
         _logger.w('拉取服务器订单失败: ${response.data['message'] ?? response.statusMessage}');
       }
+
     } catch (e, stack) {
       _logger.e('同步服务器订单异常: $e\n$stack');
     }
@@ -397,7 +413,7 @@ class SyncService {
           options.add({
             'type': 'CHANGE',
             'option_id': null,
-            'option_name': c['replacementName'],
+            'option_name': '${c['originalName']}->${c['replacementName']}',
             'extra_price': double.tryParse(c['priceChange']?.toString() ?? '0') ?? 0.0,
           });
         } else if (c['type'] == 'quantity') {
@@ -411,7 +427,7 @@ class SyncService {
               options.add({
                 'type': 'EXTRA',
                 'option_id': null,
-                'option_name': c['ingredientName'],
+                'option_name': 'EXTRA ${c['ingredientName']}' ,
                 'extra_price': singlePrice,
               });
             }
@@ -419,7 +435,7 @@ class SyncService {
             options.add({
               'type': 'NO',
               'option_id': null,
-              'option_name': 'No ' + (c['ingredientName'] ?? ''),
+              'option_name': 'No ${c['ingredientName']}',
               'extra_price': 0.0,
             });
           }

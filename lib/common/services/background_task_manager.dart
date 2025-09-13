@@ -11,6 +11,7 @@ class BackgroundTaskManager {
   static const String syncTaskName = 'order_sync_task';
   static const String printTaskName = 'print_retry_task';
   static const String maintenanceTaskName = 'maintenance_task';
+  static const String fetchRemoteOrdersTaskName = 'fetch_remote_orders_task'; // 新增任务名
 
   // 单例模式
   static BackgroundTaskManager? _instance;
@@ -25,6 +26,7 @@ class BackgroundTaskManager {
   static Timer? _syncTimer;
   static Timer? _printTimer;
   static Timer? _maintenanceTimer;
+  static Timer? _fetchRemoteOrdersTimer; // 新增定时器
 
   /// 检查是否为移动平台
   bool get _isMobilePlatform => Platform.isAndroid || Platform.isIOS;
@@ -59,6 +61,17 @@ class BackgroundTaskManager {
         await _executeSyncTask();
       } catch (e) {
         _logger.e('桌面平台同步任务失败: $e');
+      }
+    });
+
+    // 拉取服务器新订单任务 - 每5秒执行一次
+    _fetchRemoteOrdersTimer = Timer.periodic(Duration(seconds: 5), (timer) async {
+      try {
+        print('拉取服务器新订单任务');
+        final syncService = SyncService();
+        await syncService.fetchAndSyncRemoteOrders();
+      } catch (e) {
+        _logger.e('拉取服务器新订单任务失败: $e');
       }
     });
 
@@ -128,6 +141,20 @@ class BackgroundTaskManager {
         ),
       );
 
+      // 拉取服务器新订单任务 - 每5秒执行一次
+      await Workmanager().registerPeriodicTask(
+        fetchRemoteOrdersTaskName,
+        fetchRemoteOrdersTaskName,
+        frequency: Duration(seconds: 5),
+        constraints: Constraints(
+          networkType: NetworkType.connected, // 需要网络连接
+          requiresBatteryNotLow: false,
+          requiresCharging: false,
+          requiresDeviceIdle: false,
+          requiresStorageNotLow: false,
+        ),
+      );
+
       _logger.i('定期任务注册成功');
 
     } catch (e) {
@@ -193,9 +220,11 @@ class BackgroundTaskManager {
         _syncTimer?.cancel();
         _printTimer?.cancel();
         _maintenanceTimer?.cancel();
+        _fetchRemoteOrdersTimer?.cancel(); // 新增取消逻辑
         _syncTimer = null;
         _printTimer = null;
         _maintenanceTimer = null;
+        _fetchRemoteOrdersTimer = null;
         _logger.i('所有后台任务已取消（桌面平台）');
       }
     } catch (e) {
@@ -223,6 +252,10 @@ class BackgroundTaskManager {
           case maintenanceTaskName:
             _maintenanceTimer?.cancel();
             _maintenanceTimer = null;
+            break;
+          case fetchRemoteOrdersTaskName:
+            _fetchRemoteOrdersTimer?.cancel();
+            _fetchRemoteOrdersTimer = null;
             break;
         }
         _logger.i('任务已取消: $taskName（桌面平台）');
@@ -253,6 +286,11 @@ void callbackDispatcher() {
 
         case BackgroundTaskManager.maintenanceTaskName:
           await _executeMaintenanceTask();
+          break;
+
+        case BackgroundTaskManager.fetchRemoteOrdersTaskName: // 新增任务处理
+          final syncService = SyncService();
+          await syncService.fetchAndSyncRemoteOrders();
           break;
 
         default:

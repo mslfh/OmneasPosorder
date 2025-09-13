@@ -203,9 +203,22 @@ class _OrderListPageState extends State<OrderListPage> {
             color: Colors.white,
           ),
         ),
-        title: Text(
-          'Order ${order.id.substring(0, 8)}',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: Row(
+          children: [
+            Text(
+              'Order ${order.id.substring(0, 8)}',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            if (order.isOnlineOrder) ...[
+              SizedBox(width: 8),
+              Chip(
+                label: Text('Online Order', style: TextStyle(fontSize: 10, color: Colors.blueAccent)),
+                backgroundColor: Colors.transparent,
+                side: BorderSide(color: Colors.blueAccent, width: 1),
+                padding: EdgeInsets.symmetric(horizontal:4, vertical: 0),
+              ),
+            ],
+          ],
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
