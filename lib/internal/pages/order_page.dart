@@ -72,16 +72,6 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   void _registerKeyboardHandlers() {
-    // 数字键：设置数量
-    _keyboardEventHandler.addHandler(
-      digitKeyHandler(
-        quickInputManager: _quickInputManager,
-        orderedProducts: orderedProducts,
-        setProductQuantity: _setProductQuantity,
-        playClickSound: _playClickSound,
-      ),
-    );
-
     // 方向键：切换已点菜品区
     _keyboardEventHandler.addHandler(
       navigationKeyHandler(
@@ -97,6 +87,16 @@ class _OrderPageState extends State<OrderPage> {
         quickInputManager: _quickInputManager,
         updateQuickInputOverlay: _updateQuickInputOverlay,
         setState: setState,
+      ),
+    );
+
+    // 数字键：设置数量
+    _keyboardEventHandler.addHandler(
+      digitKeyHandler(
+        quickInputManager: _quickInputManager,
+        orderedProducts: orderedProducts,
+        setProductQuantity: _setProductQuantity,
+        playClickSound: _playClickSound,
       ),
     );
 
@@ -129,7 +129,7 @@ class _OrderPageState extends State<OrderPage> {
     _keyboardEventHandler.addHandler(
       actionKeyHandler(
         orderedProducts: orderedProducts,
-        selectedOrderedProduct: selectedOrderedProduct,
+        selectedOrderedProductGetter: () => selectedOrderedProduct,
         voidOrder: _voidOrder,
         clearOrder: _clearOrder,
         playClickSound: _playClickSound,
@@ -170,7 +170,11 @@ class _OrderPageState extends State<OrderPage> {
       setState(() {
         allProducts = productsBox.values.map((e) => e.toMenuItem()).toList(); // 保存原始数据
         products = List<MenuItem>.from(allProducts); // 默认显示全部
-        products.sort((a, b) => a.sort.compareTo(b.sort));
+        products.sort((a, b) {
+          int cmp = a.sort.compareTo(b.sort);
+          if (cmp != 0) return cmp;
+          return a.code.compareTo(b.code);
+        });
         categories = categoriesBox.values.map((e) => e.toCategory()).toList();
         isLoading = false;
       });
@@ -197,7 +201,11 @@ class _OrderPageState extends State<OrderPage> {
       setState(() {
         allProducts = prodData.where((e) => e is Map<String, dynamic>).map((e) => MenuItem.fromJson(e as Map<String, dynamic>)).toList(); // 保存原始数据
         products = List<MenuItem>.from(allProducts); // 默认显示全部
-        products.sort((a, b) => a.sort.compareTo(b.sort));
+        products.sort((a, b) {
+          int cmp = a.sort.compareTo(b.sort);
+          if (cmp != 0) return cmp;
+          return a.code.compareTo(b.code);
+        });
         categories = catData.map((e) => Category.fromJson(e)).toList();
         isLoading = false;
       });
@@ -228,9 +236,9 @@ class _OrderPageState extends State<OrderPage> {
       } else {
         optionGroupsBox = await Hive.openBox<OptionGroupsAdapter>('optionGroupsBox');
       }
-      
+
       final adapter = optionGroupsBox.get('groups');
-      
+
       // 检查缓存是否为空（因为app重启时已经清空了缓存）
       if (adapter == null || adapter.groups.isEmpty) {
         print('[DEBUG] 选项配置缓存为空，从API获取数据');
@@ -463,12 +471,22 @@ class _OrderPageState extends State<OrderPage> {
     );
   }
 
-  // VOID操作 - 删除当前已点菜品（最后一个）
+  // VOID操作 - 删除当前已点菜品（优先删除选中项）
   void _voidOrder() {
     if (orderedProducts.isEmpty) return;
 
     setState(() {
-      orderedProducts.removeLast(); // 删除最后一个菜品
+      if (selectedOrderedProduct != null && orderedProducts.contains(selectedOrderedProduct)) {
+        orderedProducts.remove(selectedOrderedProduct);
+      } else {
+        orderedProducts.removeLast();
+      }
+      // 删除后自动选中最后一个菜品
+      if (orderedProducts.isNotEmpty) {
+        selectedOrderedProduct = orderedProducts.last;
+      } else {
+        selectedOrderedProduct = null;
+      }
     });
   }
 
@@ -803,17 +821,17 @@ class _OrderPageState extends State<OrderPage> {
   // 设置菜品数量
   void _setProductQuantity(int quantity) {
     if (orderedProducts.isEmpty) return;
-    
+
     setState(() {
       // 优先为选中的菜品设置数量，如果没有选中的菜品则为最后一个菜品设置数量
       SelectedProduct? targetProduct;
-      
+
       if (selectedOrderedProduct != null) {
         targetProduct = selectedOrderedProduct;
       } else {
         targetProduct = orderedProducts.last;
       }
-      
+
       if (quantity == 0) {
         // 如果数量为0，删除该菜品
         orderedProducts.remove(targetProduct);
@@ -1005,13 +1023,21 @@ class _OrderPageState extends State<OrderPage> {
                                       // “全部”按钮，显示所有菜品
                                       setState(() {
                                         products = List<MenuItem>.from(allProducts);
-                                        products.sort((a, b) => a.sort.compareTo(b.sort));
+                                        products.sort((a, b) {
+                                          int cmp = a.sort.compareTo(b.sort);
+                                          if (cmp != 0) return cmp;
+                                          return a.code.compareTo(b.code);
+                                        });
                                       });
                                     } else {
                                       int selectedCategoryId = child?.id ?? parent.id;
                                       setState(() {
                                         products = allProducts.where((item) => item.categoryIds.contains(selectedCategoryId)).toList();
-                                        products.sort((a, b) => a.sort.compareTo(b.sort));
+                                        products.sort((a, b) {
+                                          int cmp = a.sort.compareTo(b.sort);
+                                          if (cmp != 0) return cmp;
+                                          return a.code.compareTo(b.code);
+                                        });
                                       });
                                     }
                                   },

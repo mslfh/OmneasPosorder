@@ -19,7 +19,15 @@ class QuickInputManager {
 
     // 检查是否是数字键 - 返回特殊值表示需要处理数量
     if (keyLabel.length == 1 && RegExp(r'^[0-9]$').hasMatch(keyLabel)) {
-      return false; // 返回false让调用者处理数量设置
+      // 如果当前已有输入（例如输入了字母前缀），将数字视为输入的一部分（用于匹配 code，如 M015）
+      if (_input.isNotEmpty) {
+        _input += keyLabel;
+        _performSearch(allProducts);
+        _highlightedIndex = 0;
+        return true;
+      }
+      // 否则返回 false，让调用者（数字键处理器）处理数量设置
+      return false;
     }
 
     // 检查是否是字母
@@ -98,13 +106,12 @@ class QuickInputManager {
       _searchResults = acronymMatches;
       return;
     }
-
-    // 如果没有acronym匹配，则进行title模糊匹配
-    final titleMatches = allProducts.where((product) =>
-      product.title.toLowerCase().contains(lowerInput)
+    // 如果没有acronym匹配，则进行code和title前缀匹配
+    final titleCodeMatches = allProducts.where((product) =>
+      product.title.toLowerCase().contains(lowerInput) || product.code.toLowerCase().contains(lowerInput)
     ).toList();
 
-    _searchResults = titleMatches;
+    _searchResults = titleCodeMatches;
   }
 
   // 获取当前选中的产品

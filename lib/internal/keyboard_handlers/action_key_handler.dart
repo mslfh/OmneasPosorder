@@ -5,7 +5,7 @@ import '../utils/order_selected.dart';
 /// 处理操作键（Backspace: VOID, Delete: CLEAR, =: 增加数量, -: 减少数量）
 bool Function(KeyEvent, List<MenuItem>) actionKeyHandler({
   required List<SelectedProduct> orderedProducts,
-  required SelectedProduct? selectedOrderedProduct,
+  required SelectedProduct? Function() selectedOrderedProductGetter,
   required Function() voidOrder,
   required Function() clearOrder,
   required Function() playClickSound,
@@ -20,13 +20,19 @@ bool Function(KeyEvent, List<MenuItem>) actionKeyHandler({
         // Backspace键 - VOID操作：删除选中的菜品，如果没有选中则删除最后一个
         if (orderedProducts.isNotEmpty) {
           playClickSound();
+          final selectedOrderedProduct = selectedOrderedProductGetter();
           if (selectedOrderedProduct != null) {
             // 删除选中的菜品
             orderedProducts.remove(selectedOrderedProduct);
-            setSelectedOrderedProduct(null);
           } else {
             // 删除最后一个菜品
             orderedProducts.removeLast();
+          }
+          // 删除后自动选中最后一个菜品
+          if (orderedProducts.isNotEmpty) {
+            setSelectedOrderedProduct(orderedProducts.last);
+          } else {
+            setSelectedOrderedProduct(null);
           }
           refreshUI();
         }
@@ -46,8 +52,10 @@ bool Function(KeyEvent, List<MenuItem>) actionKeyHandler({
           playClickSound();
           SelectedProduct? targetProduct;
 
-          if (selectedOrderedProduct != null) {
-            targetProduct = selectedOrderedProduct;
+          // Use getter to obtain current selected ordered product
+          final currentSelected = selectedOrderedProductGetter();
+          if (currentSelected != null) {
+            targetProduct = currentSelected;
           } else {
             targetProduct = orderedProducts.last;
           }
@@ -62,8 +70,10 @@ bool Function(KeyEvent, List<MenuItem>) actionKeyHandler({
         if (orderedProducts.isNotEmpty) {
           SelectedProduct? targetProduct;
 
-          if (selectedOrderedProduct != null) {
-            targetProduct = selectedOrderedProduct;
+          // Use getter to obtain current selected ordered product
+          final currentSelected = selectedOrderedProductGetter();
+          if (currentSelected != null) {
+            targetProduct = currentSelected;
           } else {
             targetProduct = orderedProducts.last;
           }
