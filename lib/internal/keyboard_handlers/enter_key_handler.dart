@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import '../../common/models/menu_item.dart';
+import '../../common/models/menu_option.dart';
 import '../utils/quick_input_manager.dart';
 
 typedef KeyEventHandler = bool Function(KeyEvent event, List<MenuItem> products);
@@ -7,6 +8,7 @@ typedef KeyEventHandler = bool Function(KeyEvent event, List<MenuItem> products)
 KeyEventHandler enterKeyHandler({
   required QuickInputManager quickInputManager,
   required void Function(MenuItem) addProductIntelligently,
+  required void Function(String type, MenuOption option) addOptionToLastProduct,
   required Future<void> Function() playClickSound,
   required void Function() clearQuickInput,
   required void Function() removeQuickInputOverlay,
@@ -25,14 +27,24 @@ KeyEventHandler enterKeyHandler({
       // 优先处理快捷输入
       if (quickInputManager.hasResults) {
         print('[DEBUG] 处理快捷输入选择');
-        final selectedProduct = quickInputManager.getSelectedProduct();
-        if (selectedProduct != null) {
-          addProductIntelligently(selectedProduct);
+        final selectedItem = quickInputManager.getSelectedItem();
+
+        if (selectedItem is MenuItem) {
+          addProductIntelligently(selectedItem);
           playClickSound();
           clearQuickInput();
           removeQuickInputOverlay();
           refreshUI();
           return true;
+        } else if (selectedItem is MenuOption) {
+          if (hasOrderedProducts()) {
+            addOptionToLastProduct(selectedItem.type, selectedItem);
+            playClickSound();
+            clearQuickInput();
+            removeQuickInputOverlay();
+            refreshUI();
+            return true;
+          }
         }
       }
       // 如果没有快捷输入且有已点菜品，则触发下单

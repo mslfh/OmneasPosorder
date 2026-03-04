@@ -25,10 +25,6 @@ import '../keyboard_handlers/navigation_key_handler.dart';
 import '../keyboard_handlers/digit_key_handler.dart';
 import '../keyboard_handlers/enter_key_handler.dart';
 import '../keyboard_handlers/quick_input_handler.dart';
-import '../utils/option_quick_input_manager.dart';
-import '../widgets/option_quick_input_overlay.dart';
-
-enum OrderPageMode { normal, optionConfig }
 
 class OrderPage extends StatefulWidget {
   @override
@@ -37,7 +33,7 @@ class OrderPage extends StatefulWidget {
 
 class _OrderPageState extends State<OrderPage> {
   List<MenuItem> products = [];
-  List<MenuItem> allProducts = []; // 新增，保存所有原始数据
+  List<MenuItem> allProducts = [];
   List<Category> categories = [];
   bool isLoading = true;
   String? error;
@@ -45,7 +41,7 @@ class _OrderPageState extends State<OrderPage> {
   List<SelectedProduct> orderedProducts = [];
   Map<String, String?> selectedOptions = {};
   MenuItem? selectedProduct;
-  SelectedProduct? selectedOrderedProduct; // 添加选中的已点菜品状态
+  SelectedProduct? selectedOrderedProduct;
   late final AudioPlayer _audioPlayer;
   bool _isCardPressed = false;
   int? _pressedCardIndex;
@@ -54,10 +50,6 @@ class _OrderPageState extends State<OrderPage> {
   OverlayEntry? _quickInputOverlay;
   late final KeyboardEventHandler _keyboardEventHandler;
 
-  OrderPageMode mode = OrderPageMode.normal;
-
-  final OptionQuickInputManager _optionQuickInputManager = OptionQuickInputManager();
-  OverlayEntry? _optionQuickInputOverlay;
 
   final TextEditingController _searchInputController = TextEditingController();
 
@@ -72,21 +64,23 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   void _registerKeyboardHandlers() {
-    // 方向键：切换已点菜品区
-    _keyboardEventHandler.addHandler(
-      navigationKeyHandler(
-        hasQuickInput: () => _quickInputManager.hasInput,
-        onNavigate: _navigateOrderedProducts,
-        playClickSound: _playClickSound,
-      ),
-    );
-
-    // 快捷输入处理（字母/Backspace/ESC/上下箭头等）- 必须在Enter键处理器之前
+    // 快捷输入处理（字母/Backspace/ESC/上下箭头等）- 必须在前面，优先处理
     _keyboardEventHandler.addHandler(
       quickInputHandler(
         quickInputManager: _quickInputManager,
         updateQuickInputOverlay: _updateQuickInputOverlay,
         setState: setState,
+        getAllOptions: () => _allOptionsFlatList,
+        getPreferOptions: () => orderedProducts.isNotEmpty,
+      ),
+    );
+
+    // 方向键：切换已点菜品区 - 快捷输入无输入时才处理
+    _keyboardEventHandler.addHandler(
+      navigationKeyHandler(
+        hasQuickInput: () => _quickInputManager.hasInput,
+        onNavigate: _navigateOrderedProducts,
+        playClickSound: _playClickSound,
       ),
     );
 
@@ -105,6 +99,7 @@ class _OrderPageState extends State<OrderPage> {
       enterKeyHandler(
         quickInputManager: _quickInputManager,
         addProductIntelligently: _addProductIntelligently,
+        addOptionToLastProduct: _addOptionToLastProduct,
         playClickSound: _playClickSound,
         clearQuickInput: _quickInputManager.clear,
         removeQuickInputOverlay: _removeQuickInputOverlay,
@@ -274,6 +269,15 @@ class _OrderPageState extends State<OrderPage> {
     } catch (e) {
       // 可选：处理错误
     }
+  }
+
+  // 获取所有选项的平面列表（用于快捷搜索）
+  List<MenuOption> get _allOptionsFlatList {
+    final allOptions = <MenuOption>[];
+    optionGroups.forEach((type, options) {
+      allOptions.addAll(options);
+    });
+    return allOptions;
   }
 
   // 单击：选中菜品（添加描边效果）
@@ -558,7 +562,6 @@ class _OrderPageState extends State<OrderPage> {
     // TODO: 实现自定义按钮的功能
   }
 
-  // 显示选项弹窗
   void _showOptionDialog(String type) {
     if (orderedProducts.isEmpty) {
       // 移除弹窗提示，直接返回
@@ -711,6 +714,9 @@ class _OrderPageState extends State<OrderPage> {
 
   // 快捷输入相关方法
   void _updateQuickInputOverlay() {
+    // 不调用 performSearch — 快捷输入框有内容时搜索结果已是最新的
+    // performSearch 只在输入时调用（在 quickInputHandler 中），不在高亮改变时调用
+
     if (_quickInputManager.hasInput && _quickInputManager.hasResults) {
       _showQuickInputOverlay();
     } else if (!_quickInputManager.hasInput) {
@@ -731,6 +737,7 @@ class _OrderPageState extends State<OrderPage> {
         input: _quickInputManager.input,
         searchResults: _quickInputManager.searchResults,
         highlightedIndex: _quickInputManager.highlightedIndex,
+        isSearchingOptions: _quickInputManager.isSearchingOptions,
         onClose: () {
           _quickInputManager.clear();
           _removeQuickInputOverlay();
@@ -738,6 +745,14 @@ class _OrderPageState extends State<OrderPage> {
         onItemTap: (item) {
           _addProductIntelligently(item);
           _playClickSound();
+          _quickInputManager.clear();
+          _removeQuickInputOverlay();
+        },
+        onOptionTap: (option) {
+          if (orderedProducts.isNotEmpty) {
+            _addOptionToLastProduct(option.type, option);
+            _playClickSound();
+          }
           _quickInputManager.clear();
           _removeQuickInputOverlay();
         },
@@ -750,72 +765,6 @@ class _OrderPageState extends State<OrderPage> {
   void _removeQuickInputOverlay() {
     _quickInputOverlay?.remove();
     _quickInputOverlay = null;
-  }
-
-  void _showOptionQuickInputOverlay(List<MenuOption> allOptions) {
-    _removeOptionQuickInputOverlay();
-    _optionQuickInputOverlay = OverlayEntry(
-      builder: (context) => OptionQuickInputOverlay(
-        input: _optionQuickInputManager.input,
-        searchResults: _optionQuickInputManager.searchResults,
-        highlightedIndex: _optionQuickInputManager.highlightedIndex,
-        onClose: () {
-          _removeOptionQuickInputOverlay();
-          setState(() {
-            mode = OrderPageMode.normal;
-          });
-        },
-        onItemTap: (option) {
-          _addOptionToLastProduct(option.type, option);
-          _removeOptionQuickInputOverlay();
-          setState(() {
-            mode = OrderPageMode.normal;
-          });
-        },
-        onMoveHighlightUp: () {
-          _optionQuickInputManager.moveHighlightUp();
-          _optionQuickInputOverlay?.markNeedsBuild();
-        },
-        onMoveHighlightDown: () {
-          _optionQuickInputManager.moveHighlightDown();
-          _optionQuickInputOverlay?.markNeedsBuild();
-        },
-        onInputChar: (char) {
-          _optionQuickInputManager.addChar(char, allOptions);
-          _optionQuickInputOverlay?.markNeedsBuild();
-        },
-        onBackspace: () {
-          _optionQuickInputManager.removeChar(allOptions);
-          _optionQuickInputOverlay?.markNeedsBuild();
-        },
-        onEnter: () {
-          final option = _optionQuickInputManager.highlightedOption;
-          if (option != null) {
-            _addOptionToLastProduct(option.type, option);
-            _optionQuickInputManager.clear(allOptions);
-            _optionQuickInputOverlay?.markNeedsBuild();
-          }
-        },
-        onCtrl: () {
-          _removeOptionQuickInputOverlay();
-          setState(() { mode = OrderPageMode.normal; });
-        },
-        onEsc: () {
-          _removeOptionQuickInputOverlay();
-          setState(() { mode = OrderPageMode.normal; });
-        },
-      ),
-    );
-    Overlay.of(context)?.insert(_optionQuickInputOverlay!);
-  }
-
-  void _removeOptionQuickInputOverlay() {
-    _optionQuickInputOverlay?.remove();
-    _optionQuickInputOverlay = null;
-  }
-
-  List<MenuOption> get _allOptionsFlatList {
-    return optionGroups.values.expand((list) => list).toList();
   }
 
   // 设置菜品数量
@@ -895,66 +844,10 @@ class _OrderPageState extends State<OrderPage> {
       focusNode: FocusNode()..requestFocus(),
       autofocus: true,
       onKeyEvent: (KeyEvent event) {
-        // 模式切换逻辑
-        if (event.logicalKey == LogicalKeyboardKey.controlLeft || event.logicalKey == LogicalKeyboardKey.controlRight) {
-          if (event is KeyDownEvent) {
-            if (mode != OrderPageMode.optionConfig) {
-              setState(() {
-                mode = OrderPageMode.optionConfig;
-              });
-              _optionQuickInputManager.clear(_allOptionsFlatList);
-              _showOptionQuickInputOverlay(_allOptionsFlatList);
-            } else {
-              // 再次按Ctrl退出选项配置模式
-              _removeOptionQuickInputOverlay();
-              setState(() { mode = OrderPageMode.normal; });
-            }
-            return;
-          }
-        }
-        // 选项配置模式下处理选项输入
-        if (mode == OrderPageMode.optionConfig) {
-          if (event is KeyDownEvent) {
-            if (event.logicalKey == LogicalKeyboardKey.escape) {
-              _removeOptionQuickInputOverlay();
-              setState(() { mode = OrderPageMode.normal; });
-              return;
-            } else if (event.logicalKey == LogicalKeyboardKey.enter) {
-              final option = _optionQuickInputManager.highlightedOption;
-              if (option != null) {
-                _addOptionToLastProduct(option.type, option);
-                // 录入后不退出弹窗和模式，只清空输入和重置高亮
-                _optionQuickInputManager.clear(_allOptionsFlatList);
-                _optionQuickInputOverlay?.markNeedsBuild();
-              }
-              return;
-            } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-              _optionQuickInputManager.moveHighlightUp();
-              _optionQuickInputOverlay?.markNeedsBuild();
-              return;
-            } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-              _optionQuickInputManager.moveHighlightDown();
-              _optionQuickInputOverlay?.markNeedsBuild();
-              return;
-            } else if (event.logicalKey == LogicalKeyboardKey.backspace) {
-              _optionQuickInputManager.removeChar(_allOptionsFlatList);
-              _optionQuickInputOverlay?.markNeedsBuild();
-              return;
-            } else if (event.character != null && event.character!.length == 1 && RegExp(r'[a-zA-Z0-9\u4e00-\u9fa5]').hasMatch(event.character!)) {
-              _optionQuickInputManager.addChar(event.character!, _allOptionsFlatList);
-              _optionQuickInputOverlay?.markNeedsBuild();
-              return;
-            }
-          }
-          // 选项配置模式下不处理其它输入
-          return;
-        }
-        // 仅 normal 模式下处理快捷输入
-        if (mode == OrderPageMode.normal) {
-          _keyboardEventHandler.handle(event, products);
-          _searchInputController.text = _quickInputManager.input;
-          _searchInputController.selection = TextSelection.fromPosition(TextPosition(offset: _searchInputController.text.length));
-        }
+        // 统一处理快捷输入 - 既支持商品搜索也支持选项搜索
+        _keyboardEventHandler.handle(event, allProducts);
+        _searchInputController.text = _quickInputManager.input;
+        _searchInputController.selection = TextSelection.fromPosition(TextPosition(offset: _searchInputController.text.length));
       },
       child: Scaffold(
         body: SafeArea(
