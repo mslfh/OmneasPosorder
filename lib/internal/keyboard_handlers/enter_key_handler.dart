@@ -13,7 +13,7 @@ KeyEventHandler enterKeyHandler({
   required void Function() clearQuickInput,
   required void Function() removeQuickInputOverlay,
   required void Function() refreshUI,
-  required void Function()? onOrder, // 新增下单回调
+  required Future<void> Function()? onOrder, // 修改为支持异步
   required bool Function() hasOrderedProducts, // 检查是否有已点菜品
 }) {
   return (event, products) {

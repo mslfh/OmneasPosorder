@@ -104,16 +104,23 @@ class _OrderPageState extends State<OrderPage> {
         clearQuickInput: _quickInputManager.clear,
         removeQuickInputOverlay: _removeQuickInputOverlay,
         refreshUI: () => setState(() {}),
-        onOrder: () {
+        onOrder: () async {
           // 动态检查是否有菜品，而不是在注册时检查
           if (orderedProducts.isNotEmpty) {
-            Navigator.of(context).push(
+            final result = await Navigator.of(context).push<bool>(
               MaterialPageRoute(
                 builder: (context) => CheckoutPage(
                   orderedProducts: orderedProducts,
                 ),
               ),
             );
+            // 如果返回 true，表示订单成功，清空购物车
+            if (result == true) {
+              setState(() {
+                orderedProducts.clear();
+                selectedOrderedProduct = null;
+              });
+            }
           }
         },
         hasOrderedProducts: () => orderedProducts.isNotEmpty,
@@ -691,6 +698,7 @@ class _OrderPageState extends State<OrderPage> {
     });
   }
 
+
   // 动态计算标题字体大小
   double _calculateTitleFontSize(String title, double containerWidth) {
     final baseSize = 16.0;
@@ -1027,16 +1035,18 @@ class _OrderPageState extends State<OrderPage> {
                     onOrder: orderedProducts.isEmpty
                         ? null
                         : () async {
-                            final result = await Navigator.of(context).push(
+                            final result = await Navigator.of(context).push<bool>(
                               MaterialPageRoute(
                                 builder: (context) => CheckoutPage(
                                   orderedProducts: orderedProducts,
                                 ),
                               ),
                             );
+                            // 如果返回 true，表示订单成功，清空购物车
                             if (result == true) {
                               setState(() {
-                                orderedProducts.clear(); // 清空已点菜品
+                                orderedProducts.clear();
+                                selectedOrderedProduct = null;
                               });
                             }
                           },
