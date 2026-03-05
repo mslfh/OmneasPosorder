@@ -25,6 +25,7 @@ import '../keyboard_handlers/navigation_key_handler.dart';
 import '../keyboard_handlers/digit_key_handler.dart';
 import '../keyboard_handlers/enter_key_handler.dart';
 import '../keyboard_handlers/quick_input_handler.dart';
+import '../keyboard_handlers/duplicate_key_handler.dart';
 
 class OrderPage extends StatefulWidget {
   @override
@@ -139,6 +140,19 @@ class _OrderPageState extends State<OrderPage> {
           selectedOrderedProduct = product;
         }),
         refreshUI: () => setState(() {}),
+      ),
+    );
+
+    // Ctrl 键：复制选中的菜品
+    _keyboardEventHandler.addHandler(
+      duplicateKeyHandler(
+        orderedProducts: orderedProducts,
+        selectedOrderedProductGetter: () => selectedOrderedProduct,
+        duplicateProduct: _duplicateOrderedProduct,
+        playClickSound: _playClickSound,
+        setSelectedOrderedProduct: (product) => setState(() {
+          selectedOrderedProduct = product;
+        }),
       ),
     );
     // 你可以继续添加更多 handler ...
@@ -299,10 +313,7 @@ class _OrderPageState extends State<OrderPage> {
     setState(() {
       final duplicatedProduct = SelectedProduct(
         product: ordered.product,
-        options: ordered.options.map((opt) => SelectedOption(
-          type: opt.type,
-          option: opt.option,
-        )).toList(),
+        options: [], // 不复制选项
         quantity: ordered.quantity,
       );
       orderedProducts.add(duplicatedProduct);
