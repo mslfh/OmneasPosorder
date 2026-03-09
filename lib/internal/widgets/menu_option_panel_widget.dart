@@ -6,12 +6,16 @@ class MenuOptionPanelWidget extends StatelessWidget {
   final Map<String, List<MenuOption>> optionGroups;
   final List<SelectedProduct> orderedProducts;
   final void Function(String type) onOptionTap;
+  final bool isAdminMode;
+  final VoidCallback? onManageOptions;
 
   const MenuOptionPanelWidget({
     Key? key,
     required this.optionGroups,
     required this.orderedProducts,
     required this.onOptionTap,
+    this.isAdminMode = false,
+    this.onManageOptions,
   }) : super(key: key);
 
   @override
@@ -51,9 +55,32 @@ class MenuOptionPanelWidget extends StatelessWidget {
                 ),
               ],
             ),
-            child: Text(
-              'Options',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.center,
+                    child: Text(
+                      'Options',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
+                    ),
+                  ),
+                ),
+                if (isAdminMode)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: ElevatedButton.icon(
+                      onPressed: onManageOptions,
+                      icon: Icon(Icons.settings, size: 14),
+                      label: Text('Manage', style: TextStyle(fontSize: 11)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           Expanded(

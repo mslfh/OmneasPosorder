@@ -12,6 +12,9 @@ class MenuGridWidget extends StatelessWidget {
   final double Function(String, double) calculateTitleFontSize;
   final bool isCardPressed;
   final int? pressedCardIndex;
+  final bool isAdminMode;
+  final void Function(MenuItem)? onLongPress;
+  final void Function(MenuItem, int)? onReorderStart;
 
   const MenuGridWidget({
     Key? key,
@@ -23,6 +26,9 @@ class MenuGridWidget extends StatelessWidget {
     required this.calculateTitleFontSize,
     required this.isCardPressed,
     required this.pressedCardIndex,
+    this.isAdminMode = false,
+    this.onLongPress,
+    this.onReorderStart,
   }) : super(key: key);
 
   @override
@@ -83,6 +89,7 @@ class MenuGridWidget extends StatelessWidget {
                 onTapUp: (_) {},
                 onTapCancel: () {},
                 onTap: () => onTap(item),
+                onLongPress: isAdminMode ? () => onLongPress?.call(item) : null,
                 child: Card(
                   elevation: 2,
                   shadowColor: Colors.grey[300],

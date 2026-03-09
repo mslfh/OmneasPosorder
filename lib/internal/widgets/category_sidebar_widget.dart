@@ -128,7 +128,7 @@ class _CategorySidebarWidgetState extends State<CategorySidebarWidget> {
                                   child: Text(
                                     parent.title,
                                     style: TextStyle(
-                                      fontSize: 12,
+                                      fontSize: 14,
                                       fontWeight: FontWeight.w600,
                                       color: Colors.grey[800],
                                     ),
@@ -151,8 +151,8 @@ class _CategorySidebarWidgetState extends State<CategorySidebarWidget> {
                           child: InkWell(
                             onTap: () => widget.onCategoryTap?.call(parent, child),
                             child: Container(
-                              height: 20,
-                              padding: EdgeInsets.symmetric(horizontal: 20),
+                              height: 25,
+                              padding: EdgeInsets.symmetric(horizontal: 25),
                               alignment: Alignment.centerLeft,
                               child: Row(
                                 children: [
@@ -162,7 +162,7 @@ class _CategorySidebarWidgetState extends State<CategorySidebarWidget> {
                                     child: Text(
                                       child.title,
                                       style: TextStyle(
-                                        fontSize: 11,
+                                        fontSize: 14,
                                         color: Colors.grey[700],
                                       ),
                                       overflow: TextOverflow.ellipsis,

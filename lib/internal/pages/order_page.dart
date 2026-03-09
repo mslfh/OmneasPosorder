@@ -14,6 +14,7 @@ import 'checkout_page.dart';
 import '../../common/models/menu_item_adapter.dart';
 import '../../common/models/category_adapter.dart';
 import '../../common/models/option_groups_adapter.dart';
+import '../../common/services/cache_service.dart';
 import '../widgets/category_sidebar_widget.dart';
 import '../widgets/ordered_product_list_widget.dart';
 import '../widgets/menu_option_panel_widget.dart';
@@ -28,6 +29,10 @@ import '../keyboard_handlers/quick_input_handler.dart';
 import '../keyboard_handlers/duplicate_key_handler.dart';
 
 class OrderPage extends StatefulWidget {
+  final bool isAdminMode;
+
+  const OrderPage({Key? key, this.isAdminMode = false}) : super(key: key);
+
   @override
   State<OrderPage> createState() => _OrderPageState();
 }
@@ -46,6 +51,7 @@ class _OrderPageState extends State<OrderPage> {
   late final AudioPlayer _audioPlayer;
   bool _isCardPressed = false;
   int? _pressedCardIndex;
+  bool _isAdminMode = false;
 
   final _quickInputManager = QuickInputManager();
   OverlayEntry? _quickInputOverlay;
@@ -57,11 +63,23 @@ class _OrderPageState extends State<OrderPage> {
   @override
   void initState() {
     super.initState();
+    _isAdminMode = widget.isAdminMode;
     _audioPlayer = AudioPlayer();
     loadData();
     loadOptions();
     _keyboardEventHandler = KeyboardEventHandler();
     _registerKeyboardHandlers();
+  }
+
+  @override
+  void didUpdateWidget(covariant OrderPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Update admin mode state if it changes from parent widget
+    if (widget.isAdminMode != oldWidget.isAdminMode) {
+      setState(() {
+        _isAdminMode = widget.isAdminMode;
+      });
+    }
   }
 
   void _registerKeyboardHandlers() {
@@ -857,6 +875,499 @@ class _OrderPageState extends State<OrderPage> {
     }
   }
 
+  /// Show edit product dialog (Admin Mode)
+  void _showEditProductDialog(MenuItem product) {
+    final codeController = TextEditingController(text: product.code);
+    final titleController = TextEditingController(text: product.title);
+    final acronymController = TextEditingController(text: product.acronym);
+    final priceController = TextEditingController(text: product.sellingPrice.toString());
+    final stockController = TextEditingController(text: product.stock.toString());
+    String? selectedCategoryId = product.categoryIds.isNotEmpty ? product.categoryIds.first.toString() : null;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('编辑菜品'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: codeController,
+                decoration: InputDecoration(
+                  labelText: '菜品代码',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              SizedBox(height: 12),
+              TextField(
+                controller: titleController,
+                decoration: InputDecoration(
+                  labelText: '菜品名称',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              SizedBox(height: 12),
+              TextField(
+                controller: acronymController,
+                decoration: InputDecoration(
+                  labelText: '快捷键',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              SizedBox(height: 12),
+              TextField(
+                controller: priceController,
+                decoration: InputDecoration(
+                  labelText: '售价',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+              ),
+              SizedBox(height: 12),
+              TextField(
+                controller: stockController,
+                decoration: InputDecoration(
+                  labelText: '库存',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+              ),
+              SizedBox(height: 12),
+              DropdownButton<String>(
+                value: selectedCategoryId,
+                isExpanded: true,
+                hint: Text('选择分类'),
+                items: categories.map((cat) {
+                  return DropdownMenuItem(
+                    value: cat.id.toString(),
+                    child: Text(cat.title),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setState(() {
+                    selectedCategoryId = value;
+                  });
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final newPrice = double.tryParse(priceController.text);
+              final newStock = int.tryParse(stockController.text);
+
+              if (newPrice == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('价格格式错误')),
+                );
+                return;
+              }
+
+              if (newStock == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('库存格式错误')),
+                );
+                return;
+              }
+
+              try {
+                final api = ApiService();
+                final List<int> categoryIds = [];
+                if (selectedCategoryId != null && selectedCategoryId!.isNotEmpty) {
+                  final catId = int.tryParse(selectedCategoryId!);
+                  if (catId != null) {
+                    categoryIds.add(catId);
+                  }
+                } else {
+                  categoryIds.addAll(product.categoryIds);
+                }
+
+                final updateData = {
+                  'code': codeController.text,
+                  'title': titleController.text,
+                  'acronym': acronymController.text.isEmpty ? null : acronymController.text,
+                  'sellingPrice': newPrice,
+                  'stock': newStock,
+                  'categoryIds': categoryIds,
+                };
+
+                await api.put('products/${product.id.toString()}', data: updateData);
+
+                Navigator.pop(context);
+
+                // 清除缓存以确保获取最新数据
+                await CacheService.clearMenuCaches();
+
+                // 刷新菜品和分类数据
+                await loadData();
+
+                // 同时刷新选项数据以保持一致性
+                await loadOptions();
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('菜品已更新'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('更新失败: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            child: Text('保存'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show manage menu options dialog (Admin Mode)
+  void _showManageOptionsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('管理菜品选项'),
+        content: SingleChildScrollView(
+          child: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ...optionGroups.entries.map((entry) {
+                  final groupType = entry.key;
+                  final options = entry.value;
+                  return ExpansionTile(
+                    title: Text(groupType),
+                    children: [
+                      ...options.map((option) => ListTile(
+                        title: Text(option.name),
+                        subtitle: Text('额外费用: \$${option.extraCost.toStringAsFixed(2)}'),
+                        trailing: PopupMenuButton(
+                          itemBuilder: (context) => [
+                            PopupMenuItem(
+                              child: Text('编辑'),
+                              onTap: () {
+                                Future.delayed(Duration(milliseconds: 100), () {
+                                  _showEditOptionDialog(option, groupType);
+                                });
+                              },
+                            ),
+                            PopupMenuItem(
+                              child: Text('删除'),
+                              onTap: () {
+                                Future.delayed(Duration(milliseconds: 100), () {
+                                  _showDeleteOptionDialog(option, groupType);
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      )).toList(),
+                      ListTile(
+                        leading: Icon(Icons.add),
+                        title: Text('添加选项'),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _showAddOptionDialog(groupType);
+                        },
+                      ),
+                    ],
+                  );
+                }).toList(),
+                SizedBox(height: 16),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _showAddOptionGroupDialog();
+                  },
+                  icon: Icon(Icons.add),
+                  label: Text('新增选项组'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show add menu option dialog (Admin Mode)
+  void _showAddOptionDialog(String groupType) {
+    final nameController = TextEditingController();
+    final costController = TextEditingController(text: '0');
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('添加选项 - $groupType'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: InputDecoration(
+                labelText: '选项名称',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            SizedBox(height: 12),
+            TextField(
+              controller: costController,
+              decoration: InputDecoration(
+                labelText: '额外费用',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.numberWithOptions(decimal: true),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final cost = double.tryParse(costController.text) ?? 0;
+              try {
+                final api = ApiService();
+                await api.post('attributes', data: {
+                  'type': groupType,
+                  'name': nameController.text,
+                  'extra_cost': cost,
+                });
+
+                Navigator.pop(context);
+
+                // 清除选项缓存以确保获取最新数据
+                await CacheService.clearOptionsCache();
+                await fetchOptions();
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('选项已添加'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('添加失败: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            child: Text('添加'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show edit menu option dialog (Admin Mode)
+  void _showEditOptionDialog(MenuOption option, String groupType) {
+    final nameController = TextEditingController(text: option.name);
+    final costController = TextEditingController(text: option.extraCost.toString());
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('编辑选项'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: InputDecoration(
+                labelText: '选项名称',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            SizedBox(height: 12),
+            TextField(
+              controller: costController,
+              decoration: InputDecoration(
+                labelText: '额外费用',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.numberWithOptions(decimal: true),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final cost = double.tryParse(costController.text) ?? 0;
+              try {
+                final api = ApiService();
+                await api.put('attributes/${option.id}', data: {
+                  'name': nameController.text,
+                  'extra_cost': cost,
+                });
+
+                Navigator.pop(context);
+
+                // 清除选项缓存以确保获取最新数据
+                await CacheService.clearOptionsCache();
+                await fetchOptions();
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('选项已更新'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('更新失败: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            child: Text('保存'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show delete menu option dialog (Admin Mode)
+  void _showDeleteOptionDialog(MenuOption option, String groupType) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('删除选项'),
+        content: Text('确认要删除选项 "${option.name}" 吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                final api = ApiService();
+                await api.delete('attributes/${option.id}');
+
+                Navigator.pop(context);
+
+                // 清除选项缓存以确保获取最新数据
+                await CacheService.clearOptionsCache();
+                await fetchOptions();
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('选项已删除'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('删除失败: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            child: Text('删除'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show add option group dialog (Admin Mode)
+  void _showAddOptionGroupDialog() {
+    final groupNameController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('新增选项组'),
+        content: TextField(
+          controller: groupNameController,
+          decoration: InputDecoration(
+            labelText: '选项组名称',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (groupNameController.text.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('请输入选项组名称')),
+                );
+                return;
+              }
+
+              try {
+                // 选项组通过添加第一个选项来创建
+                final api = ApiService();
+                await api.post('attributes', data: {
+                  'type': groupNameController.text,
+                  'name': '新选项',
+                  'extra_cost': 0,
+                });
+
+                Navigator.pop(context);
+
+                // 清除选项缓存以确保获取最新数据
+                await CacheService.clearOptionsCache();
+                await fetchOptions();
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('选项组已创建'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('创建失败: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            child: Text('创建'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return KeyboardListener(
@@ -961,6 +1472,8 @@ class _OrderPageState extends State<OrderPage> {
                                   optionGroups: optionGroups,
                                   orderedProducts: orderedProducts,
                                   onOptionTap: _showOptionDialog,
+                                  isAdminMode: _isAdminMode,
+                                  onManageOptions: _isAdminMode ? _showManageOptionsDialog : null,
                                 ),
                               ),
                             ],
@@ -1029,6 +1542,8 @@ class _OrderPageState extends State<OrderPage> {
                                   calculateTitleFontSize: _calculateTitleFontSize,
                                   isCardPressed: _isCardPressed,
                                   pressedCardIndex: _pressedCardIndex,
+                                  isAdminMode: _isAdminMode,
+                                  onLongPress: _isAdminMode ? _showEditProductDialog : null,
                                 ),
                               ),
                             ],
