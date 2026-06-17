@@ -21,6 +21,8 @@ class MenuItemAdapter extends HiveObject {
   int sort;
   @HiveField(7)
   List<int> categoryIds; // 新增字段
+  @HiveField(8)
+  bool isPrintable; // 是否需要打印到后厨
 
   MenuItemAdapter({
     required this.id,
@@ -31,6 +33,7 @@ class MenuItemAdapter extends HiveObject {
     required this.stock,
     required this.sort,
     required this.categoryIds, // 新增字段
+    required this.isPrintable,
   });
 
   factory MenuItemAdapter.fromMenuItem(MenuItem item) => MenuItemAdapter(
@@ -42,6 +45,7 @@ class MenuItemAdapter extends HiveObject {
     stock: item.stock,
     sort: item.sort,
     categoryIds: item.categoryIds, // 新增字段
+    isPrintable: item.isPrintable,
   );
 
   MenuItem toMenuItem() => MenuItem(
@@ -53,5 +57,6 @@ class MenuItemAdapter extends HiveObject {
     stock: stock,
     sort: sort,
     categoryIds: categoryIds, // 新增字段
+    isPrintable: isPrintable,
   );
 }

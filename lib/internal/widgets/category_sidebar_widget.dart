@@ -19,6 +19,27 @@ class _CategorySidebarWidgetState extends State<CategorySidebarWidget> {
   Set<int> expandedIds = {};
 
   @override
+  void initState() {
+    super.initState();
+    _expandAllParents();
+  }
+
+  @override
+  void didUpdateWidget(covariant CategorySidebarWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.categories != widget.categories) {
+      _expandAllParents();
+    }
+  }
+
+  void _expandAllParents() {
+    expandedIds = widget.categories
+        .where((category) => category.parentId == null)
+        .map((category) => category.id)
+        .toSet();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final parents = widget.categories.where((c) => c.parentId == null).toList();
     final childrenMap = <int, List<Category>>{};

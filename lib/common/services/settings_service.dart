@@ -26,9 +26,17 @@ class SettingsService {
         Hive.registerAdapter(AppSettingsAdapter());
       }
 
-      // 打开设置盒子
-      _settingsBox = await Hive.openBox<AppSettings>(_boxName);
-      _logger.i('Settings service initialized');
+      // 打开已有设置盒子；如果不存在则创建
+      _settingsBox = Hive.isBoxOpen(_boxName)
+          ? Hive.box<AppSettings>(_boxName)
+          : await Hive.openBox<AppSettings>(_boxName);
+
+      // 确保设置存在，并补齐缺失字段
+      final currentSettings = _settingsBox?.get(_settingsKey);
+      final effectiveSettings = (currentSettings ?? AppSettings()).migrateIfNeeded();
+      await _settingsBox?.put(_settingsKey, effectiveSettings);
+
+      _logger.i('Settings service initialized successfully');
     } catch (e) {
       _logger.e('Failed to initialize settings service: $e');
       rethrow;
@@ -39,9 +47,13 @@ class SettingsService {
   AppSettings getSettings() {
     try {
       final settings = _settingsBox?.get(_settingsKey);
-      return settings ?? AppSettings();
+      if (settings == null) {
+        _logger.i('No settings found, returning default');
+        return AppSettings();
+      }
+      return settings;
     } catch (e) {
-      _logger.e('Failed to get settings: $e');
+      _logger.e('Error getting settings: $e');
       return AppSettings();
     }
   }
@@ -57,10 +69,11 @@ class SettingsService {
     }
   }
 
-  /// 更新API服务器地址
+  /// 更新API服务器地址（去除末尾的 /）
   Future<void> updateApiServerUrl(String url) async {
     final currentSettings = getSettings();
-    final updatedSettings = currentSettings.copyWith(apiServerUrl: url);
+    final cleanUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+    final updatedSettings = currentSettings.copyWith(apiServerUrl: cleanUrl);
     await saveSettings(updatedSettings);
   }
 
@@ -88,6 +101,23 @@ class SettingsService {
     final updatedSettings = currentSettings.copyWith(
       enableAutoSync: enableAutoSync,
       enableAutoPrint: enableAutoPrint,
+    );
+    await saveSettings(updatedSettings);
+  }
+
+  /// 更新后台任务间隔配置
+  Future<void> updateTaskIntervals({
+    int? syncTaskIntervalMinutes,
+    int? fetchRemoteOrdersIntervalSeconds,
+    int? printRetryTaskIntervalMinutes,
+    int? orderMatchCheckIntervalMinutes,
+  }) async {
+    final currentSettings = getSettings();
+    final updatedSettings = currentSettings.copyWith(
+      syncTaskIntervalMinutes: syncTaskIntervalMinutes,
+      fetchRemoteOrdersIntervalSeconds: fetchRemoteOrdersIntervalSeconds,
+      printRetryTaskIntervalMinutes: printRetryTaskIntervalMinutes,
+      orderMatchCheckIntervalMinutes: orderMatchCheckIntervalMinutes,
     );
     await saveSettings(updatedSettings);
   }

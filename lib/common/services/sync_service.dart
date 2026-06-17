@@ -44,7 +44,7 @@ class SyncService {
     ));
   }
 
-  /// 同步单个订单到后端（支持传递printStatus）
+  /// 推送单个订单到后端（支持传递printStatus）
   Future<void> syncOrder(String orderId, {PrintStatus? printStatus}) async {
     try {
       final order = await _databaseService.getOrder(orderId);
@@ -90,7 +90,7 @@ class SyncService {
 
       // 发送到后端API
       final response = await _dio.post(
-        '/orders/staff-place',
+        '/orders/terminal-place',
         data: requestData,
         options: Options(
           headers: {
@@ -109,8 +109,9 @@ class SyncService {
 
       // 检查响应
       if (response.statusCode == 200 || response.statusCode == 201) {
+        final remoteOrderId = response.data['data']['id'];
         // 同步成功，更新本地状态
-        await _updateOrderSyncSuccess(order);
+        await _updateOrderSyncSuccess(order, remoteOrderId);
         _logger.i('订单同步成功: $orderId');
       } else {
         throw Exception('后端返回错误状态: ${response.statusCode}');
@@ -205,10 +206,11 @@ class SyncService {
   }
 
   /// 更新订单同步成功状态
-  Future<void> _updateOrderSyncSuccess(OrderModel order) async {
+  Future<void> _updateOrderSyncSuccess(OrderModel order, dynamic remoteOrderId) async {
     final updatedOrder = order.copyWith(
       orderStatus: OrderStatus.synced,
       syncedTime: DateTime.now(),
+      remoteOrderId: remoteOrderId,
       errorMessage: null, // 清除错误信息
     );
 
@@ -296,32 +298,6 @@ class SyncService {
     return '';
   }
 
-  /// 手动重置订单同步状态
-  Future<void> resetOrderSyncStatus(String orderId) async {
-    final order = await _databaseService.getOrder(orderId);
-    if (order == null) return;
-
-    final resetOrder = order.copyWith(
-      orderStatus: OrderStatus.pendingSync,
-      errorMessage: null,
-      retryCount: 0,
-      lastRetryTime: null,
-    );
-
-    await _databaseService.updateOrder(resetOrder);
-
-    // 记录重置日志
-    await _databaseService.insertLog(LogModel(
-      orderId: orderId,
-      action: 'sync',
-      status: 'reset',
-      message: '手动重置同步状态',
-      timestamp: DateTime.now(),
-    ));
-
-    _logger.i('订单同步状态已重置: $orderId');
-  }
-
   /// 配置后端API地址
   void configureBaseUrl(String baseUrl) {
     _dio.options.baseUrl = baseUrl;
@@ -331,50 +307,57 @@ class SyncService {
   /// 拉取服务器新订单并同步到本地数据库
   Future<void> fetchAndSyncRemoteOrders() async {
     try {
+      // 修复历史在线订单时间，避免因早期使用 created_at 导致日期错位
+      await _repairExistingOnlineOrderTimes();
+
       // 1. 获取本地已同步的最大 remote_order_id
       int latestId = await _databaseService.getMaxRemoteOrderId() ?? 0;
       //Debug for 0
-      // int latestId = 9;
       _logger.i('本地最新remote_order_id: $latestId');
 
       // 2. 拉取服务器新订单
-      final response = await _dio.get('orders/fetch-new-order/$latestId');
+      final response = await _dio.get('/orders/fetch-new-order?latestId=$latestId');
       if (response.statusCode == 200 && response.data['success'] == true) {
         final List<dynamic> orders = response.data['data'] ?? [];
         _logger.i('拉取到${orders.length}个新订单');
-        for (final orderJson in orders) {
-          print('拉取到新订单: ${const JsonEncoder.withIndent('  ').convert(orderJson)}');
+        for (final order in orders) {
+          print('拉取到新订单: ${const JsonEncoder.withIndent('  ').convert(order)}');
           // 3. 插入server_orders表
-          await _databaseService.insertServerOrder(orderJson);
-          final remoteOrderNumber = orderJson['order_number'];
-          final remoteOrderId = orderJson['id'];
-          // 4. 本地orders表去重
+          await _databaseService.insertServerOrder(order);
+          final remoteOrderNumber = order['order_number'];
+          final remoteOrderId = order['id'];
+          // 4. 本地orders表去重，插入本地orders表并触发打印
           final exists = await _databaseService.existsOrderByRemoteNumber(remoteOrderNumber);
           if (!exists) {
             // 使用方法映射items和options
-            final items = _mapServerItemsToLocalItems(orderJson['items'] as List<dynamic>? ?? []);
+            final items = _mapServerItemsToLocalItems(order['items'] as List<dynamic>? ?? []);
+            // 为拉取的订单生成本地唯一ID（避免与本地订单ID冲突）
+            // 保证本地ID的唯一性和一致性，同时通过remoteOrderId和remoteOrderNumber追踪来源
+            final now = DateTime.now();
+            final localOrderId = 'ONLINE-${remoteOrderId}-${now.millisecondsSinceEpoch}';
+            final remoteOrderTime = _parseRemoteOrderTime(order);
             // 映射为本地OrderModel
             final orderModel = OrderModel(
-              id: remoteOrderNumber, // 本地id用服务器order_number，保证唯一
-              orderNo: orderJson['order_no'] ?? '',
-              orderTime: DateTime.parse(orderJson['created_at']),
+              id: localOrderId, // 生成的唯一本地ID，避免与本地订单ID冲突
+              orderNo: order['order_no'] ?? '',
+              orderTime: remoteOrderTime,
               items: jsonEncode(items),
-              totalAmount: double.tryParse(orderJson['total_amount'] ?? '0') ?? 0.0,
-              discountAmount: double.tryParse(orderJson['discount_amount'] ?? '0') ?? 0.0,
-              taxRate: double.tryParse(orderJson['tax_rate'] ?? '10') ?? 10.0,
+              totalAmount: double.tryParse(order['total_amount'] ?? '0') ?? 0.0,
+              discountAmount: double.tryParse(order['discount_amount'] ?? '0') ?? 0.0,
+              taxRate: double.tryParse(order['tax_rate'] ?? '10') ?? 10.0,
               serviceFee: 0.0,
               cashAmount: 0.0, // 线下支付，初始为0
               posAmount: 0.0,  // 线下支付，初始为0
               orderStatus: OrderStatus.synced, // 服务器订单状态应为已同步
               printStatus: PrintStatus.pending,
-              note: orderJson['note'],
-              type: orderJson['type'],
+              note: order['note'],
+              type: order['type'],
               cashChange: 0.0,
               voucherAmount: 0.0,
               remoteOrderId: remoteOrderId,
               remoteOrderNumber: remoteOrderNumber,
+              isOnlineOrder: true, // 标记为服务器拉取订单
             );
-
             // 插入本地orders表并触发打印
             await _databaseService.insertOrder(orderModel);
             _logger.i('新订单已同步到本地并待打印: $remoteOrderNumber');
@@ -386,12 +369,37 @@ class SyncService {
               message: '服务器新订单已拉取并同步到本地',
               timestamp: DateTime.now(),
             ));
+
             // 触发打印流程
             final printService = PrintService();
             // 使用样式打印双联小票（顾客用+后厨用）
             await printService.printOrderWithTemplates(orderModel);
-          } else {
+          }
+          else {
             _logger.i('订单已存在本地: $remoteOrderNumber');
+          }
+        }
+        // 5. 回调接口告知服务器订单已成功拉取并处理
+        _logger.i('开始确认拉取后的订单：');
+        _logger.i(orders.map((o) => o['id']).toList());
+
+        if(orders.isEmpty) {
+          _logger.i('没有新订单需要确认拉取');
+          return;
+        }
+        else{
+          final resp =  await _dio.post('/orders/confirm-pulled-order', data: {
+            'ids': orders.map((o) => o['id']).toList(),
+          }, options: Options(
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer \'${await _getAuthToken()}\'',
+            },
+          ));
+          if (resp.statusCode == 200) {
+            _logger.i('服务器订单已成功拉取并处理');
+          } else {
+            _logger.w('确认拉取订单失败: ${response.data['message'] ?? response.statusMessage}');
           }
         }
       } else {
@@ -405,7 +413,7 @@ class SyncService {
 
   /// 服务器items映射为本地OrderModel的items和options
   List<Map<String, dynamic>> _mapServerItemsToLocalItems(List<dynamic> serverItems) {
-    return (serverItems ?? []).map((item) {
+    return serverItems.map((item) {
       final customizations = item['customization'] as List<dynamic>? ?? [];
       final List<Map<String, dynamic>> options = [];
       for (final c in customizations) {
@@ -413,41 +421,131 @@ class SyncService {
           options.add({
             'type': 'CHANGE',
             'option_id': null,
-            'option_name': '${c['originalName']}->${c['replacementName']}',
+            //'option_name': '${c['originalName']}->${c['replacementName']}',
+            'option_name': '${c['replacementName']}',
             'extra_price': double.tryParse(c['priceChange']?.toString() ?? '0') ?? 0.0,
           });
         } else if (c['type'] == 'quantity') {
           final int original = int.tryParse(c['originalQuantity']?.toString() ?? '0') ?? 0;
           final int current = int.tryParse(c['currentQuantity']?.toString() ?? '0') ?? 0;
           final int diff = current - original;
+          final double priceChange = double.tryParse(c['priceChange']?.toString() ?? '0') ?? 0.0;
           if (diff > 0) {
-            final double priceChange = double.tryParse(c['priceChange']?.toString() ?? '0') ?? 0.0;
             final double singlePrice = diff > 0 ? priceChange / diff : priceChange;
             for (int i = 0; i < diff; i++) {
+              final ingredientName = c['ingredientName']?.toString() ?? '';
+              final hasExtra = ingredientName.toLowerCase().contains('extra');
+              final normalizedName = hasExtra 
+                ? ingredientName.replaceAll(RegExp(r'extra|Extra|EXTRA', caseSensitive: false), 'EXTRA')
+                : 'EXTRA $ingredientName';
               options.add({
                 'type': 'EXTRA',
                 'option_id': null,
-                'option_name': 'EXTRA ${c['ingredientName']}' ,
+                'option_name': normalizedName,
                 'extra_price': singlePrice,
               });
             }
-          } else if (diff < 0 && current == 0) {
+          }
+          else if (diff < 0 && current == 0) {
             options.add({
               'type': 'NO',
               'option_id': null,
               'option_name': 'No ${c['ingredientName']}',
-              'extra_price': 0.0,
+              'extra_price': priceChange,
+            });
+          }
+          else if (diff < 0 && current > 0)
+          {
+            options.add({
+              'type': 'CHANGE',
+              'option_id': null,
+              'option_name': '${c['ingredientName']} - ${current.abs()}',
+              'extra_price': priceChange,
             });
           }
         }
       }
-      return {
-        'id': item['product_id'],
-        'name': item['product_title'],
-        'price': double.tryParse(item['final_amount']?.toString() ?? '0') ?? 0.0,
-        'quantity': item['quantity'] ?? 1,
-        'options': options,
-      };
+       return {
+         'id': item['product_id'],
+         'name': item['product_title'],
+         'price': double.tryParse(item['final_amount']?.toString() ?? '0') ?? 0.0,
+         'quantity': item['quantity'] ?? 1,
+         'options': options,
+         'is_printable': item['product']['is_printable'] ?? true,
+       };
     }).toList();
+  }
+
+  DateTime _parseRemoteOrderTime(Map<String, dynamic> order) {
+    final rawOrderTime = order['order_time']?.toString();
+    if (rawOrderTime != null && rawOrderTime.isNotEmpty) {
+      final normalized = rawOrderTime.contains('T')
+          ? rawOrderTime
+          : rawOrderTime.replaceFirst(' ', 'T');
+      final parsed = DateTime.tryParse(normalized);
+      if (parsed != null) {
+        return parsed.toLocal();
+      }
+    }
+
+    final rawCreatedAt = order['created_at']?.toString();
+    if (rawCreatedAt != null && rawCreatedAt.isNotEmpty) {
+      final parsed = DateTime.tryParse(rawCreatedAt);
+      if (parsed != null) {
+        return parsed.toLocal();
+      }
+    }
+
+    return DateTime.now();
+  }
+
+  Future<void> _repairExistingOnlineOrderTimes() async {
+    try {
+      final orders = await _databaseService.getAllOrders(limit: 10000, offset: 0);
+      final onlineOrders = orders.where((o) => o.isOnlineOrder).toList();
+      int fixedCount = 0;
+
+      for (final order in onlineOrders) {
+        final inferred = _inferOrderTimeFromRemoteNumber(order.remoteOrderNumber);
+        if (inferred == null) continue;
+
+        final diffMinutes = order.orderTime.difference(inferred).inMinutes.abs();
+        // 误差超过1小时才修复，避免不必要写库
+        if (diffMinutes >= 60) {
+          await _databaseService.updateOrder(order.copyWith(orderTime: inferred));
+          fixedCount++;
+        }
+      }
+
+      if (fixedCount > 0) {
+        _logger.i('已修复$fixedCount个在线订单时间');
+      }
+    } catch (e) {
+      _logger.w('修复在线订单时间失败: $e');
+    }
+  }
+
+  DateTime? _inferOrderTimeFromRemoteNumber(String? remoteOrderNumber) {
+    if (remoteOrderNumber == null || remoteOrderNumber.isEmpty) return null;
+
+    final match = RegExp(r'-(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$').firstMatch(remoteOrderNumber);
+    if (match == null) return null;
+
+    final month = int.tryParse(match.group(1)!);
+    final day = int.tryParse(match.group(2)!);
+    final hour = int.tryParse(match.group(3)!);
+    final minute = int.tryParse(match.group(4)!);
+    final second = int.tryParse(match.group(5)!);
+    if (month == null || day == null || hour == null || minute == null || second == null) {
+      return null;
+    }
+
+    final now = DateTime.now();
+    var inferred = DateTime(now.year, month, day, hour, minute, second);
+    // 跨年兜底：推断时间若明显在未来，则回退一年
+    if (inferred.isAfter(now.add(const Duration(days: 2)))) {
+      inferred = DateTime(now.year - 1, month, day, hour, minute, second);
+    }
+    return inferred;
   }
 }

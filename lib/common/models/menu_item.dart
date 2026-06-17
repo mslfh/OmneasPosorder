@@ -7,6 +7,7 @@ class MenuItem {
   final int stock;
   final int sort;
   final List<int> categoryIds; // 新增字段
+  final bool isPrintable; // 是否需要打印到后厨
 
   MenuItem({
     required this.id,
@@ -17,13 +18,12 @@ class MenuItem {
     required this.stock,
     required this.sort,
     required this.categoryIds, // 新增字段
+    required this.isPrintable,
   });
 
   factory MenuItem.fromJson(Map<String, dynamic> json) {
     List<int> categoryIds = [];
-    print('Parsing json: $json');
     final categories = json['categories'];
-    print('Parsing categories: $categories');
     if (categories is List) {
       categoryIds = categories
         .where((cat) => cat is Map && cat.containsKey('id'))
@@ -40,7 +40,8 @@ class MenuItem {
       sellingPrice: double.tryParse(json['selling_price'].toString()) ?? 0.0,
       stock: json['stock'],
       sort: json['sort'],
-      categoryIds: categoryIds, // 新增字段
+      categoryIds: categoryIds,
+      isPrintable: json['is_printable'],
     );
   }
 }

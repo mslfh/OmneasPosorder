@@ -15,6 +15,7 @@ enum PrintStatus {
   pending,      // 待打印
   printed,      // 已打印
   printFailed,  // 打印失败
+  skipped,      // 跳过打印（例如自动打印被禁用）
 }
 
 // 订单模型
@@ -42,9 +43,7 @@ class OrderModel {
   final String? type;         // 订单类型（takeaway/dinein）
   final int? remoteOrderId;      // 服务器订单id
   final String? remoteOrderNumber; // 服务器订单号
-
-  // 是否为服务器拉取订单
-  bool get isOnlineOrder => remoteOrderId != null;
+  final bool isOnlineOrder;    // 是否为服务器拉取订单
 
   OrderModel({
     required this.id,
@@ -70,6 +69,7 @@ class OrderModel {
     this.voucherAmount = 0.0,
     this.remoteOrderId,
     this.remoteOrderNumber,
+    this.isOnlineOrder = false,
   });
 
   // 从数据库转换
@@ -104,6 +104,7 @@ class OrderModel {
       voucherAmount: map['voucher_amount']?.toDouble() ?? 0.0,
       remoteOrderId: map['remote_order_id'],
       remoteOrderNumber: map['remote_order_number'],
+      isOnlineOrder: map['is_online_order'] == 1 || map['is_online_order'] == true,
     );
   }
 
@@ -133,6 +134,7 @@ class OrderModel {
       'voucher_amount': voucherAmount,
       'remote_order_id': remoteOrderId,
       'remote_order_number': remoteOrderNumber,
+      'is_online_order': isOnlineOrder ? 1 : 0,
     };
   }
 
@@ -161,6 +163,7 @@ class OrderModel {
     double? voucherAmount,
     int? remoteOrderId,
     String? remoteOrderNumber,
+    bool? isOnlineOrder,
   }) {
     return OrderModel(
       id: id ?? this.id,
@@ -186,6 +189,7 @@ class OrderModel {
       voucherAmount: voucherAmount ?? this.voucherAmount,
       remoteOrderId: remoteOrderId ?? this.remoteOrderId,
       remoteOrderNumber: remoteOrderNumber ?? this.remoteOrderNumber,
+      isOnlineOrder: isOnlineOrder ?? this.isOnlineOrder,
     );
   }
 

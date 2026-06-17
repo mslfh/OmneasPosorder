@@ -5,6 +5,7 @@ import '../../common/models/app_settings.dart';
 import '../../common/services/settings_service.dart';
 import '../../common/services/sync_service.dart';
 import '../../common/services/print_service.dart';
+import '../../common/services/background_task_manager.dart';
 import '../../common/services/api_service.dart';
 import '../../common/services/app_initialization_service.dart';
 import '../internal_app.dart';
@@ -31,6 +32,10 @@ class _SettingsPageState extends State<SettingsPage> {
   final _apiUrlController = TextEditingController();
   final _printerAddressController = TextEditingController();
   final _printerPortController = TextEditingController();
+  final _syncTaskIntervalController = TextEditingController();
+  final _fetchRemoteOrdersIntervalController = TextEditingController();
+  final _printRetryTaskIntervalController = TextEditingController();
+  final _orderMatchCheckIntervalController = TextEditingController();
 
   @override
   void initState() {
@@ -43,6 +48,10 @@ class _SettingsPageState extends State<SettingsPage> {
     _apiUrlController.dispose();
     _printerAddressController.dispose();
     _printerPortController.dispose();
+    _syncTaskIntervalController.dispose();
+    _fetchRemoteOrdersIntervalController.dispose();
+    _printRetryTaskIntervalController.dispose();
+    _orderMatchCheckIntervalController.dispose();
     super.dispose();
   }
 
@@ -55,6 +64,10 @@ class _SettingsPageState extends State<SettingsPage> {
       _apiUrlController.text = _settings.apiServerUrl;
       _printerAddressController.text = _settings.printerAddress;
       _printerPortController.text = _settings.printerPort.toString();
+      _syncTaskIntervalController.text = _settings.syncTaskIntervalMinutes.toString();
+      _fetchRemoteOrdersIntervalController.text = _settings.fetchRemoteOrdersIntervalSeconds.toString();
+      _printRetryTaskIntervalController.text = _settings.printRetryTaskIntervalMinutes.toString();
+      _orderMatchCheckIntervalController.text = _settings.orderMatchCheckIntervalMinutes.toString();
 
       setState(() => _isLoading = false);
     } catch (e) {
@@ -64,14 +77,22 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  String _cleanUrlFormat(String url) {
+    return url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+  }
+
   Future<void> _saveSettings() async {
     setState(() => _isSaving = true);
 
     try {
       // Validate input
-      final apiUrl = _apiUrlController.text.trim();
+      final apiUrl = _cleanUrlFormat(_apiUrlController.text.trim());
       final printerAddress = _printerAddressController.text.trim();
       final printerPort = int.tryParse(_printerPortController.text.trim());
+      final syncTaskInterval = int.tryParse(_syncTaskIntervalController.text.trim());
+      final fetchRemoteOrdersInterval = int.tryParse(_fetchRemoteOrdersIntervalController.text.trim());
+      final printRetryTaskInterval = int.tryParse(_printRetryTaskIntervalController.text.trim());
+      final orderMatchCheckInterval = int.tryParse(_orderMatchCheckIntervalController.text.trim());
 
       if (apiUrl.isEmpty) {
         throw Exception('API Server URL cannot be empty');
@@ -85,11 +106,31 @@ class _SettingsPageState extends State<SettingsPage> {
         throw Exception('Invalid printer port');
       }
 
+      if (syncTaskInterval == null || syncTaskInterval <= 0) {
+        throw Exception('Sync task interval must be greater than 0');
+      }
+
+      if (fetchRemoteOrdersInterval == null || fetchRemoteOrdersInterval <= 0) {
+        throw Exception('Fetch remote orders interval must be greater than 0');
+      }
+
+      if (printRetryTaskInterval == null || printRetryTaskInterval <= 0) {
+        throw Exception('Print retry task interval must be greater than 0');
+      }
+
+      if (orderMatchCheckInterval == null || orderMatchCheckInterval <= 0) {
+        throw Exception('Order match check interval must be greater than 0');
+      }
+
       // Update settings
       final updatedSettings = _settings.copyWith(
         apiServerUrl: apiUrl,
         printerAddress: printerAddress,
         printerPort: printerPort,
+        syncTaskIntervalMinutes: syncTaskInterval,
+        fetchRemoteOrdersIntervalSeconds: fetchRemoteOrdersInterval,
+        printRetryTaskIntervalMinutes: printRetryTaskInterval,
+        orderMatchCheckIntervalMinutes: orderMatchCheckInterval,
       );
 
       // 先保存设置到本地存储
@@ -104,6 +145,9 @@ class _SettingsPageState extends State<SettingsPage> {
         printerPort: printerPort,
       );
       _logger.i('Settings applied to services - API: $apiUrl, Printer: $printerAddress:$printerPort');
+
+      // 立即按最新设置刷新后台任务间隔
+      await BackgroundTaskManager().refreshScheduledTasks();
 
       _settings = updatedSettings;
       _showSuccessSnackBar('Settings saved and applied successfully');
@@ -244,7 +288,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   controller: _apiUrlController,
                   decoration: InputDecoration(
                     labelText: 'API Server URL',
-                    hintText: 'http://127.0.0.1:8000/api',
+                    hintText: 'http://127.0.0.1:8000/api/',
                     prefixIcon: Icon(Icons.language),
                     border: OutlineInputBorder(),
                   ),
@@ -281,11 +325,68 @@ class _SettingsPageState extends State<SettingsPage> {
 
             SizedBox(height: 24),
 
-            // Printer Section
+            // Background Tasks Configuration Section
             _buildSectionCard(
-              title: 'Printer Configuration',
-              icon: Icons.print,
+              title: 'Background Tasks Configuration',
+              icon: Icons.schedule,
               children: [
+                Text(
+                  'Configure the intervals for background tasks',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                SizedBox(height: 16),
+                TextFormField(
+                  controller: _syncTaskIntervalController,
+                  decoration: InputDecoration(
+                    labelText: 'Sync Task Interval (minutes)',
+                    hintText: '5',
+                    prefixIcon: Icon(Icons.sync),
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                ),
+                SizedBox(height: 12),
+                TextFormField(
+                  controller: _fetchRemoteOrdersIntervalController,
+                  decoration: InputDecoration(
+                    labelText: 'Fetch Remote Orders Interval (seconds)',
+                    hintText: '5',
+                    prefixIcon: Icon(Icons.cloud_download),
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                ),
+                SizedBox(height: 12),
+                 TextFormField(
+                   controller: _printRetryTaskIntervalController,
+                   decoration: InputDecoration(
+                     labelText: 'Print Retry Task Interval (minutes)',
+                     hintText: '2',
+                     prefixIcon: Icon(Icons.print),
+                     border: OutlineInputBorder(),
+                   ),
+                   keyboardType: TextInputType.number,
+                 ),
+                 SizedBox(height: 12),
+                 TextFormField(
+                    controller: _orderMatchCheckIntervalController,
+                    decoration: InputDecoration(
+                      labelText: 'Order Match Check Interval (minutes)',
+                      hintText: '5',
+                      prefixIcon: Icon(Icons.update),
+                      border: OutlineInputBorder(),
+                      helperText: 'Interval to verify local orders match server data',
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+               ],
+             ),
+
+             SizedBox(height: 24),
+             _buildSectionCard(
+               title: 'Printer Configuration',
+               icon: Icons.print,
+               children: [
                 DropdownButtonFormField<String>(
                   value: _settings.printerType,
                   decoration: InputDecoration(

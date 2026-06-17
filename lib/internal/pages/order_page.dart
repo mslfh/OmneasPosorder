@@ -1,20 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:hive/hive.dart';
-import 'package:audioplayers/audioplayers.dart';
 import '../../common/models/menu_item.dart';
 import '../../common/models/category.dart';
-import '../../common/services/api_service.dart';
 import '../../common/models/menu_option.dart';
 import '../../common/services/sync_service.dart';
 import '../keyboard_handlers/action_key_handler.dart';
 import '../utils/quick_input_manager.dart';
 import '../widgets/quick_input_overlay.dart';
 import 'checkout_page.dart';
-import '../../common/models/menu_item_adapter.dart';
-import '../../common/models/category_adapter.dart';
-import '../../common/models/option_groups_adapter.dart';
-import '../../common/services/cache_service.dart';
 import '../widgets/category_sidebar_widget.dart';
 import '../widgets/ordered_product_list_widget.dart';
 import '../widgets/menu_option_panel_widget.dart';
@@ -22,22 +15,33 @@ import '../widgets/order_action_bar_widget.dart';
 import '../widgets/menu_grid_widget.dart';
 import '../utils/order_selected.dart';
 import '../utils/keyboard_event_handler.dart';
+import '../utils/ui_helper.dart';
 import '../keyboard_handlers/navigation_key_handler.dart';
 import '../keyboard_handlers/digit_key_handler.dart';
 import '../keyboard_handlers/enter_key_handler.dart';
 import '../keyboard_handlers/quick_input_handler.dart';
 import '../keyboard_handlers/duplicate_key_handler.dart';
+import '../../common/services/order_match_service.dart';
+import '../../common/services/api_service.dart';
+import '../services/menu_data_service.dart';
+import '../services/order_match_manager.dart';
 
 class OrderPage extends StatefulWidget {
   final bool isAdminMode;
+  final void Function(OrderMatchResult? result, Future<void> Function()? requestCheck)? onOrderMatchStateChanged;
 
-  const OrderPage({Key? key, this.isAdminMode = false}) : super(key: key);
+  const OrderPage({
+    Key? key,
+    this.isAdminMode = false,
+    this.onOrderMatchStateChanged,
+  }) : super(key: key);
 
   @override
   State<OrderPage> createState() => _OrderPageState();
 }
 
 class _OrderPageState extends State<OrderPage> {
+  // UI状态
   List<MenuItem> products = [];
   List<MenuItem> allProducts = [];
   List<Category> categories = [];
@@ -45,30 +49,65 @@ class _OrderPageState extends State<OrderPage> {
   String? error;
   Map<String, List<MenuOption>> optionGroups = {};
   List<SelectedProduct> orderedProducts = [];
-  Map<String, String?> selectedOptions = {};
-  MenuItem? selectedProduct;
   SelectedProduct? selectedOrderedProduct;
-  late final AudioPlayer _audioPlayer;
   bool _isCardPressed = false;
   int? _pressedCardIndex;
   bool _isAdminMode = false;
 
+  // 快捷输入
   final _quickInputManager = QuickInputManager();
   OverlayEntry? _quickInputOverlay;
   late final KeyboardEventHandler _keyboardEventHandler;
-
-
   final TextEditingController _searchInputController = TextEditingController();
+
+  // 服务和管理器
+  final _menuDataService = MenuDataService();
+  late final OrderMatchManager _orderMatchManager;
+  late final UIHelper _uiHelper;
+
+  /// 获取所有选项的平面列表（用于快捷搜索）
+  List<MenuOption> get _allOptionsFlatList {
+    final allOptions = <MenuOption>[];
+    optionGroups.forEach((type, options) {
+      allOptions.addAll(options);
+    });
+    return allOptions;
+  }
 
   @override
   void initState() {
     super.initState();
     _isAdminMode = widget.isAdminMode;
-    _audioPlayer = AudioPlayer();
-    loadData();
-    loadOptions();
+    _uiHelper = UIHelper();
+    _orderMatchManager = OrderMatchManager();
+    _initializeData();
     _keyboardEventHandler = KeyboardEventHandler();
     _registerKeyboardHandlers();
+    _orderMatchManager.initialize(_onOrderMatchResultUpdated);
+  }
+
+  /// 初始化数据加载
+  Future<void> _initializeData() async {
+    final menuData = await _menuDataService.loadMenuData();
+    final options = await _menuDataService.loadOptions();
+    if (mounted) {
+      setState(() {
+        allProducts = menuData['allProducts'] ?? [];
+        products = menuData['products'] ?? [];
+        categories = menuData['categories'] ?? [];
+        optionGroups = options;
+        isLoading = false;
+        error = menuData['error'];
+      });
+    }
+  }
+
+  /// 订单匹配结果更新回调
+  void _onOrderMatchResultUpdated(OrderMatchResult result) {
+    if (mounted) {
+      setState(() {});
+      widget.onOrderMatchStateChanged?.call(result, _performOrderMatchCheck);
+    }
   }
 
   @override
@@ -178,350 +217,107 @@ class _OrderPageState extends State<OrderPage> {
 
   @override
   void dispose() {
-    _audioPlayer.dispose();
     _searchInputController.dispose();
+    _orderMatchManager.dispose();
+    _uiHelper.dispose();
+    _removeQuickInputOverlay();
     super.dispose();
   }
 
   Future<void> _playClickSound() async {
-    try {
-      // 本地assets/audio/click.mp3
-      await _audioPlayer.play(AssetSource('audio/click.mp3'));
-    } catch (e) {
-      // 忽略音效错误
-    }
+    await _uiHelper.playClickSound();
   }
 
-  Future<void> loadData() async {
-    final productsBox = await Hive.openBox<MenuItemAdapter>('productsBox');
-    final categoriesBox = await Hive.openBox<CategoryAdapter>('categoriesBox');
-
-    // 检查缓存是否为空（因为app重启时已经清空了缓存）
-    if (productsBox.isEmpty || categoriesBox.isEmpty) {
-      print('[DEBUG] 缓存为空，从API获取数据');
-      await fetchData();
-    } else {
-      setState(() {
-        allProducts = productsBox.values.map((e) => e.toMenuItem()).toList(); // 保存原始数据
-        products = List<MenuItem>.from(allProducts); // 默认显示全部
-        products.sort((a, b) {
-          int cmp = a.sort.compareTo(b.sort);
-          if (cmp != 0) return cmp;
-          return a.code.compareTo(b.code);
-        });
-        categories = categoriesBox.values.map((e) => e.toCategory()).toList();
-        isLoading = false;
-      });
-      print('[DEBUG] 使用本地缓存数据，菜品数量: ${products.length}，分类数量: ${categories.length}');
-    }
-  }
-
-  Future<void> fetchData() async {
-    try {
-      final api = ApiService();
-      final prodRes = await api.get('products/active');
-      final catRes = await api.get('categories/active');
-      print('[DEBUG] prodRes.data["data"]: ' + prodRes.data['data'].toString());
-      print('[DEBUG] prodRes.data["data"] type: ' + prodRes.data['data'].runtimeType.toString());
-      final prodDataRaw = prodRes.data['data'];
-      List prodData;
-      if (prodDataRaw is List) {
-        prodData = prodDataRaw;
-      } else {
-        print('[ERROR] products/active 返回的 data 不是 List，实际类型: ' + prodDataRaw.runtimeType.toString());
-        prodData = [];
-      }
-      final catData = catRes.data['data'] as List;
-      setState(() {
-        allProducts = prodData.where((e) => e is Map<String, dynamic>).map((e) => MenuItem.fromJson(e as Map<String, dynamic>)).toList(); // 保存原始数据
-        products = List<MenuItem>.from(allProducts); // 默认显示全部
-        products.sort((a, b) {
-          int cmp = a.sort.compareTo(b.sort);
-          if (cmp != 0) return cmp;
-          return a.code.compareTo(b.code);
-        });
-        categories = catData.map((e) => Category.fromJson(e)).toList();
-        isLoading = false;
-      });
-      final productsBox = Hive.box<MenuItemAdapter>('productsBox');
-      final categoriesBox = Hive.box<CategoryAdapter>('categoriesBox');
-      await productsBox.clear();
-      await categoriesBox.clear();
-      for (var item in products) {
-        await productsBox.add(MenuItemAdapter.fromMenuItem(item));
-      }
-      for (var cat in categories) {
-        await categoriesBox.add(CategoryAdapter.fromCategory(cat));
-      }
-    } catch (e) {
-      setState(() {
-        error = e.toString();
-        isLoading = false;
-      });
-    }
-  }
-
-  Future<void> loadOptions() async {
-    try {
-      // 确保 box 已经打开
-      Box<OptionGroupsAdapter> optionGroupsBox;
-      if (Hive.isBoxOpen('optionGroupsBox')) {
-        optionGroupsBox = Hive.box<OptionGroupsAdapter>('optionGroupsBox');
-      } else {
-        optionGroupsBox = await Hive.openBox<OptionGroupsAdapter>('optionGroupsBox');
-      }
-
-      final adapter = optionGroupsBox.get('groups');
-
-      // 检查缓存是否为空（因为app重启时已经清空了缓存）
-      if (adapter == null || adapter.groups.isEmpty) {
-        print('[DEBUG] 选项配置缓存为空，从API获取数据');
-        await fetchOptions();
-      } else {
-        setState(() {
-          optionGroups = adapter.groups;
-        });
-        print('[DEBUG] ✅ 使用本地缓存的 optionGroups，组数: ${adapter.groups.length}');
-      }
-
-    } catch (e) {
-      print('[DEBUG] ❌ loadOptions 出错: $e');
-      // 出错时尝试调用 API
-      await fetchOptions();
-    }
-  }
-
-  Future<void> fetchOptions() async {
-    try {
-      final api = ApiService();
-      final response = await api.get('attributes/group');
-      final data = response.data['data'] as Map<String, dynamic>;
-      final groups = data.map((type, list) => MapEntry(
-        type,
-        (list as List).map((e) => MenuOption.fromJson(e)).toList(),
-      ));
-      setState(() {
-        optionGroups = groups;
-      });
-      final optionGroupsBox = Hive.box<OptionGroupsAdapter>('optionGroupsBox');
-      await optionGroupsBox.put('groups', OptionGroupsAdapter(groups: groups));
-    } catch (e) {
-      // 可选：处理错误
-    }
-  }
-
-  // 获取所有选项的平面列表（用于快捷搜索）
-  List<MenuOption> get _allOptionsFlatList {
-    final allOptions = <MenuOption>[];
-    optionGroups.forEach((type, options) {
-      allOptions.addAll(options);
-    });
-    return allOptions;
-  }
-
-  // 单击：选中菜品（添加描边效果）
   void _selectOrderedProduct(SelectedProduct ordered) {
     setState(() {
       selectedOrderedProduct = selectedOrderedProduct == ordered ? null : ordered;
     });
   }
 
-  // 双击：复制当前菜品
   void _duplicateOrderedProduct(SelectedProduct ordered) {
+    final duplicatedProduct = SelectedProduct(
+      product: ordered.product,
+      options: [],
+      quantity: ordered.quantity,
+    );
     setState(() {
-      final duplicatedProduct = SelectedProduct(
-        product: ordered.product,
-        options: [], // 不复制选项
-        quantity: ordered.quantity,
-      );
       orderedProducts.add(duplicatedProduct);
-      // 将新复制的菜品设置为选中状态
       selectedOrderedProduct = duplicatedProduct;
     });
   }
 
-  // 增加数量
   void _increaseQuantity(SelectedProduct ordered) {
     setState(() {
       ordered.quantity++;
     });
   }
 
-  // 减少数量
   void _decreaseQuantity(SelectedProduct ordered) {
     setState(() {
       if (ordered.quantity > 1) {
         ordered.quantity--;
       } else {
-        // 如果数量为1，再减就删除这个菜品
         orderedProducts.remove(ordered);
       }
     });
   }
 
-  // 修改菜品选项
-  void _editProductOptions(SelectedProduct ordered) {
-    Map<String, String?> editingOptions = {};
-    // 初始化当前选项
-    for (var opt in ordered.options) {
-      editingOptions[opt.type] = opt.option.name;
-    }
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: Text('修改 ${ordered.product.title}'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: optionGroups.keys.map((type) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(type, style: TextStyle(fontWeight: FontWeight.bold)),
-                          SizedBox(height: 8),
-                          DropdownButton<String>(
-                            isExpanded: true,
-                            hint: Text('选择 $type'),
-                            value: editingOptions[type],
-                            items: optionGroups[type]!.map((opt) {
-                              return DropdownMenuItem<String>(
-                                value: opt.name,
-                                child: Row(
-                                  children: [
-                                    Expanded(child: Text(opt.name)),
-                                    if (opt.extraCost > 0)
-                                      Text('+\$${opt.extraCost}',
-                                        style: TextStyle(color: Colors.red, fontSize: 12)),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
-                            onChanged: (val) {
-                              setDialogState(() {
-                                editingOptions[type] = val;
-                              });
-                            },
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text('取消'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    setState(() {
-                      ordered.options.clear();
-                      editingOptions.forEach((type, optionName) {
-                        if (optionName != null) {
-                          final option = optionGroups[type]!.firstWhere((o) => o.name == optionName);
-                          ordered.options.add(SelectedOption(type: type, option: option));
-                        }
-                      });
-                    });
-                    Navigator.pop(context);
-                  },
-                  child: Text('确认'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  // 复制并修改菜品
-  void _copyAndEditProduct(SelectedProduct ordered) {
+  /// 智能添加菜品方法
+  void _addProductIntelligently(MenuItem item) {
     setState(() {
-      final newProduct = SelectedProduct(
-        product: ordered.product,
-        options: ordered.options.map((opt) => SelectedOption(
-          type: opt.type,
-          option: opt.option,
-        )).toList(),
+      final existingProductIndex = orderedProducts.indexWhere(
+        (product) => product.product.id == item.id && product.options.isEmpty,
       );
+
+      if (existingProductIndex != -1) {
+        orderedProducts[existingProductIndex].quantity++;
+        selectedOrderedProduct = orderedProducts[existingProductIndex];
+        return;
+      }
+
+      final newProduct = SelectedProduct(product: item, options: []);
       orderedProducts.add(newProduct);
-    });
-    // 立即打开编辑对话框
-    Future.delayed(Duration(milliseconds: 100), () {
-      _editProductOptions(orderedProducts.last);
+      selectedOrderedProduct = newProduct;
     });
   }
 
-  // 查看菜品详情
-  void _showProductDetails(SelectedProduct ordered) {
-    double totalPrice = ordered.product.sellingPrice;
-    for (var opt in ordered.options) {
-      totalPrice += opt.option.extraCost;
+  /// 为菜品添加选项
+  void _addOptionToLastProduct(String type, MenuOption option) {
+    SelectedProduct? targetProduct;
+
+    if (selectedOrderedProduct != null) {
+      targetProduct = selectedOrderedProduct;
+    } else if (orderedProducts.isNotEmpty) {
+      targetProduct = orderedProducts.last;
+    } else {
+      return;
     }
 
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text(ordered.product.title),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('菜品代码: ${ordered.product.code}'),
-              Text('快捷键: ${ordered.product.acronym}'),
-              Text('基础价格: \$${ordered.product.sellingPrice.toStringAsFixed(2)}'),
-              SizedBox(height: 16),
-              if (ordered.options.isNotEmpty) ...[
-                Text('选项配置:', style: TextStyle(fontWeight: FontWeight.bold)),
-                SizedBox(height: 8),
-                ...ordered.options.map((opt) => Padding(
-                  padding: const EdgeInsets.only(left: 16.0, bottom: 4.0),
-                  child: Row(
-                    children: [
-                      Expanded(child: Text('${opt.type}: ${opt.option.name}')),
-                      if (opt.option.extraCost > 0)
-                        Text('+\$${opt.option.extraCost.toStringAsFixed(2)}',
-                          style: TextStyle(color: Colors.red)),
-                    ],
-                  ),
-                )),
-                SizedBox(height: 16),
-              ],
-              Text('总价: \$${totalPrice.toStringAsFixed(2)}',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('关闭'),
-            ),
-          ],
-        );
-      },
-    );
+    setState(() {
+      final existingOptionIndex = targetProduct!.options.indexWhere(
+        (opt) => opt.type == type && opt.option.id == option.id,
+      );
+
+      if (existingOptionIndex == -1) {
+        targetProduct.options.add(SelectedOption(type: type, option: option));
+      }
+    });
   }
 
-  // VOID操作 - 删除当前已点菜品（优先删除选中项）
+  /// 动态计算标题字体大小
+  double _calculateTitleFontSize(String title, double containerWidth) {
+    return UIHelper.calculateTitleFontSize(title, containerWidth);
+  }
+
+
   void _voidOrder() {
     if (orderedProducts.isEmpty) return;
-
     setState(() {
       if (selectedOrderedProduct != null && orderedProducts.contains(selectedOrderedProduct)) {
         orderedProducts.remove(selectedOrderedProduct);
       } else {
         orderedProducts.removeLast();
       }
-      // 删除后自动选中最后一个菜品
       if (orderedProducts.isNotEmpty) {
         selectedOrderedProduct = orderedProducts.last;
       } else {
@@ -530,77 +326,33 @@ class _OrderPageState extends State<OrderPage> {
     });
   }
 
-  // CLEAR操作 - 清空订单
-  void _clearOrder() {
-    if (orderedProducts.isEmpty) return;
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('清空订单'),
-          content: Text('确定要清空所有已点菜品吗？'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('取消'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  orderedProducts.clear();
-                });
-                Navigator.pop(context);
-              },
-              child: Text('确认'),
-            ),
-          ],
-        );
-      },
-    );
+  void _clearOrder() async {
+    final confirmed = await DialogHelper.showClearOrderDialog(context);
+    if (confirmed) {
+      setState(() {
+        orderedProducts.clear();
+        selectedOrderedProduct = null;
+      });
+    }
   }
 
-  // X按钮 - 数量设置
-  void _showQuantitySelector() {
-    if (orderedProducts.isEmpty) return;
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('设置数量'),
-          content: Text('选择要应用到最后添加菜品的数量：'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('取消'),
-            ),
-            ...([1, 2, 3, 4, 6].map((quantity) =>
-              TextButton(
-                onPressed: () {
-                  setState(() {
-                    if (orderedProducts.isNotEmpty) {
-                      orderedProducts.last.quantity = quantity;
-                    }
-                  });
-                  Navigator.pop(context);
-                },
-                child: Text('x$quantity'),
-              ),
-            )).toList(),
-          ],
-        );
-      },
-    );
+  void _showQuantitySelector() async {
+    final quantity = await DialogHelper.showQuantitySelectorDialog(context);
+    if (quantity != null) {
+      setState(() {
+        if (orderedProducts.isNotEmpty) {
+          orderedProducts.last.quantity = quantity;
+        }
+      });
+    }
   }
 
-  // Custom按钮的操作
   void _customAction() {
     // TODO: 实现自定义按钮的功能
   }
 
   void _showOptionDialog(String type) {
     if (orderedProducts.isEmpty) {
-      // 移除弹窗提示，直接返回
       return;
     }
 
@@ -615,29 +367,29 @@ class _OrderPageState extends State<OrderPage> {
             child: GridView.builder(
               shrinkWrap: true,
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 5, // 改为5列
-                crossAxisSpacing: 6, // 减小间距
-                mainAxisSpacing: 6, // 减小间距
-                childAspectRatio: 1.8, // 调整宽高比
+                crossAxisCount: 5,
+                crossAxisSpacing: 6,
+                mainAxisSpacing: 6,
+                childAspectRatio: 1.8,
               ),
               itemCount: optionGroups[type]?.length ?? 0,
               itemBuilder: (context, index) {
                 final option = optionGroups[type]![index];
                 return Card(
-                  margin: EdgeInsets.zero, // 移除外边距
+                  margin: EdgeInsets.zero,
                   child: InkWell(
                     onTap: () {
                       _addOptionToLastProduct(type, option);
                       Navigator.pop(context);
                     },
                     child: Padding(
-                      padding: const EdgeInsets.all(4.0), // 减小内边距
+                      padding: const EdgeInsets.all(4.0),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
                             option.name,
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold), // 增大字体
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                             textAlign: TextAlign.center,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -647,7 +399,7 @@ class _OrderPageState extends State<OrderPage> {
                               padding: const EdgeInsets.only(top: 2.0),
                               child: Text(
                                 '+\$${option.extraCost.toStringAsFixed(2)}',
-                                style: TextStyle(fontSize: 11, color: Colors.red, fontWeight: FontWeight.w600), // 增大字体
+                                style: TextStyle(fontSize: 11, color: Colors.red, fontWeight: FontWeight.w600),
                               ),
                             ),
                         ],
@@ -669,85 +421,6 @@ class _OrderPageState extends State<OrderPage> {
     );
   }
 
-  // 智能添加菜品方法
-  void _addProductIntelligently(MenuItem item) {
-    setState(() {
-      // 检查已点菜品中是否有相同菜品且没有选项的
-      final existingProductIndex = orderedProducts.indexWhere(
-        (product) => product.product.id == item.id && product.options.isEmpty,
-      );
-
-      if (existingProductIndex != -1) {
-        // 如果找到相同菜品且没有选项，直接增加该菜品的数量
-        orderedProducts[existingProductIndex].quantity++;
-        // 将增加数量的菜品设置为选中状态
-        selectedOrderedProduct = orderedProducts[existingProductIndex];
-        return;
-      }
-
-      // 否则添加新的菜品项
-      selectedProduct = item;
-      final newProduct = SelectedProduct(product: item, options: []);
-      orderedProducts.add(newProduct);
-      // 将新添加的菜品设置为选中状态
-      selectedOrderedProduct = newProduct;
-      selectedOptions.clear();
-    });
-  }
-
-  // 优化选项添加方法 - 支持为选中的菜品添加选项
-  void _addOptionToLastProduct(String type, MenuOption option) {
-    // 优先为选中的菜品添加选项，如果没有选中的菜品则为最后一个菜品添加选项
-    SelectedProduct? targetProduct;
-
-    if (selectedOrderedProduct != null) {
-      targetProduct = selectedOrderedProduct;
-    } else if (orderedProducts.isNotEmpty) {
-      targetProduct = orderedProducts.last;
-    } else {
-      return;
-    }
-
-    setState(() {
-      // 检查是否已存在相同类型和选项的组合
-      final existingOptionIndex = targetProduct!.options.indexWhere(
-        (opt) => opt.type == type && opt.option.id == option.id,
-      );
-
-      if (existingOptionIndex != -1) {
-        // 如果已存在相同的选项，静默处理（不显示弹窗）
-        return;
-      } else {
-        // 支持同类型多选 - 不移除同类型的旧选项，直接添加新选项
-        // targetProduct.options.removeWhere((opt) => opt.type == type);
-
-        // 添加新选项
-        targetProduct.options.add(SelectedOption(type: type, option: option));
-      }
-    });
-  }
-
-
-  // 动态计算标题字体大小
-  double _calculateTitleFontSize(String title, double containerWidth) {
-    final baseSize = 16.0;
-    final maxSize = 18.0;
-    final minSize = 10.0;
-
-    // 预估文字宽度（粗略计算）
-    final estimatedCharWidth = baseSize * 0.6; // 中文字符大约是字体大小的0.6倍宽
-    final availableWidth = containerWidth - 40; // 减去padding和右侧code按钮空间
-    final maxCharsPerLine = (availableWidth / estimatedCharWidth).floor();
-
-    // 根据标题长度和可用宽度调整字体大小
-    if (title.length <= maxCharsPerLine) {
-      return baseSize; // 一行能显示完，使用基础大小
-    } else if (title.length <= maxCharsPerLine * 2) {
-      return (baseSize - 1).clamp(minSize, maxSize); // 两行显示，稍微小一点
-    } else {
-      return (baseSize - 3).clamp(minSize, maxSize); // 需要更多行，使用更小字体
-    }
-  }
 
   // 快捷输入相关方法
   void _updateQuickInputOverlay() {
@@ -796,7 +469,7 @@ class _OrderPageState extends State<OrderPage> {
       ),
     );
 
-    Overlay.of(context)?.insert(_quickInputOverlay!);
+    Overlay.of(context).insert(_quickInputOverlay!);
   }
 
   void _removeQuickInputOverlay() {
@@ -869,7 +542,7 @@ class _OrderPageState extends State<OrderPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('拉单失败: \\${e.toString()}')),
+          SnackBar(content: Text('拉单失败: \${e.toString()}')),
         );
       }
     }
@@ -978,7 +651,6 @@ class _OrderPageState extends State<OrderPage> {
               }
 
               try {
-                final api = ApiService();
                 final List<int> categoryIds = [];
                 if (selectedCategoryId != null && selectedCategoryId!.isNotEmpty) {
                   final catId = int.tryParse(selectedCategoryId!);
@@ -998,32 +670,24 @@ class _OrderPageState extends State<OrderPage> {
                   'categoryIds': categoryIds,
                 };
 
+                final api = ApiService();
                 await api.put('products/${product.id.toString()}', data: updateData);
 
                 Navigator.pop(context);
 
-                // 清除缓存以确保获取最新数据
-                await CacheService.clearMenuCaches();
+                // 刷新菜品数据
+                final menuData = await _menuDataService.loadMenuData();
+                if (mounted) {
+                  setState(() {
+                    allProducts = menuData['allProducts'] ?? [];
+                    products = menuData['products'] ?? [];
+                    categories = menuData['categories'] ?? [];
+                  });
+                }
 
-                // 刷新菜品和分类数据
-                await loadData();
-
-                // 同时刷新选项数据以保持一致性
-                await loadOptions();
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('菜品已更新'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
+                UIHelper.showSnackBar(context, '菜品已更新', backgroundColor: Colors.green);
               } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('更新失败: $e'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
+                UIHelper.showSnackBar(context, '更新失败: $e', backgroundColor: Colors.red);
               }
             },
             child: Text('保存'),
@@ -1157,23 +821,17 @@ class _OrderPageState extends State<OrderPage> {
 
                 Navigator.pop(context);
 
-                // 清除选项缓存以确保获取最新数据
-                await CacheService.clearOptionsCache();
-                await fetchOptions();
+                // 刷新选项数据
+                final options = await _menuDataService.loadOptions();
+                if (mounted) {
+                  setState(() {
+                    optionGroups = options;
+                  });
+                }
 
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('选项已添加'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
+                UIHelper.showSnackBar(context, '选项已添加', backgroundColor: Colors.green);
               } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('添加失败: $e'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
+                UIHelper.showSnackBar(context, '添加失败: $e', backgroundColor: Colors.red);
               }
             },
             child: Text('添加'),
@@ -1230,23 +888,17 @@ class _OrderPageState extends State<OrderPage> {
 
                 Navigator.pop(context);
 
-                // 清除选项缓存以确保获取最新数据
-                await CacheService.clearOptionsCache();
-                await fetchOptions();
+                // 刷新选项数据
+                final options = await _menuDataService.loadOptions();
+                if (mounted) {
+                  setState(() {
+                    optionGroups = options;
+                  });
+                }
 
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('选项已更新'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
+                UIHelper.showSnackBar(context, '选项已更新', backgroundColor: Colors.green);
               } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('更新失败: $e'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
+                UIHelper.showSnackBar(context, '更新失败: $e', backgroundColor: Colors.red);
               }
             },
             child: Text('保存'),
@@ -1276,9 +928,13 @@ class _OrderPageState extends State<OrderPage> {
 
                 Navigator.pop(context);
 
-                // 清除选项缓存以确保获取最新数据
-                await CacheService.clearOptionsCache();
-                await fetchOptions();
+                // 刷新选项数据
+                final options = await _menuDataService.loadOptions();
+                if (mounted) {
+                  setState(() {
+                    optionGroups = options;
+                  });
+                }
 
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -1342,9 +998,13 @@ class _OrderPageState extends State<OrderPage> {
 
                 Navigator.pop(context);
 
-                // 清除选项缓存以确保获取最新数据
-                await CacheService.clearOptionsCache();
-                await fetchOptions();
+                // 刷新选项数据
+                final options = await _menuDataService.loadOptions();
+                if (mounted) {
+                  setState(() {
+                    optionGroups = options;
+                  });
+                }
 
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -1367,6 +1027,16 @@ class _OrderPageState extends State<OrderPage> {
       ),
     );
   }
+
+
+
+
+  Future<void> _performOrderMatchCheck() async {
+    await _orderMatchManager.performCheck(_onOrderMatchResultUpdated);
+  }
+
+
+  // ...existing code...
 
   @override
   Widget build(BuildContext context) {

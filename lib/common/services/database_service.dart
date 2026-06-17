@@ -37,9 +37,8 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 1, // 只需全新建表即可
+      version: 1, // 增加版本号以支持新字段
       onCreate: _onCreate,
-      // 不再需要 onUpgrade
     );
   }
 
@@ -89,6 +88,7 @@ class DatabaseService {
         voucher_amount REAL NOT NULL DEFAULT 0,
         remote_order_id INTEGER,
         remote_order_number TEXT,
+        is_online_order INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     ''');
@@ -139,6 +139,24 @@ class DatabaseService {
     await db.execute('CREATE INDEX idx_logs_order_id ON logs(order_id)');
     // 注意：不再为 server_orders 创建 remote_order_id 索引
     _logger.i('数据库表创建完成');
+  }
+
+  // 数据库升级处理
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    _logger.i('数据库从版本 $oldVersion 升级到版本 $newVersion');
+
+    // 从版本 1 升级到版本 2：添加 is_online_order 字段
+    if (oldVersion < 2) {
+      try {
+        await db.execute(
+          'ALTER TABLE orders ADD COLUMN is_online_order INTEGER NOT NULL DEFAULT 0',
+        );
+        _logger.i('已为 orders 表添加 is_online_order 字段');
+      } catch (e) {
+        // 字段可能已存在，忽略错误
+        _logger.w('添加 is_online_order 字段时出错: $e');
+      }
+    }
   }
 
   // ========== 订单操作 ==========
@@ -309,6 +327,18 @@ class DatabaseService {
     }
   }
 
+  // 删除所有订单（测试/管理用途）
+  Future<void> deleteAllOrders() async {
+    final db = await database;
+    try {
+      await db.delete('orders');
+      _logger.i('所有订单已删除');
+    } catch (e) {
+      _logger.e('删除所有订单失败: $e');
+      throw e;
+    }
+  }
+
   // ========== 日志操作 ==========
 
   // 插入日志
@@ -358,25 +388,27 @@ class DatabaseService {
 
   // ========== 统计查询 ==========
 
-  // 获取订单统计
-  Future<Map<String, int>> getOrderStats() async {
+  // 获取订单统计，支持按日期统计（如果传入 date，则 todayCount 基于该日期）
+  Future<Map<String, int>> getOrderStats({DateTime? date}) async {
     final db = await database;
     try {
-      // 今日订单数
-      final today = DateTime.now();
-      final startOfDay = DateTime(today.year, today.month, today.day);
+      // 目标日期（默认今天）
+      final base = date ?? DateTime.now();
+      final startOfDay = DateTime(base.year, base.month, base.day);
+      final endOfDay = DateTime(base.year, base.month, base.day, 23, 59, 59, 999);
+
       final todayCount = Sqflite.firstIntValue(await db.rawQuery(
-        'SELECT COUNT(*) FROM orders WHERE order_time >= ?',
-        [startOfDay.toIso8601String()],
+        'SELECT COUNT(*) FROM orders WHERE order_time BETWEEN ? AND ?',
+        [startOfDay.toIso8601String(), endOfDay.toIso8601String()],
       )) ?? 0;
 
-      // 待同步订单数
+      // 待同步订单数（全库）
       final pendingSyncCount = Sqflite.firstIntValue(await db.rawQuery(
         'SELECT COUNT(*) FROM orders WHERE order_status IN (?, ?)',
         [OrderStatus.pending.index, OrderStatus.pendingSync.index],
       )) ?? 0;
 
-      // 待打印订单数
+      // 待打印订单数（全库）
       final pendingPrintCount = Sqflite.firstIntValue(await db.rawQuery(
         'SELECT COUNT(*) FROM orders WHERE print_status IN (?, ?)',
         [PrintStatus.pending.index, PrintStatus.printFailed.index],
@@ -458,6 +490,17 @@ class DatabaseService {
   Future<bool> existsOrderByRemoteNumber(String remoteOrderNumber) async {
     final db = await database;
     final result = await db.query('orders', where: 'remote_order_number = ?', whereArgs: [remoteOrderNumber]);
+    return result.isNotEmpty;
+  }
+
+  /// 判断本地 orders 表是否已存在指定 remote_order_id
+  Future<bool> existsOrderByRemoteId(int remoteOrderId) async {
+    final db = await database;
+    final result = await db.query(
+      'orders',
+      where: 'remote_order_id = ?',
+      whereArgs: [remoteOrderId],
+    );
     return result.isNotEmpty;
   }
 

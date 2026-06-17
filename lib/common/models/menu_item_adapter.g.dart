@@ -20,18 +20,19 @@ class MenuItemAdapterAdapter extends TypeAdapter<MenuItemAdapter> {
       id: fields[0] as int,
       code: fields[1] as String,
       title: fields[2] as String,
-      acronym: fields[3] as String?, // 可空类型
+      acronym: fields[3] as String?,
       sellingPrice: fields[4] as double,
       stock: fields[5] as int,
       sort: fields[6] as int,
-      categoryIds: (fields[7] as List?)?.cast<int>() ?? [],
+      categoryIds: (fields[7] as List).cast<int>(),
+      isPrintable: fields[8] as bool,
     );
   }
 
   @override
   void write(BinaryWriter writer, MenuItemAdapter obj) {
     writer
-      ..writeByte(8)
+      ..writeByte(9)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -47,7 +48,9 @@ class MenuItemAdapterAdapter extends TypeAdapter<MenuItemAdapter> {
       ..writeByte(6)
       ..write(obj.sort)
       ..writeByte(7)
-      ..write(obj.categoryIds);
+      ..write(obj.categoryIds)
+      ..writeByte(8)
+      ..write(obj.isPrintable);
   }
 
   @override

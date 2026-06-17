@@ -21,12 +21,53 @@ class PrintService {
     return _instance!;
   }
 
+  /// 是否启用自动打印（统一入口，避免各处漏判）
+  Future<bool> isAutoPrintEnabled() async {
+    final settingsService = SettingsService();
+    await settingsService.initialize();
+    return settingsService.getSettings().enableAutoPrint;
+  }
+
+  Future<void> _markPrintSkipped(OrderModel order, {String? message}) async {
+    if (order.printStatus == PrintStatus.skipped) {
+      return;
+    }
+
+    final updatedOrder = order.copyWith(
+      printStatus: PrintStatus.skipped,
+      printedTime: DateTime.now(),
+      errorMessage: null,
+    );
+
+    await _databaseService.updateOrder(updatedOrder);
+    await _databaseService.insertLog(LogModel(
+      orderId: order.id,
+      action: 'print',
+      status: 'skipped',
+      message: message ?? 'Auto print disabled, skipped printing',
+      timestamp: DateTime.now(),
+    ));
+  }
+
+  Future<void> _skipPendingPrintOrdersWhenDisabled() async {
+    final pendingOrders = await _databaseService.getPendingPrintOrders();
+    for (final order in pendingOrders) {
+      await _markPrintSkipped(order, message: 'Auto print disabled, pending print moved to skipped');
+    }
+  }
+
   /// 打印订单
   Future<void> printOrder(String orderId) async {
     try {
       final order = await _databaseService.getOrder(orderId);
       if (order == null) {
         throw Exception('订单不存在: $orderId');
+      }
+
+      if (!await isAutoPrintEnabled()) {
+        await _markPrintSkipped(order);
+        _logger.i('自动打印已关闭，跳过打印订单: $orderId');
+        return;
       }
 
       _logger.i('开始打印订单: $orderId');
@@ -174,6 +215,7 @@ class PrintService {
   /// 发送到打印机
   Future<void> _sendToPrinter(String content) async {
     try {
+      _logger.i('打印内容：$content');
       // 获取打印机配置
       final settingsService = SettingsService();
       final settings = settingsService.getSettings();
@@ -195,7 +237,7 @@ class PrintService {
     }
   }
 
-  /// 网络打印机发送（真实实现）
+  /// 网络打印机发送
   Future<void> _sendToNetworkPrinter(String content, String printerIP, int port) async {
     Socket? socket;
 
@@ -287,7 +329,7 @@ class PrintService {
     // 设置字体大小（正常）
     commands.addAll([0x1D, 0x21, 0x00]); // GS ! 0 - 正常字体
 
-    // 设置���对齐
+    // 设置对齐
     commands.addAll([0x1B, 0x61, 0x00]); // ESC a 0 - 左对齐
 
     // 添加打印内容
@@ -296,7 +338,7 @@ class PrintService {
     // 切纸命令（部分切纸）
     commands.addAll([0x1D, 0x56, 0x01]); // GS V 1 - 部分切纸
 
-    // 或者使用全切纸（如果打印机支持���
+    // 或者使用全切纸（如果打印机支持
     // commands.addAll([0x1D, 0x56, 0x00]); // GS V 0 - 全切纸
 
     return commands;
@@ -351,6 +393,12 @@ class PrintService {
   /// 批量重试打印失败的订单
   Future<void> retryFailedPrintOrders() async {
     try {
+      if (!await isAutoPrintEnabled()) {
+        await _skipPendingPrintOrdersWhenDisabled();
+        _logger.i('自动打印已关闭，待打印队列已标记为 skipped');
+        return;
+      }
+
       final failedOrders = await _databaseService.getPendingPrintOrders();
 
       if (failedOrders.isEmpty) {
@@ -499,19 +547,25 @@ class PrintService {
     return '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')}';
   }
 
-  /// 配置打印��设置
+  /// 配置打印设置
   void configurePrinter({
     String? printerIP,
     int? printerPort,
     String? encoding,
   }) {
-    // 保存打印机配置到本地存�����������
+    // 保存打印机配置到本地存
     _logger.i('打印机配置已更新');
   }
 
   /// 按模板打印订单（支持顾客用和后厨用）
   Future<void> printOrderWithTemplate(OrderModel order, {required ReceiptType receiptType}) async {
     try {
+      if (!await isAutoPrintEnabled()) {
+        await _markPrintSkipped(order);
+        _logger.i('自动打印已关闭，跳过模板打印: ${order.id}');
+        return;
+      }
+
       String printContent = '';
       // 预留：可通过API获取模板内容
       switch (receiptType) {
@@ -522,6 +576,13 @@ class PrintService {
           printContent = await _generateKitchenReceiptTemplate(order);
           break;
       }
+
+      // 如果是后厨小票且没有需要打印的菜品，则跳过后厨打印（顾客小票仍然正常打印）
+      if (receiptType == ReceiptType.kitchen && (printContent.trim().isEmpty)) {
+        _logger.i('订单${order.id} 后厨小票无可打印项目，跳过后厨打印');
+        return;
+      }
+
       await _sendToPrinter(printContent);
       await _markPrintSuccess(order);
       _logger.i('订单${order.id} ${receiptType == ReceiptType.customer ? "顾客用" : "后厨用"}小票打印成功');
@@ -534,11 +595,31 @@ class PrintService {
   /// 合并打印顾客用和后厨用小票（一次性发送，切纸分隔）
   Future<void> printOrderWithTemplates(OrderModel order) async {
     try {
+      _logger.i('打印订单内容：$order');
+
+      if (!await isAutoPrintEnabled()) {
+        await _markPrintSkipped(order);
+        _logger.i('自动打印已关闭，跳过双联模板打印: ${order.id}');
+        return;
+      }
+
       // 生成顾客用小票内容
       final customerContent = await _generateCustomerReceiptTemplate(order);
       // 生成后厨用小票内容
       final kitchenContent = await _generateKitchenReceiptTemplate(order);
-      // 生成ESC/POS命令（合并两段内容，中���切纸）
+
+      _logger.i('顾客用小票内容：$customerContent');
+      _logger.i('后厨用小票内容：$kitchenContent');
+
+      // 如果后厨小票没有可打印的菜品，只打印顾客用小票
+      if (kitchenContent.trim().isEmpty) {
+        await _sendToPrinter(customerContent);
+        await _markPrintSuccess(order);
+        _logger.i('订单${order.id} 仅顾客用小票打印（无后厨打印项）');
+        return;
+      }
+
+      // 生成ESC/POS命令（合并两段内容，中间切纸）
       final printData = _generateCombinedESCPOSCommands(customerContent, kitchenContent);
       // 发送到打印机
       await _sendToPrinterRaw(printData);
@@ -730,7 +811,13 @@ class PrintService {
     content.writeln("------------------------------");
     // 分块标识：ITEMS
     content.writeln('[ITEMS]');
+    // 仅包含后厨需要打印的菜品（produce.is_printable == true）
     for (var item in items) {
+      bool printable = item['is_printable'] == true;
+      if (!printable) {
+        _logger.e("跳过不需要后厨打印的菜品");
+        continue;
+      } // 跳过不需要后厨打印的菜品
       final name = item['name'] ?? '';
       final quantity = item['quantity'] ?? 1;
       List<String> lines = [];
@@ -749,6 +836,7 @@ class PrintService {
         content.writeln(l);
       }
       content.writeln(); // 菜品组之间加空行
+
     }
     //备注
     if (order.note != null && order.note!.isNotEmpty) {

@@ -3,6 +3,7 @@ import 'package:hive/hive.dart';
 import '../../common/services/api_service.dart';
 import '../../common/services/background_task_manager.dart';
 import '../../common/services/app_initialization_service.dart';
+import '../../common/services/settings_service.dart';
 
 class LoginPage extends StatefulWidget {
   final VoidCallback onLoginSuccess;
@@ -15,10 +16,12 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _apiServerUrlController = TextEditingController();
   bool _isLoading = false;
   String? _error;
   bool _rememberMe = false;
   String? _apiServerUrl;
+  bool _isTestingConnection = false;
 
   @override
   void initState() {
@@ -41,42 +44,54 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _loadApiServerUrl() async {
     final box = await Hive.openBox('authBox');
     final url = box.get('apiServerUrl') as String?;
+    final defaultUrl = 'http://127.0.0.1:8000/api';
+    final serverUrl = url ?? defaultUrl;
+    _apiServerUrlController.text = serverUrl;
     setState(() {
-      _apiServerUrl = url;
+      _apiServerUrl = serverUrl;
     });
   }
 
-  Future<void> _showSetApiServerDialog() async {
-    final controller = TextEditingController(text: _apiServerUrl ?? '');
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('设置服务器地址'),
-          content: TextField(
-            controller: controller,
-            decoration: InputDecoration(hintText: '如：https://api.xxx.com'),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('取消'),
+  String _cleanUrlFormat(String url) {
+    // 去除末尾的 / 
+    return url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+  }
+
+  Future<void> _testConnection() async {
+    setState(() {
+      _isTestingConnection = true;
+      _error = null;
+    });
+    try {
+      final url = _cleanUrlFormat(_apiServerUrlController.text.trim());
+      if (url.isEmpty) {
+        setState(() => _error = '请输入服务器地址');
+        return;
+      }
+
+      final api = ApiService();
+      api.updateBaseUrl(url);
+
+      // 尝试连接服务器
+      try {
+        final response = await api.get('login').timeout(Duration(seconds: 10));
+        if (response.statusCode == 200 || response.statusCode == 400 || response.statusCode == 401) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('连接成功'),
+              backgroundColor: Colors.green,
             ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, controller.text.trim()),
-              child: Text('保存'),
-            ),
-          ],
-        );
-      },
-    );
-    if (result != null && result.isNotEmpty) {
-      final box = await Hive.openBox('authBox');
-      await box.put('apiServerUrl', result);
-      setState(() {
-        _apiServerUrl = result;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('服务器地址已保存')));
+          );
+        } else {
+          setState(() => _error = '连接失败: ${response.statusCode}');
+        }
+      } catch (e) {
+        setState(() => _error = '连接错误: $e');
+      }
+    } catch (e) {
+      setState(() => _error = '测试失败: $e');
+    } finally {
+      setState(() => _isTestingConnection = false);
     }
   }
 
@@ -86,17 +101,22 @@ class _LoginPageState extends State<LoginPage> {
       _error = null;
     });
     print('[LOGIN] Start login');
-    print('[LOGIN] Server URL: [32m[1m[4m[7m' + (_apiServerUrl ?? 'null') + '\u001b[0m');
+    final serverUrl = _cleanUrlFormat(_apiServerUrlController.text.trim());
+    print('[LOGIN] Server URL: [32m[1m[4m[7m' + (serverUrl ?? 'null') + '\u001b[0m');
     print('[LOGIN] Username: ' + _usernameController.text.trim());
     try {
-      final api = ApiService();
-      if (_apiServerUrl != null && _apiServerUrl!.isNotEmpty) {
-        api.updateBaseUrl(_apiServerUrl!);
-        print('[LOGIN] ApiService baseUrl set to: ' + _apiServerUrl!);
+      if (serverUrl.isEmpty) {
+        setState(() => _error = '请输入服务器地址');
+        return;
       }
-      final loginData = {
-        'userLogin': _usernameController.text.trim(),
-        'password': _passwordController.text.trim(),
+
+      final api = ApiService();
+      api.updateBaseUrl(serverUrl);
+      print('[LOGIN] ApiService baseUrl set to: ' + serverUrl);
+
+      const loginData = {
+        'userLogin': 'placeholder',
+        'password': 'placeholder',
       };
       print('[LOGIN] Request data: ' + loginData.toString());
       final response = await api.post('login', data: {
@@ -110,7 +130,20 @@ class _LoginPageState extends State<LoginPage> {
       final box = await Hive.openBox('authBox');
       if (token != null) {
         await box.put('authToken', token);
+        // 保存API服务器地址到authBox（已去除末尾的/）
+        await box.put('apiServerUrl', serverUrl);
         api.setAuthToken(token);
+        
+        // 同步保存到settings，确保SettingsService已初始化
+        final settingsService = SettingsService();
+        try {
+          await settingsService.initialize();
+          await settingsService.updateApiServerUrl(serverUrl);
+          print('[LOGIN] Settings synchronized successfully');
+        } catch (e) {
+          print('[LOGIN] Warning: Could not sync to settings: $e');
+        }
+
         if (_rememberMe) {
           await box.put('savedUsername', _usernameController.text.trim());
           await box.put('savedPassword', _passwordController.text.trim());
@@ -150,13 +183,6 @@ class _LoginPageState extends State<LoginPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text('登录'),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.settings),
-            tooltip: '设置服务器地址',
-            onPressed: _showSetApiServerDialog,
-          ),
-        ],
       ),
       body: Center(
         child: Padding(
@@ -165,52 +191,95 @@ class _LoginPageState extends State<LoginPage> {
             elevation: 6,
             child: Padding(
               padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('登录', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                  SizedBox(height: 24),
-                  TextField(
-                    controller: _usernameController,
-                    decoration: InputDecoration(labelText: '账号'),
-                  ),
-                  SizedBox(height: 16),
-                  TextField(
-                    controller: _passwordController,
-                    decoration: InputDecoration(labelText: '密码'),
-                    obscureText: true,
-                  ),
-                  SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Checkbox(
-                        value: _rememberMe,
-                        onChanged: (val) {
-                          setState(() {
-                            _rememberMe = val ?? false;
-                          });
-                        },
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('登录', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                    SizedBox(height: 24),
+                    // API Server URL Configuration
+                    TextField(
+                      controller: _apiServerUrlController,
+                      decoration: InputDecoration(
+                        labelText: '服务器地址',
+                        hintText: 'http://127.0.0.1:8000/api',
+                        prefixIcon: Icon(Icons.cloud),
+                        border: OutlineInputBorder(),
                       ),
-                      Text('记住账号和密码'),
-                    ],
-                  ),
-                  SizedBox(height: 24),
-                  if (_error != null)
-                    Text(_error!, style: TextStyle(color: Colors.red)),
-                  SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _isLoading ? null : _login,
-                      child: _isLoading ? CircularProgressIndicator() : Text('登录'),
+                      keyboardType: TextInputType.url,
                     ),
-                  ),
-                ],
+                    SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _isTestingConnection ? null : _testConnection,
+                        icon: _isTestingConnection
+                            ? SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : Icon(Icons.wifi_find),
+                        label: Text(_isTestingConnection ? '测试中...' : '测试连接'),
+                      ),
+                    ),
+                    SizedBox(height: 24),
+                    TextField(
+                      controller: _usernameController,
+                      decoration: InputDecoration(labelText: '账号'),
+                    ),
+                    SizedBox(height: 16),
+                    TextField(
+                      controller: _passwordController,
+                      decoration: InputDecoration(labelText: '密码'),
+                      obscureText: true,
+                    ),
+                    SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: _rememberMe,
+                          onChanged: (val) {
+                            setState(() {
+                              _rememberMe = val ?? false;
+                            });
+                          },
+                        ),
+                        Text('记住账号和密码'),
+                      ],
+                    ),
+                    SizedBox(height: 24),
+                    if (_error != null)
+                      Padding(
+                        padding: EdgeInsets.only(bottom: 12),
+                        child: Text(
+                          _error!,
+                          style: TextStyle(color: Colors.red),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _login,
+                        child: _isLoading ? CircularProgressIndicator() : Text('登录'),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    _passwordController.dispose();
+    _apiServerUrlController.dispose();
+    super.dispose();
   }
 }

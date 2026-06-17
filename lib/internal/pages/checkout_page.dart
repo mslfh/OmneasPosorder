@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../common/services/order_service.dart';
+import '../../common/services/settings_service.dart';
 import 'order_list_page.dart';
 import '../utils/order_selected.dart';
 
@@ -495,7 +496,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                   Text('Change: \$${keepChange ? '0.00 (Kept)' : change < 0 ? change.toStringAsFixed(2) + '(Insufficient！)' : change.toStringAsFixed(2)}'),
                   SizedBox(height: 8),
 
-                  Container(
+                   Container(
                     padding: EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: Colors.blue.withOpacity(0.1),
@@ -516,27 +517,35 @@ class _CheckoutPageState extends State<CheckoutPage> {
                           ],
                         ),
                         SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Icon(Icons.sync, color: Colors.deepOrangeAccent, size: 16),
-                            SizedBox(width: 4),
-                            Text(
-                              'Syncing to server',
-                              style: TextStyle(color: Colors.deepOrangeAccent, fontSize: 12),
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Icon(Icons.print, color: Colors.blue, size: 16),
-                            SizedBox(width: 4),
-                            Text(
-                              'Sending to printer',
-                              style: TextStyle(color: Colors.blue, fontSize: 12),
-                            ),
-                          ],
-                        ),
+                        Builder(builder: (context) {
+                          final settings = SettingsService().getSettings();
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.sync, color: settings.enableAutoSync ? Colors.deepOrangeAccent : Colors.grey, size: 16),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    settings.enableAutoSync ? 'Syncing to server' : 'Sync skipped',
+                                    style: TextStyle(color: settings.enableAutoSync ? Colors.deepOrangeAccent : Colors.grey, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                              SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Icon(Icons.print, color: settings.enableAutoPrint ? Colors.blue : Colors.grey, size: 16),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    settings.enableAutoPrint ? 'Sending to printer' : 'Printing skipped',
+                                    style: TextStyle(color: settings.enableAutoPrint ? Colors.blue : Colors.grey, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          );
+                        }),
                       ],
                     ),
                   ),
@@ -649,6 +658,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
           'price': p.product.sellingPrice,
           'quantity': p.quantity,
           'options': options,
+          // 使用 MenuItem 的 isPrintable 字段（若存在），以便打印流程能基于该字段判断后厨打印
+          'is_printable': p.product.isPrintable,
         };
       }).toList();
 

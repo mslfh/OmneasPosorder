@@ -1,14 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
-import 'package:hive/hive.dart';
 import 'database_service.dart';
 import 'background_task_manager.dart';
 import 'settings_service.dart';
 import 'sync_service.dart';
 import 'print_service.dart';
-import '../models/menu_item_adapter.dart';
-import '../models/category_adapter.dart';
-import '../models/option_groups_adapter.dart';
 import 'dart:io';
 
 class AppInitializationService {
@@ -21,12 +17,8 @@ class AppInitializationService {
     try {
       _logger.i('开始初始化应用...');
 
-      // 1. 清空Hive缓存 - 确保每次重启都重新获取数据
-      await _clearHiveCache();
-
-      // 2. 初始化数据库
+      // 1. 初始化数据库
       await _initializeDatabase();
-
       // 不再自动初始化后台任务和网络监听
       _isInitialized = true;
       _logger.i('应用初始化完成');
@@ -54,63 +46,6 @@ class AppInitializationService {
     }
   }
 
-  /// 清空Hive缓存
-  static Future<void> _clearHiveCache() async {
-    try {
-      _logger.i('清空Hive缓存...');
-
-      // 清空菜品缓存
-      if (Hive.isBoxOpen('productsBox')) {
-        final productsBox = Hive.box<MenuItemAdapter>('productsBox');
-        await productsBox.clear();
-        _logger.i('已清空菜品缓存');
-      } else {
-        try {
-          final productsBox = await Hive.openBox<MenuItemAdapter>('productsBox');
-          await productsBox.clear();
-          _logger.i('已清空菜品缓存');
-        } catch (e) {
-          _logger.w('无法打开菜品缓存box: $e');
-        }
-      }
-
-      // 清空分类缓存
-      if (Hive.isBoxOpen('categoriesBox')) {
-        final categoriesBox = Hive.box<CategoryAdapter>('categoriesBox');
-        await categoriesBox.clear();
-        _logger.i('已清空分类缓存');
-      } else {
-        try {
-          final categoriesBox = await Hive.openBox<CategoryAdapter>('categoriesBox');
-          await categoriesBox.clear();
-          _logger.i('已清空分类缓存');
-        } catch (e) {
-          _logger.w('无法打开分类缓存box: $e');
-        }
-      }
-
-      // 清空选项配置缓存
-      if (Hive.isBoxOpen('optionGroupsBox')) {
-        final optionGroupsBox = Hive.box<OptionGroupsAdapter>('optionGroupsBox');
-        await optionGroupsBox.clear();
-        _logger.i('已清空选项配置缓存');
-      } else {
-        try {
-          final optionGroupsBox = await Hive.openBox<OptionGroupsAdapter>('optionGroupsBox');
-          await optionGroupsBox.clear();
-          _logger.i('已清空选项配置缓存');
-        } catch (e) {
-          _logger.w('无法打开选项配置缓存box: $e');
-        }
-      }
-
-      _logger.i('Hive缓存清空完成');
-    } catch (e) {
-      _logger.e('清空Hive缓存失败: $e');
-      // 清空缓存失败不应该阻止应用启动
-      _logger.w('继续启动应用，但缓存可能包含旧数据');
-    }
-  }
 
   /// 初始化数据库
   static Future<void> _initializeDatabase() async {
@@ -234,7 +169,14 @@ class _AppInitializationPageState extends State<AppInitializationPage> {
         _initializationStatus = '正在设置后台任务...';
       });
 
-      await AppInitializationService.initialize();
+      // 给初始化设置一个超时，避免在新设备或权限/插件异常时无限等待。
+      // 如果初始化过程需要更长时间，可根据设备情况调整 timeoutSeconds。
+      const int timeoutSeconds = 20;
+
+      await AppInitializationService.initialize().timeout(
+        Duration(seconds: timeoutSeconds),
+        onTimeout: () => throw Exception('应用初始化超时（> $timeoutSeconds 秒）。请检查设备网络、存储权限或日志'),
+      );
 
       setState(() {
         _initializationStatus = '初始化完成';
@@ -243,6 +185,7 @@ class _AppInitializationPageState extends State<AppInitializationPage> {
 
     } catch (e) {
       setState(() {
+        // 保留简短错误，帮助用户重试或查看日志
         _errorMessage = e.toString();
         _isInitializing = false;
       });

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
 import '../../common/models/order_model.dart';
 import '../../common/services/order_service.dart';
 
@@ -126,7 +125,7 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
   }
 
   Widget _buildItemsCard() {
-    final items = jsonDecode(_order!.items) as List;
+    final items = _order?.getItemsList() ?? [];
 
     return Card(
       child: Padding(
@@ -139,7 +138,10 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             SizedBox(height: 12),
-            ...items.map((item) => _buildItemRow(item)).toList(),
+            if (items.isEmpty)
+              Text('暂无菜品明细', style: TextStyle(color: Colors.grey))
+            else
+              ...items.map((item) => _buildItemRow(item)).toList(),
           ],
         ),
       ),
@@ -315,11 +317,20 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
   }
 
   Widget _buildItemRow(dynamic item) {
-    final name = item['name'] ?? '';
-    final quantity = item['quantity'] ?? 1;
-    final price = (item['price'] ?? 0).toDouble();
+    final Map<String, dynamic> itemMap = item is Map<String, dynamic>
+        ? item
+        : Map<String, dynamic>.from(item as Map);
+    final name = itemMap['name']?.toString() ?? '';
+    final quantity = _toInt(itemMap['quantity']) ?? 1;
+    final price = _toDouble(itemMap['price']) ?? 0.0;
     final subtotal = quantity * price;
-    final note = item['note'];
+    final note = itemMap['note'];
+    final options = itemMap['options'] is List
+        ? (itemMap['options'] as List)
+            .whereType<Map>()
+            .map((option) => Map<String, dynamic>.from(option))
+            .toList()
+        : const <Map<String, dynamic>>[];
 
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 6),
@@ -340,6 +351,18 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
               Text('￥${subtotal.toStringAsFixed(2)}'),
             ],
           ),
+          if (options.isNotEmpty) ...[
+            SizedBox(height: 4),
+            Padding(
+              padding: EdgeInsets.only(left: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: options
+                    .map((option) => _buildOptionRow(option))
+                    .toList(),
+              ),
+            ),
+          ],
           if (note != null && note.toString().isNotEmpty) ...[
             SizedBox(height: 2),
             Text(
@@ -352,6 +375,24 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildOptionRow(Map<String, dynamic> option) {
+    final optionType = option['type']?.toString() ?? '';
+    final optionName = option['option_name']?.toString() ?? '';
+    final extraPrice = _toDouble(option['extra_price']) ?? 0.0;
+    final displayPrice = extraPrice == 0 ? '' : ' (+￥${extraPrice.toStringAsFixed(2)})';
+
+    return Padding(
+      padding: EdgeInsets.only(top: 2),
+      child: Text(
+        '• $optionName$displayPrice',
+        style: TextStyle(
+          fontSize: 12,
+          color: Colors.grey[600],
+        ),
       ),
     );
   }
@@ -427,6 +468,19 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
     );
   }
 
+  int? _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  double? _toDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '');
+  }
+
+
   Widget _buildNotFoundState() {
     return Center(
       child: Column(
@@ -483,25 +537,19 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
   }
 
   String _getPrintStatusText(PrintStatus status) {
-    switch (status) {
-      case PrintStatus.pending:
-        return '待打印';
-      case PrintStatus.printed:
-        return '已打印';
-      case PrintStatus.printFailed:
-        return '打印失败';
-    }
+    if (status == PrintStatus.pending) return '待打印';
+    if (status == PrintStatus.printed) return '已打印';
+    if (status == PrintStatus.printFailed) return '打印失败';
+    if (status == PrintStatus.skipped) return '已跳过';
+    return '未知';
   }
 
   Color _getPrintStatusColor(PrintStatus status) {
-    switch (status) {
-      case PrintStatus.pending:
-        return Colors.grey;
-      case PrintStatus.printed:
-        return Colors.green;
-      case PrintStatus.printFailed:
-        return Colors.red;
-    }
+    if (status == PrintStatus.pending) return Colors.grey;
+    if (status == PrintStatus.printed) return Colors.green;
+    if (status == PrintStatus.printFailed) return Colors.red;
+    if (status == PrintStatus.skipped) return Colors.orange;
+    return Colors.grey;
   }
 
   void _showSuccessSnackBar(String message) {

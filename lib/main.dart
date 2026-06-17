@@ -19,6 +19,11 @@ void main() async {
   Hive.registerAdapter(MenuOptionAdapter());
   Hive.registerAdapter(OptionGroupsAdapterAdapter());
 
+  // 直接清理旧的 Hive 缓存，避免旧数据在启动时触发解析崩溃
+  await Hive.deleteBoxFromDisk('productsBox');
+  await Hive.deleteBoxFromDisk('categoriesBox');
+  await Hive.deleteBoxFromDisk('optionGroupsBox');
+
   // 预先打开所有需要的 Hive 盒子
   await Hive.openBox<MenuItemAdapter>('productsBox');
   await Hive.openBox<CategoryAdapter>('categoriesBox');
@@ -47,7 +52,7 @@ Future<void> _fetchInitialData() async {
     final results = await Future.wait([
       api.get('products/active'),
       api.get('categories/active'),
-      api.get('attributes/group'),
+      api.get('options/group'),
     ]);
 
     final prodRes = results[0];
@@ -85,9 +90,6 @@ Future<void> _fetchInitialData() async {
     await optionGroupsBox.put('groups', OptionGroupsAdapter(groups: optionGroups));
 
     print('[DEBUG] ✅ 应用启动数据获取完成');
-    print('[DEBUG] - 产品数量: ${products.length}');
-    print('[DEBUG] - 分类数量: ${categories.length}');
-    print('[DEBUG] - 选项组数量: ${optionGroups.length}');
 
   } catch (e) {
     print('[DEBUG] ❌ 应用启动数据获取失败: $e');

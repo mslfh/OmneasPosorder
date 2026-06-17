@@ -5,6 +5,17 @@ import 'package:logger/logger.dart';
 import 'order_service.dart';
 import 'sync_service.dart';
 import 'print_service.dart';
+import 'settings_service.dart';
+
+class ServiceStatusResult {
+  final bool isPrinterConnected;
+  final bool isServerConnected;
+
+  const ServiceStatusResult({
+    required this.isPrinterConnected,
+    required this.isServerConnected,
+  });
+}
 
 class BackgroundTaskManager {
   static final Logger _logger = Logger();
@@ -12,6 +23,7 @@ class BackgroundTaskManager {
   static const String printTaskName = 'print_retry_task';
   static const String maintenanceTaskName = 'maintenance_task';
   static const String fetchRemoteOrdersTaskName = 'fetch_remote_orders_task'; // 新增任务名
+  static bool _isInitialized = false;
 
   // 单例模式
   static BackgroundTaskManager? _instance;
@@ -34,6 +46,11 @@ class BackgroundTaskManager {
   /// 初始化后台任务管理器
   Future<void> initialize() async {
     try {
+      if (_isInitialized) {
+        _logger.i('后台任务管理器已初始化，跳过重复初始化');
+        return;
+      }
+
       if (_isMobilePlatform) {
         // 移动平台使用 workmanager
         await Workmanager().initialize(
@@ -48,15 +65,44 @@ class BackgroundTaskManager {
         _logger.i('桌面平台后台任务管理器初始化成功');
       }
 
+      _isInitialized = true;
+
     } catch (e) {
       _logger.e('后台任务管理器初始化失败: $e');
     }
   }
 
+  /// 按最新设置刷新后台任务
+  Future<void> refreshScheduledTasks() async {
+    try {
+      if (!_isInitialized) {
+        await initialize();
+        return;
+      }
+
+      if (_isMobilePlatform) {
+        await Workmanager().cancelAll();
+        await _registerPeriodicTasks();
+        _logger.i('移动平台后台任务已根据最新设置刷新');
+      } else {
+        await _cancelDesktopTimers();
+        await _initializeDesktopTasks();
+        _logger.i('桌面平台后台任务已根据最新设置刷新');
+      }
+    } catch (e) {
+      _logger.e('刷新后台任务失败: $e');
+    }
+  }
+
   /// 初始化桌面平台任务
   Future<void> _initializeDesktopTasks() async {
-    // 同步任务 - 每5分钟执行一次
-    _syncTimer = Timer.periodic(Duration(minutes: 5), (timer) async {
+    // 从settings获取间隔配置
+    final settingsService = SettingsService();
+    await settingsService.initialize();
+    final settings = settingsService.getSettings();
+
+    // 同步任务 - 使用配置的间隔
+    _syncTimer = Timer.periodic(Duration(minutes: settings.syncTaskIntervalMinutes), (timer) async {
       try {
         await _executeSyncTask();
       } catch (e) {
@@ -64,8 +110,8 @@ class BackgroundTaskManager {
       }
     });
 
-    // 拉取服务器新订单任务 - 每5秒执行一次
-    _fetchRemoteOrdersTimer = Timer.periodic(Duration(seconds: 5), (timer) async {
+    // 拉取服务器新订单任务 - 使用配置的间隔
+    _fetchRemoteOrdersTimer = Timer.periodic(Duration(seconds: settings.fetchRemoteOrdersIntervalSeconds), (timer) async {
       try {
         print('拉取服务器新订单任务');
         final syncService = SyncService();
@@ -75,8 +121,8 @@ class BackgroundTaskManager {
       }
     });
 
-    // 打印重试任务 - 每2分钟执行一次
-    _printTimer = Timer.periodic(Duration(minutes: 2), (timer) async {
+    // 打印重试任务 - 使用配置的间隔
+    _printTimer = Timer.periodic(Duration(minutes: settings.printRetryTaskIntervalMinutes), (timer) async {
       try {
         await _executePrintRetryTask();
       } catch (e) {
@@ -96,14 +142,65 @@ class BackgroundTaskManager {
     _logger.i('桌面平台定期任务已启动');
   }
 
+  /// 检查打印机和服务器连接状态
+  Future<ServiceStatusResult> checkServiceStatus() async {
+    try {
+      final settingsService = SettingsService();
+      await settingsService.initialize();
+      final settings = settingsService.getSettings();
+
+      final syncService = SyncService();
+      final printService = PrintService();
+
+      syncService.configureBaseUrl(settings.apiServerUrl);
+      printService.configurePrinter(
+        printerIP: settings.printerAddress,
+        printerPort: settings.printerPort,
+      );
+
+      final results = await Future.wait<bool>([
+        printService.checkPrinterStatus(),
+        syncService.checkNetworkConnectivity(),
+      ]);
+
+      return ServiceStatusResult(
+        isPrinterConnected: results[0],
+        isServerConnected: results[1],
+      );
+    } catch (e) {
+      _logger.e('检查打印机和服务器状态失败: $e');
+      return const ServiceStatusResult(
+        isPrinterConnected: false,
+        isServerConnected: false,
+      );
+    }
+  }
+
+  /// 取消桌面平台定时器
+  Future<void> _cancelDesktopTimers() async {
+    _syncTimer?.cancel();
+    _printTimer?.cancel();
+    _maintenanceTimer?.cancel();
+    _fetchRemoteOrdersTimer?.cancel();
+    _syncTimer = null;
+    _printTimer = null;
+    _maintenanceTimer = null;
+    _fetchRemoteOrdersTimer = null;
+  }
+
   /// 注册定期任务
   Future<void> _registerPeriodicTasks() async {
     try {
-      // 同步任务 - 每5分钟检查一次
+      // 从settings获取间隔配置
+      final settingsService = SettingsService();
+      await settingsService.initialize();
+      final settings = settingsService.getSettings();
+
+      // 同步任务 - 使用配置的间隔
       await Workmanager().registerPeriodicTask(
         syncTaskName,
         syncTaskName,
-        frequency: Duration(minutes: 5),
+        frequency: Duration(minutes: settings.syncTaskIntervalMinutes),
         constraints: Constraints(
           networkType: NetworkType.connected, // 需要网络连接
           requiresBatteryNotLow: false,
@@ -113,11 +210,11 @@ class BackgroundTaskManager {
         ),
       );
 
-      // 打印重试任务 - 每2分钟检查一次
+      // 打印重试任务 - 使用配置的间隔
       await Workmanager().registerPeriodicTask(
         printTaskName,
         printTaskName,
-        frequency: Duration(minutes: 2),
+        frequency: Duration(minutes: settings.printRetryTaskIntervalMinutes),
         constraints: Constraints(
           networkType: NetworkType.not_required, // 打印不需要网络
           requiresBatteryNotLow: false,
@@ -141,11 +238,11 @@ class BackgroundTaskManager {
         ),
       );
 
-      // 拉取服务器新订单任务 - 每5秒执行一次
+      // 拉取服务器新订单任务 - 使用配置的间隔
       await Workmanager().registerPeriodicTask(
         fetchRemoteOrdersTaskName,
         fetchRemoteOrdersTaskName,
-        frequency: Duration(seconds: 5),
+        frequency: Duration(seconds: settings.fetchRemoteOrdersIntervalSeconds),
         constraints: Constraints(
           networkType: NetworkType.connected, // 需要网络连接
           requiresBatteryNotLow: false,
@@ -217,16 +314,10 @@ class BackgroundTaskManager {
         _logger.i('所有后台任务已取消（移动平台）');
       } else {
         // Windows 平台取消定时器
-        _syncTimer?.cancel();
-        _printTimer?.cancel();
-        _maintenanceTimer?.cancel();
-        _fetchRemoteOrdersTimer?.cancel(); // 新增取消逻辑
-        _syncTimer = null;
-        _printTimer = null;
-        _maintenanceTimer = null;
-        _fetchRemoteOrdersTimer = null;
+        await _cancelDesktopTimers();
         _logger.i('所有后台任务已取消（桌面平台）');
       }
+      _isInitialized = false;
     } catch (e) {
       _logger.e('取消后台任务失败: $e');
     }
@@ -339,6 +430,14 @@ Future<void> _executePrintRetryTask() async {
   try {
     final printService = PrintService();
 
+    // 先处理自动打印开关，关闭时将待打印单据标记为 skipped
+    final autoPrintEnabled = await printService.isAutoPrintEnabled();
+    if (!autoPrintEnabled) {
+      await printService.retryFailedPrintOrders();
+      logger.i('自动打印关闭，后台打印任务仅执行跳过标记');
+      return;
+    }
+
     // 检查打印机状态
     final isReady = await printService.checkPrinterStatus();
     if (!isReady) {
@@ -362,9 +461,17 @@ Future<void> _executeMaintenanceTask() async {
 
   try {
     final orderService = OrderService();
+    final backgroundTaskManager = BackgroundTaskManager();
 
     // 执行订单维护
     await orderService.performMaintenance();
+
+    // 检查打印机和服务器连接状态
+    final serviceStatus = await backgroundTaskManager.checkServiceStatus();
+    logger.i(
+      '服务状态检查完成: printer=${serviceStatus.isPrinterConnected}, server=${serviceStatus.isServerConnected}',
+    );
+
     logger.i('后台维护任务完成');
 
   } catch (e) {

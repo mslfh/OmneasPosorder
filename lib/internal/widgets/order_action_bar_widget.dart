@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../utils/order_selected.dart';
 
 class OrderActionBarWidget extends StatelessWidget {
   final VoidCallback onVoidOrder;
@@ -136,7 +135,7 @@ class OrderActionBarWidget extends StatelessWidget {
               child: ElevatedButton.icon(
                 onPressed: onSyncRemoteOrders,
                 icon: Icon(Icons.cloud_download, size: 16),
-                label: Text('SYNC', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                label: Text('PULL', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.blueAccent,
                   foregroundColor: Colors.white,

@@ -23,13 +23,17 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       printerType: fields[3] as String,
       enableAutoSync: fields[4] as bool,
       enableAutoPrint: fields[5] as bool,
+      syncTaskIntervalMinutes: fields[6] as int,
+      fetchRemoteOrdersIntervalSeconds: fields[7] as int,
+      printRetryTaskIntervalMinutes: fields[8] as int,
+      orderMatchCheckIntervalMinutes: fields[9] as int,
     );
   }
 
   @override
   void write(BinaryWriter writer, AppSettings obj) {
     writer
-      ..writeByte(6)
+      ..writeByte(10)
       ..writeByte(0)
       ..write(obj.apiServerUrl)
       ..writeByte(1)
@@ -41,7 +45,15 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       ..writeByte(4)
       ..write(obj.enableAutoSync)
       ..writeByte(5)
-      ..write(obj.enableAutoPrint);
+      ..write(obj.enableAutoPrint)
+      ..writeByte(6)
+      ..write(obj.syncTaskIntervalMinutes)
+      ..writeByte(7)
+      ..write(obj.fetchRemoteOrdersIntervalSeconds)
+      ..writeByte(8)
+      ..write(obj.printRetryTaskIntervalMinutes)
+      ..writeByte(9)
+      ..write(obj.orderMatchCheckIntervalMinutes);
   }
 
   @override
