@@ -143,9 +143,9 @@ class OrderService {
   /// 异步推送同步到后端（带printStatus）
   Future<void> _syncToBackendWithPrintStatus(OrderModel order) async {
     try {
-      // 更新状态为pending_sync
-      await _databaseService
-          .updateOrder(order.copyWith(orderStatus: OrderStatus.pendingSync));
+      // // 更新状态为pending_sync
+      // await _databaseService
+      //     .updateOrder(order.copyWith(orderStatus: OrderStatus.pendingSync));
 
       // 调用同步服务，传递printStatus
       await _syncService.syncOrder(order.id, printStatus: order.printStatus);
@@ -321,6 +321,16 @@ class OrderService {
     }
   }
 
+  /// 获取待同步订单
+  Future<List<OrderModel>> getPendingSyncOrders() async {
+    return await _databaseService.getPendingSyncOrders();
+  }
+
+  /// 获取待打印订单
+  Future<List<OrderModel>> getPendingPrintOrders() async {
+    return await _databaseService.getPendingPrintOrders();
+  }
+
   /// 获取订单列表，支持按日期过滤（如果传入 date 则返回该日期的所有订单）
   Future<List<OrderModel>> getOrders(
       {int limit = 50, int offset = 0, DateTime? date}) async {
@@ -402,6 +412,40 @@ class OrderService {
       ));
 
       _logger.i('订单标记为已打印: $orderId');
+    }
+  }
+
+  /// 更新订单状态
+  Future<void> updateStatus(String orderId, {OrderStatus? orderStatus, PrintStatus? printStatus}) async {
+    final order = await _databaseService.getOrder(orderId);
+    if (order != null) {
+      final updatedOrder = order.copyWith(
+        orderStatus: orderStatus ?? order.orderStatus,
+        printStatus: printStatus ?? order.printStatus,
+      );
+      await _databaseService.updateOrder(updatedOrder);
+
+      // 记录日志
+      if (orderStatus != null) {
+        await _databaseService.insertLog(LogModel(
+          orderId: orderId,
+          action: 'update_status',
+          status: 'success',
+          message: '订单状态修改为: ${orderStatus.name}',
+          timestamp: DateTime.now(),
+        ));
+      }
+      if (printStatus != null) {
+        await _databaseService.insertLog(LogModel(
+          orderId: orderId,
+          action: 'update_print_status',
+          status: 'success',
+          message: '打印状态修改为: ${printStatus.name}',
+          timestamp: DateTime.now(),
+        ));
+      }
+
+      _logger.i('订单状态更新完成: $orderId');
     }
   }
 

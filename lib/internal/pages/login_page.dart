@@ -20,7 +20,6 @@ class _LoginPageState extends State<LoginPage> {
   bool _isLoading = false;
   String? _error;
   bool _rememberMe = false;
-  String? _apiServerUrl;
   bool _isTestingConnection = false;
 
   @override
@@ -47,14 +46,38 @@ class _LoginPageState extends State<LoginPage> {
     final defaultUrl = 'http://127.0.0.1:8000/api';
     final serverUrl = url ?? defaultUrl;
     _apiServerUrlController.text = serverUrl;
-    setState(() {
-      _apiServerUrl = serverUrl;
-    });
   }
 
   String _cleanUrlFormat(String url) {
     // 去除末尾的 / 
     return url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+  }
+
+  Future<void> _persistServerUrl(String serverUrl, {bool clearAuthToken = false}) async {
+    final api = ApiService();
+    api.updateBaseUrl(serverUrl);
+
+    final box = await Hive.openBox('authBox');
+    await box.put('apiServerUrl', serverUrl);
+    if (clearAuthToken) {
+      await box.delete('authToken');
+      api.clearAuthToken();
+    }
+
+    final settingsService = SettingsService();
+    try {
+      await settingsService.initialize();
+      await settingsService.updateApiServerUrl(serverUrl);
+      print('[LOGIN] Settings synchronized successfully');
+    } catch (e) {
+      print('[LOGIN] Warning: Could not sync to settings: $e');
+    }
+  }
+
+  Future<void> _enterApp() async {
+    await AppInitializationService.startBackgroundTasksAndNetworkListener();
+    await BackgroundTaskManager().initialize();
+    widget.onLoginSuccess();
   }
 
   Future<void> _testConnection() async {
@@ -72,10 +95,10 @@ class _LoginPageState extends State<LoginPage> {
       final api = ApiService();
       api.updateBaseUrl(url);
 
-      // 尝试连接服务器
+      // 尝试连接服务器健康检查接口
       try {
-        final response = await api.get('login').timeout(Duration(seconds: 10));
-        if (response.statusCode == 200 || response.statusCode == 400 || response.statusCode == 401) {
+        final response = await api.get('/health').timeout(Duration(seconds: 10));
+        if (response.statusCode != null && response.statusCode! >= 200 && response.statusCode! < 300) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('连接成功'),
@@ -102,7 +125,7 @@ class _LoginPageState extends State<LoginPage> {
     });
     print('[LOGIN] Start login');
     final serverUrl = _cleanUrlFormat(_apiServerUrlController.text.trim());
-    print('[LOGIN] Server URL: [32m[1m[4m[7m' + (serverUrl ?? 'null') + '\u001b[0m');
+    print('[LOGIN] Server URL: ' + serverUrl);
     print('[LOGIN] Username: ' + _usernameController.text.trim());
     try {
       if (serverUrl.isEmpty) {
@@ -130,19 +153,8 @@ class _LoginPageState extends State<LoginPage> {
       final box = await Hive.openBox('authBox');
       if (token != null) {
         await box.put('authToken', token);
-        // 保存API服务器地址到authBox（已去除末尾的/）
-        await box.put('apiServerUrl', serverUrl);
         api.setAuthToken(token);
-        
-        // 同步保存到settings，确保SettingsService已初始化
-        final settingsService = SettingsService();
-        try {
-          await settingsService.initialize();
-          await settingsService.updateApiServerUrl(serverUrl);
-          print('[LOGIN] Settings synchronized successfully');
-        } catch (e) {
-          print('[LOGIN] Warning: Could not sync to settings: $e');
-        }
+        await _persistServerUrl(serverUrl);
 
         if (_rememberMe) {
           await box.put('savedUsername', _usernameController.text.trim());
@@ -155,9 +167,7 @@ class _LoginPageState extends State<LoginPage> {
         }
         print('[LOGIN] Login success, token saved.');
         // 登录成功后启动后台任务和网络监听
-        await AppInitializationService.startBackgroundTasksAndNetworkListener();
-        await BackgroundTaskManager().initialize();
-        widget.onLoginSuccess();
+        await _enterApp();
       } else {
         print('[LOGIN] 登录失败，未获取到Token');
         setState(() {
@@ -171,10 +181,44 @@ class _LoginPageState extends State<LoginPage> {
         _error = '登录失败: $e';
       });
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
       print('[LOGIN] End login');
+    }
+  }
+
+  Future<void> _skipLogin() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final serverUrl = _cleanUrlFormat(_apiServerUrlController.text.trim());
+      if (serverUrl.isEmpty) {
+        setState(() => _error = '请输入服务器地址');
+        return;
+      }
+
+      await _persistServerUrl(serverUrl, clearAuthToken: true);
+      print('[LOGIN] Skip login selected, entering app without authentication.');
+
+      await _enterApp();
+    } catch (e, stack) {
+      print('[LOGIN] Skip login exception: ' + e.toString());
+      print('[LOGIN] Skip login stack: ' + stack.toString());
+      setState(() {
+        _error = '跳过登录失败: $e';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -263,6 +307,14 @@ class _LoginPageState extends State<LoginPage> {
                       child: ElevatedButton(
                         onPressed: _isLoading ? null : _login,
                         child: _isLoading ? CircularProgressIndicator() : Text('登录'),
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        onPressed: _isLoading ? null : _skipLogin,
+                        child: Text('跳过登录'),
                       ),
                     ),
                   ],

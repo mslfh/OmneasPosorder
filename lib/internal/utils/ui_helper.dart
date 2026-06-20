@@ -85,9 +85,13 @@ class UIHelper {
     }
   }
 
-  /// 清理资源
+  /// 清理资源（由于UIHelper是单例，通常不需要手动清理，除非应用关闭）
   void dispose() {
-    _audioPlayer.dispose();
+    try {
+      _audioPlayer.dispose();
+    } catch (e) {
+      // 忽略清理时的错误
+    }
   }
 }
 

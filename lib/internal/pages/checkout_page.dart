@@ -74,6 +74,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
   void _handleRawKeyboardEvent(RawKeyEvent event) {
     if (event is! RawKeyDownEvent) return;
+    if (!(ModalRoute.of(context)?.isCurrent ?? false)) return;
 
     final key = event.logicalKey;
 
@@ -96,7 +97,10 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
     // Enter 键：触发下单（全局生效）
     if (key == LogicalKeyboardKey.enter) {
-      _placeOrder();
+      // 只有不在下单中时才允许触发
+      if (!isPlacingOrder) {
+        _placeOrder();
+      }
       return;
     }
 
@@ -632,6 +636,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
   /// 下单方法，提取为单独函数以便重用
   void _placeOrder() async {
+    if (isPlacingOrder) return;
+
     // 如果未输入金额，提示并中止
     if (receivedAmount == 0.0) {
       _showMissingAmountDialog();

@@ -5,6 +5,9 @@
     <!-- 添加后台任务所需的权限 -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <application
         android:label="omneas_posorder"

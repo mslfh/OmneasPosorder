@@ -42,6 +42,14 @@ class ApiService {
     _dio.options.headers['Authorization'] = 'Bearer $token';
   }
 
+  /// 清除token并移除Authorization header
+  void clearAuthToken() {
+    _authToken = null;
+    try {
+      _dio.options.headers.remove('Authorization');
+    } catch (_) {}
+  }
+
   /// 更新API基础URL，并保存到Hive
   void updateBaseUrl(String baseUrl) async {
     _dio.options.baseUrl = baseUrl;
@@ -57,7 +65,7 @@ class ApiService {
     if (!_dio.options.baseUrl.endsWith('/')) {
       _dio.options.baseUrl = _dio.options.baseUrl + '/';
     }
-    final options = Options(headers: Map<String, dynamic>.from(_dio.options.headers ?? {}));
+    final options = Options(headers: Map<String, dynamic>.from(_dio.options.headers));
     options.headers ??= {};
     options.headers?['Accept'] = 'application/json';
     print('[API] GET url: ' + _dio.options.baseUrl + fixedPath);
@@ -81,7 +89,7 @@ class ApiService {
     if (!_dio.options.baseUrl.endsWith('/')) {
       _dio.options.baseUrl = _dio.options.baseUrl + '/';
     }
-    final options = Options(headers: Map<String, dynamic>.from(_dio.options.headers ?? {}));
+    final options = Options(headers: Map<String, dynamic>.from(_dio.options.headers));
     print('[API] POST url: ' + _dio.options.baseUrl + fixedPath);
     print('[API] headers: ' + options.headers.toString());
     print('[API] data: ' + (data?.toString() ?? 'null'));

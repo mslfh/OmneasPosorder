@@ -923,9 +923,13 @@ class PrintService {
     // 分块标识：TOTALS
     content.writeln('[TOTALS]');
     content.writeln("-----------------------------------------------");
-    content.writeln("Total:".padRight(38)+"\$"+order.totalAmount.toStringAsFixed(2));
-    content.writeln("TAX SALES:".padRight(38)+"\$"+(order.totalAmount*0.91).toStringAsFixed(2));
-    content.writeln("G.S.T.".padRight(38)+"\$"+(order.totalAmount*0.09).toStringAsFixed(2));
+
+    // 1. 先计算税前金额 (Total / 1.1)
+    double taxSales = order.totalAmount / 1.1;
+    double gst = order.totalAmount - double.parse(taxSales.toStringAsFixed(2));
+    content.writeln("Total:".padRight(38) + "\$" + order.totalAmount.toStringAsFixed(2));
+    content.writeln("TAX SALES:".padRight(38) + "\$" + taxSales.toStringAsFixed(2));
+    content.writeln("G.S.T.".padRight(38) + "\$" + gst.toStringAsFixed(2));
     // 分块标识：FOOTER
     content.writeln('[FOOTER]');
     content.writeln("Order Time: "+_formatDateTime(order.orderTime));

@@ -254,7 +254,7 @@ class SyncService {
 
     // 更新订单错误信息
     final updatedOrder = order.copyWith(
-      orderStatus: OrderStatus.pendingSync,
+      orderStatus: order.orderStatus == OrderStatus.synced ? OrderStatus.synced : OrderStatus.pendingSync,
       errorMessage: errorMessage,
       retryCount: order.retryCount + 1,
       lastRetryTime: DateTime.now(),

@@ -61,6 +61,82 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
     }
   }
 
+  Future<void> _showEditStatusDialog() async {
+    OrderStatus selectedOrderStatus = _order!.orderStatus;
+    PrintStatus selectedPrintStatus = _order!.printStatus;
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('编辑订单状态'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('订单状态:', style: TextStyle(fontWeight: FontWeight.bold)),
+              DropdownButton<OrderStatus>(
+                value: selectedOrderStatus,
+                isExpanded: true,
+                items: OrderStatus.values.map((status) {
+                  return DropdownMenuItem(
+                    value: status,
+                    child: Text(_getOrderStatusText(status)),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setDialogState(() => selectedOrderStatus = value);
+                  }
+                },
+              ),
+              SizedBox(height: 16),
+              Text('打印状态:', style: TextStyle(fontWeight: FontWeight.bold)),
+              DropdownButton<PrintStatus>(
+                value: selectedPrintStatus,
+                isExpanded: true,
+                items: PrintStatus.values.map((status) {
+                  return DropdownMenuItem(
+                    value: status,
+                    child: Text(_getPrintStatusText(status)),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setDialogState(() => selectedPrintStatus = value);
+                  }
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('取消'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  await _orderService.updateStatus(
+                    widget.orderId,
+                    orderStatus: selectedOrderStatus,
+                    printStatus: selectedPrintStatus,
+                  );
+                  Navigator.pop(context);
+                  _showSuccessSnackBar('状态更新成功');
+                  _loadOrderDetail();
+                } catch (e) {
+                  _showErrorSnackBar('更新失败: $e');
+                }
+              },
+              child: Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -155,11 +231,21 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '状态信息',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '状态信息',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                IconButton(
+                  icon: Icon(Icons.edit, size: 20, color: Colors.blue),
+                  onPressed: _showEditStatusDialog,
+                  tooltip: '编辑状态',
+                ),
+              ],
             ),
-            SizedBox(height: 12),
+            SizedBox(height: 8),
             Row(
               children: [
                 Text('订单状态: '),
@@ -215,13 +301,6 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
   }
 
   Widget _buildActionsCard() {
-    final needsSyncRetry = _order!.orderStatus != OrderStatus.synced;
-    final needsPrintRetry = _order!.printStatus != PrintStatus.printed;
-
-    if (!needsSyncRetry && !needsPrintRetry) {
-      return SizedBox.shrink();
-    }
-
     return Card(
       child: Padding(
         padding: EdgeInsets.all(16),
@@ -235,33 +314,29 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
             SizedBox(height: 12),
             Row(
               children: [
-                if (needsSyncRetry) ...[
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _retrySync,
-                      icon: Icon(Icons.sync),
-                      label: Text('重新同步'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
-                        foregroundColor: Colors.white,
-                      ),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _retrySync,
+                    icon: Icon(Icons.sync),
+                    label: Text('重新同步'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
                     ),
                   ),
-                  if (needsPrintRetry) SizedBox(width: 12),
-                ],
-                if (needsPrintRetry) ...[
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _retryPrint,
-                      icon: Icon(Icons.print),
-                      label: Text('重新打印'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                      ),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _retryPrint,
+                    icon: Icon(Icons.print),
+                    label: Text('重新打印'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
                     ),
                   ),
-                ],
+                ),
               ],
             ),
           ],

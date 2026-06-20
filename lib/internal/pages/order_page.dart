@@ -219,7 +219,6 @@ class _OrderPageState extends State<OrderPage> {
   void dispose() {
     _searchInputController.dispose();
     _orderMatchManager.dispose();
-    _uiHelper.dispose();
     _removeQuickInputOverlay();
     super.dispose();
   }

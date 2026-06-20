@@ -22,8 +22,17 @@ class BackgroundTaskManager {
   static const String syncTaskName = 'order_sync_task';
   static const String printTaskName = 'print_retry_task';
   static const String maintenanceTaskName = 'maintenance_task';
-  static const String fetchRemoteOrdersTaskName = 'fetch_remote_orders_task'; // 新增任务名
+  static const String fetchRemoteOrdersTaskName = 'fetch_remote_orders_task';
+  static const String fetchRemoteOrdersChainTaskName = 'fetch_remote_orders_chain_task';
+  static const String orderMatchTaskName = 'order_match_task';
   static bool _isInitialized = false;
+
+  // 任务执行状态锁，防止并发执行
+  static bool _isSyncing = false;
+  static bool _isPrinting = false;
+  static bool _isMaintaining = false;
+  static bool _isFetching = false;
+  static bool _isMatching = false;
 
   // 单例模式
   static BackgroundTaskManager? _instance;
@@ -38,7 +47,8 @@ class BackgroundTaskManager {
   static Timer? _syncTimer;
   static Timer? _printTimer;
   static Timer? _maintenanceTimer;
-  static Timer? _fetchRemoteOrdersTimer; // 新增定时器
+  static Timer? _fetchRemoteOrdersTimer;
+  static Timer? _orderMatchTimer;
 
   /// 检查是否为移动平台
   bool get _isMobilePlatform => Platform.isAndroid || Platform.isIOS;
@@ -58,6 +68,7 @@ class BackgroundTaskManager {
           isInDebugMode: false,
         );
         await _registerPeriodicTasks();
+        await _scheduleFetchRemoteOrdersChain(forceReplace: true);
         _logger.i('移动平台后台任务管理器初始化成功');
       } else {
         // Windows/Web 平台使用定时器
@@ -83,6 +94,7 @@ class BackgroundTaskManager {
       if (_isMobilePlatform) {
         await Workmanager().cancelAll();
         await _registerPeriodicTasks();
+        await _scheduleFetchRemoteOrdersChain(forceReplace: true);
         _logger.i('移动平台后台任务已根据最新设置刷新');
       } else {
         await _cancelDesktopTimers();
@@ -113,9 +125,7 @@ class BackgroundTaskManager {
     // 拉取服务器新订单任务 - 使用配置的间隔
     _fetchRemoteOrdersTimer = Timer.periodic(Duration(seconds: settings.fetchRemoteOrdersIntervalSeconds), (timer) async {
       try {
-        print('拉取服务器新订单任务');
-        final syncService = SyncService();
-        await syncService.fetchAndSyncRemoteOrders();
+        await _executeFetchRemoteOrdersTask();
       } catch (e) {
         _logger.e('拉取服务器新订单任务失败: $e');
       }
@@ -136,6 +146,15 @@ class BackgroundTaskManager {
         await _executeMaintenanceTask();
       } catch (e) {
         _logger.e('桌面平台维护任务失败: $e');
+      }
+    });
+
+    // 订单对账任务 - 使用配置的间隔
+    _orderMatchTimer = Timer.periodic(Duration(minutes: settings.orderMatchCheckIntervalMinutes), (timer) async {
+      try {
+        await _executeOrderMatchTask();
+      } catch (e) {
+        _logger.e('桌面平台订单对账任务失败: $e');
       }
     });
 
@@ -182,10 +201,12 @@ class BackgroundTaskManager {
     _printTimer?.cancel();
     _maintenanceTimer?.cancel();
     _fetchRemoteOrdersTimer?.cancel();
+    _orderMatchTimer?.cancel();
     _syncTimer = null;
     _printTimer = null;
     _maintenanceTimer = null;
     _fetchRemoteOrdersTimer = null;
+    _orderMatchTimer = null;
   }
 
   /// 注册定期任务
@@ -239,12 +260,17 @@ class BackgroundTaskManager {
       );
 
       // 拉取服务器新订单任务 - 使用配置的间隔
+      // 注意：Workmanager 在 Android 上的最小周期为 15 分钟
+      final fetchInterval = settings.fetchRemoteOrdersIntervalSeconds > 900 
+          ? Duration(seconds: settings.fetchRemoteOrdersIntervalSeconds)
+          : Duration(minutes: 15);
+
       await Workmanager().registerPeriodicTask(
         fetchRemoteOrdersTaskName,
         fetchRemoteOrdersTaskName,
-        frequency: Duration(seconds: settings.fetchRemoteOrdersIntervalSeconds),
+        frequency: fetchInterval,
         constraints: Constraints(
-          networkType: NetworkType.connected, // 需要网络连接
+          networkType: NetworkType.connected,
           requiresBatteryNotLow: false,
           requiresCharging: false,
           requiresDeviceIdle: false,
@@ -252,10 +278,54 @@ class BackgroundTaskManager {
         ),
       );
 
+      // 订单对账任务
+      await Workmanager().registerPeriodicTask(
+        orderMatchTaskName,
+        orderMatchTaskName,
+        frequency: Duration(minutes: settings.orderMatchCheckIntervalMinutes > 15 
+            ? settings.orderMatchCheckIntervalMinutes 
+            : 15),
+        constraints: Constraints(
+          networkType: NetworkType.connected,
+        ),
+      );
+
       _logger.i('定期任务注册成功');
 
     } catch (e) {
       _logger.e('定期任务注册失败: $e');
+    }
+  }
+
+  /// 在移动端维持一个单次任务链，提升熄屏/休眠期间拉单任务的触发机会
+  Future<void> _scheduleFetchRemoteOrdersChain({bool forceReplace = false}) async {
+    if (!_isMobilePlatform) return;
+
+    try {
+      final settingsService = SettingsService();
+      await settingsService.initialize();
+      final settings = settingsService.getSettings();
+
+      final intervalSeconds = settings.fetchRemoteOrdersIntervalSeconds > 0
+          ? settings.fetchRemoteOrdersIntervalSeconds
+          : 60;
+
+      await Workmanager().registerOneOffTask(
+        fetchRemoteOrdersChainTaskName,
+        fetchRemoteOrdersTaskName,
+        initialDelay: Duration(seconds: intervalSeconds),
+        constraints: Constraints(
+          networkType: NetworkType.connected,
+          requiresBatteryNotLow: false,
+          requiresCharging: false,
+          requiresDeviceIdle: false,
+          requiresStorageNotLow: false,
+        ),
+        existingWorkPolicy:
+            forceReplace ? ExistingWorkPolicy.replace : ExistingWorkPolicy.keep,
+      );
+    } catch (e) {
+      _logger.e('调度拉单链式任务失败: $e');
     }
   }
 
@@ -311,6 +381,7 @@ class BackgroundTaskManager {
     try {
       if (_isMobilePlatform) {
         await Workmanager().cancelAll();
+        await Workmanager().cancelByUniqueName(fetchRemoteOrdersChainTaskName);
         _logger.i('所有后台任务已取消（移动平台）');
       } else {
         // Windows 平台取消定时器
@@ -328,6 +399,9 @@ class BackgroundTaskManager {
     try {
       if (_isMobilePlatform) {
         await Workmanager().cancelByUniqueName(taskName);
+        if (taskName == fetchRemoteOrdersTaskName) {
+          await Workmanager().cancelByUniqueName(fetchRemoteOrdersChainTaskName);
+        }
         _logger.i('任务已取消: $taskName（移动平台）');
       } else {
         // Windows 平台根据任务名称取消对应定时器
@@ -347,6 +421,10 @@ class BackgroundTaskManager {
           case fetchRemoteOrdersTaskName:
             _fetchRemoteOrdersTimer?.cancel();
             _fetchRemoteOrdersTimer = null;
+            break;
+          case orderMatchTaskName:
+            _orderMatchTimer?.cancel();
+            _orderMatchTimer = null;
             break;
         }
         _logger.i('任务已取消: $taskName（桌面平台）');
@@ -379,9 +457,13 @@ void callbackDispatcher() {
           await _executeMaintenanceTask();
           break;
 
-        case BackgroundTaskManager.fetchRemoteOrdersTaskName: // 新增任务处理
-          final syncService = SyncService();
-          await syncService.fetchAndSyncRemoteOrders();
+        case BackgroundTaskManager.fetchRemoteOrdersTaskName:
+          await _executeFetchRemoteOrdersTask();
+          await _scheduleNextFetchRemoteOrdersChainTask();
+          break;
+
+        case BackgroundTaskManager.orderMatchTaskName:
+          await _executeOrderMatchTask();
           break;
 
         default:
@@ -399,84 +481,145 @@ void callbackDispatcher() {
   });
 }
 
+Future<void> _scheduleNextFetchRemoteOrdersChainTask() async {
+  if (!(Platform.isAndroid || Platform.isIOS)) return;
+
+  final logger = Logger();
+  try {
+    final settingsService = SettingsService();
+    await settingsService.initialize();
+    final settings = settingsService.getSettings();
+
+    final intervalSeconds = settings.fetchRemoteOrdersIntervalSeconds > 0
+        ? settings.fetchRemoteOrdersIntervalSeconds
+        : 60;
+
+    await Workmanager().registerOneOffTask(
+      BackgroundTaskManager.fetchRemoteOrdersChainTaskName,
+      BackgroundTaskManager.fetchRemoteOrdersTaskName,
+      initialDelay: Duration(seconds: intervalSeconds),
+      constraints: Constraints(
+        networkType: NetworkType.connected,
+        requiresBatteryNotLow: false,
+        requiresCharging: false,
+        requiresDeviceIdle: false,
+        requiresStorageNotLow: false,
+      ),
+      existingWorkPolicy: ExistingWorkPolicy.replace,
+    );
+  } catch (e) {
+    logger.e('续期拉单链式任务失败: $e');
+  }
+}
+
 /// 执行同步任务
 Future<void> _executeSyncTask() async {
+  if (BackgroundTaskManager._isSyncing) return;
+  BackgroundTaskManager._isSyncing = true;
+  
   final Logger logger = Logger();
 
   try {
     final syncService = SyncService();
-
     // 检查网络连接
     final isConnected = await syncService.checkNetworkConnectivity();
     if (!isConnected) {
       logger.w('网络不可用，跳过同步任务');
       return;
     }
-
     // 执行批量同步
     await syncService.syncPendingOrders();
-    logger.i('后台同步任务完成');
-
   } catch (e) {
     logger.e('后台同步任务失败: $e');
-    rethrow;
+  } finally {
+    BackgroundTaskManager._isSyncing = false;
   }
 }
 
 /// 执行打印重试任务
 Future<void> _executePrintRetryTask() async {
+  if (BackgroundTaskManager._isPrinting) return;
+  BackgroundTaskManager._isPrinting = true;
+
   final Logger logger = Logger();
 
   try {
     final printService = PrintService();
-
-    // 先处理自动打印开关，关闭时将待打印单据标记为 skipped
+    // 先处理自动打印开关
     final autoPrintEnabled = await printService.isAutoPrintEnabled();
     if (!autoPrintEnabled) {
       await printService.retryFailedPrintOrders();
-      logger.i('自动打印关闭，后台打印任务仅执行跳过标记');
       return;
     }
-
     // 检查打印机状态
     final isReady = await printService.checkPrinterStatus();
     if (!isReady) {
       logger.w('打印机不可用，跳过打印重试任务');
       return;
     }
-
     // 重试失败的打印任务
     await printService.retryFailedPrintOrders();
-    logger.i('后台打印重试任务完成');
-
   } catch (e) {
     logger.e('后台打印重试任务失败: $e');
-    rethrow;
+  } finally {
+    BackgroundTaskManager._isPrinting = false;
   }
 }
 
 /// 执行维护任务
 Future<void> _executeMaintenanceTask() async {
+  if (BackgroundTaskManager._isMaintaining) return;
+  BackgroundTaskManager._isMaintaining = true;
+
   final Logger logger = Logger();
 
   try {
     final orderService = OrderService();
-    final backgroundTaskManager = BackgroundTaskManager();
-
     // 执行订单维护
     await orderService.performMaintenance();
-
-    // 检查打印机和服务器连接状态
-    final serviceStatus = await backgroundTaskManager.checkServiceStatus();
-    logger.i(
-      '服务状态检查完成: printer=${serviceStatus.isPrinterConnected}, server=${serviceStatus.isServerConnected}',
-    );
-
     logger.i('后台维护任务完成');
-
   } catch (e) {
     logger.e('后台维护任务失败: $e');
-    rethrow;
+  } finally {
+    BackgroundTaskManager._isMaintaining = false;
+  }
+}
+
+/// 执行远程订单拉取任务
+Future<void> _executeFetchRemoteOrdersTask() async {
+  if (BackgroundTaskManager._isFetching) return;
+  BackgroundTaskManager._isFetching = true;
+
+  final Logger logger = Logger();
+  try {
+    final syncService = SyncService();
+    await syncService.fetchAndSyncRemoteOrders();
+  } catch (e) {
+    logger.e('拉取服务器新订单任务失败: $e');
+  } finally {
+    BackgroundTaskManager._isFetching = false;
+  }
+}
+
+/// 执行订单对账任务
+Future<void> _executeOrderMatchTask() async {
+  if (BackgroundTaskManager._isMatching) return;
+  BackgroundTaskManager._isMatching = true;
+
+  final Logger logger = Logger();
+  try {
+    final syncService = SyncService();
+    // 对账前先尝试同步待处理订单
+    await syncService.syncPendingOrders();
+    
+    // 执行对账逻辑
+    // final matchService = OrderMatchService();
+    // await matchService.verifyOrdersMatch();
+    // logger.i('后台对账任务完成');
+  } catch (e) {
+    logger.e('后台对账任务失败: $e');
+  } finally {
+    BackgroundTaskManager._isMatching = false;
   }
 }
 

@@ -7,12 +7,15 @@ import 'pages/order_list_page.dart';
 import 'pages/login_page.dart';
 import '../../common/services/api_service.dart';
 import '../../common/services/admin_password_service.dart';
-import '../../common/services/background_task_manager.dart';
 import '../../common/services/order_match_service.dart';
 import '../../common/services/settings_service.dart';
 import '../../common/services/sync_service.dart';
 import '../../common/services/print_service.dart';
-import 'services/order_match_manager.dart';
+import 'services/service_status_service.dart';
+import 'widgets/order_match_details_dialog.dart';
+import 'widgets/printer_config_dialog.dart';
+import 'widgets/server_config_dialog.dart';
+import 'widgets/service_status_actions.dart';
 
 class InternalApp extends StatefulWidget {
   @override
@@ -28,6 +31,7 @@ class _InternalAppState extends State<InternalApp> {
   final SettingsService _settingsService = SettingsService();
   final SyncService _syncService = SyncService();
   final PrintService _printService = PrintService();
+  final ServiceStatusService _serviceStatusService = ServiceStatusService();
 
   bool _isPrinterConnected = false;
   bool _isServerConnected = false;
@@ -95,7 +99,7 @@ class _InternalAppState extends State<InternalApp> {
     _isCheckingStatus = true;
 
     try {
-      final serviceStatus = await BackgroundTaskManager().checkServiceStatus();
+      final serviceStatus = await _serviceStatusService.fetchServiceStatus();
 
       if (!mounted) return;
       setState(() {
@@ -114,300 +118,28 @@ class _InternalAppState extends State<InternalApp> {
   }
 
    Future<void> _showPrinterConfigDialog() async {
-     await _settingsService.initialize();
-     final currentSettings = _settingsService.getSettings();
- 
-     final addressController = TextEditingController(text: currentSettings.printerAddress);
-     final portController = TextEditingController(text: currentSettings.printerPort.toString());
-     bool enableAutoPrint = currentSettings.enableAutoPrint;
-     bool isTesting = false;
- 
-     final result = await showDialog<bool>(
+     final result = await showPrinterConfigDialog(
        context: context,
-       builder: (dialogContext) => StatefulBuilder(
-         builder: (dialogContext, setDialogState) => AlertDialog(
-           title: const Text('Printer Configuration'),
-           content: SingleChildScrollView(
-             child: Column(
-               mainAxisSize: MainAxisSize.min,
-               children: [
-                 TextField(
-                   controller: addressController,
-                   decoration: const InputDecoration(
-                     labelText: 'Printer Address',
-                     hintText: '192.168.1.100',
-                     border: OutlineInputBorder(),
-                   ),
-                 ),
-                 const SizedBox(height: 12),
-                 TextField(
-                   controller: portController,
-                   keyboardType: TextInputType.number,
-                   decoration: const InputDecoration(
-                     labelText: 'Printer Port',
-                     hintText: '9100',
-                     border: OutlineInputBorder(),
-                   ),
-                 ),
-                 const SizedBox(height: 8),
-                 SwitchListTile(
-                   contentPadding: EdgeInsets.zero,
-                   title: const Text('Enable Auto Print'),
-                   value: enableAutoPrint,
-                   onChanged: (value) {
-                     setDialogState(() {
-                       enableAutoPrint = value;
-                     });
-                   },
-                 ),
-               ],
-             ),
-           ),
-           actions: [
-             TextButton(
-               onPressed: () => Navigator.pop(dialogContext, false),
-               child: const Text('Cancel'),
-             ),
-             ElevatedButton.icon(
-               onPressed: isTesting ? null : () async {
-                 final address = addressController.text.trim();
-                 final port = int.tryParse(portController.text.trim());
-
-                 if (address.isEmpty) {
-                   ScaffoldMessenger.of(dialogContext).showSnackBar(
-                     const SnackBar(content: Text('Printer address cannot be empty')),
-                   );
-                   return;
-                 }
-
-                 if (port == null || port <= 0 || port > 65535) {
-                   ScaffoldMessenger.of(dialogContext).showSnackBar(
-                     const SnackBar(content: Text('Invalid printer port')),
-                   );
-                   return;
-                 }
-
-                 setDialogState(() {
-                   isTesting = true;
-                 });
-
-                 try {
-                   _printService.configurePrinter(printerIP: address, printerPort: port);
-                   final isReady = await _printService.checkPrinterStatus();
-
-                   if (!mounted) return;
-
-                   if (isReady) {
-                     ScaffoldMessenger.of(dialogContext).showSnackBar(
-                       const SnackBar(
-                         content: Text('Printer connection successful'),
-                         backgroundColor: Colors.green,
-                       ),
-                     );
-                   } else {
-                     ScaffoldMessenger.of(dialogContext).showSnackBar(
-                       const SnackBar(
-                         content: Text('Printer connection failed'),
-                         backgroundColor: Colors.red,
-                       ),
-                     );
-                   }
-                 } catch (e) {
-                   if (!mounted) return;
-                   ScaffoldMessenger.of(dialogContext).showSnackBar(
-                     SnackBar(
-                       content: Text('Test failed: $e'),
-                       backgroundColor: Colors.red,
-                     ),
-                   );
-                 } finally {
-                   if (mounted) {
-                     setDialogState(() {
-                       isTesting = false;
-                     });
-                   }
-                 }
-               },
-               icon: isTesting
-                 ? const SizedBox(
-                     width: 16,
-                     height: 16,
-                     child: CircularProgressIndicator(strokeWidth: 2),
-                   )
-                 : const Icon(Icons.print_outlined),
-               label: Text(isTesting ? 'Testing...' : 'Test Printer'),
-             ),
-             ElevatedButton(
-               onPressed: () async {
-                 final address = addressController.text.trim();
-                 final port = int.tryParse(portController.text.trim());
- 
-                 if (address.isEmpty) {
-                   ScaffoldMessenger.of(context).showSnackBar(
-                     const SnackBar(content: Text('Printer address cannot be empty')),
-                   );
-                   return;
-                 }
- 
-                 if (port == null || port <= 0 || port > 65535) {
-                   ScaffoldMessenger.of(context).showSnackBar(
-                     const SnackBar(content: Text('Invalid printer port')),
-                   );
-                   return;
-                 }
- 
-                 final updated = currentSettings.copyWith(
-                   printerAddress: address,
-                   printerPort: port,
-                   enableAutoPrint: enableAutoPrint,
-                 );
- 
-                 await _settingsService.saveSettings(updated);
-                 _printService.configurePrinter(printerIP: address, printerPort: port);
- 
-                 if (!mounted) return;
-                 Navigator.pop(dialogContext, true);
-                 ScaffoldMessenger.of(context).showSnackBar(
-                   const SnackBar(content: Text('Printer settings updated')),
-                 );
-               },
-               child: const Text('Save'),
-             ),
-           ],
-         ),
-       ),
+       settingsService: _settingsService,
+       printService: _printService,
      );
- 
-     addressController.dispose();
-     portController.dispose();
- 
+
      if (result == true) {
        await _refreshServiceStatus();
      }
    }
 
   Future<void> _showServerConfigDialog() async {
-    await _settingsService.initialize();
-    final currentSettings = _settingsService.getSettings();
-    final apiUrlController = TextEditingController(text: currentSettings.apiServerUrl);
-
-    final result = await showDialog<bool>(
+    final result = await showServerConfigDialog(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Server Configuration'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: apiUrlController,
-                  keyboardType: TextInputType.url,
-                  decoration: const InputDecoration(
-                    labelText: 'API Server URL',
-                    hintText: 'http://127.0.0.1:8000/api',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton.icon(
-              onPressed: () async {
-                final apiUrl = _cleanUrlFormat(apiUrlController.text.trim());
-                if (apiUrl.isEmpty) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    const SnackBar(content: Text('API server URL cannot be empty')),
-                  );
-                  return;
-                }
-
-                setDialogState(() {});
-                _syncService.configureBaseUrl(apiUrl);
-
-                try {
-                  final isConnected = await _syncService.checkNetworkConnectivity();
-                  if (!mounted) return;
-
-                  if (isConnected) {
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(
-                      const SnackBar(
-                        content: Text('Server connection successful'),
-                        backgroundColor: Colors.greenAccent,
-                      ),
-                    );
-                  } else {
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(
-                      const SnackBar(
-                        content: Text('Server connection failed'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    SnackBar(
-                      content: Text('Test failed: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              },
-              icon: const Icon(Icons.cloud),
-              label: const Text('Test Connection'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final apiUrl = _cleanUrlFormat(apiUrlController.text.trim());
-                if (apiUrl.isEmpty) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    const SnackBar(content: Text('API server URL cannot be empty')),
-                  );
-                  return;
-                }
-
-                final updated = currentSettings.copyWith(apiServerUrl: apiUrl);
-                await _settingsService.saveSettings(updated);
-                _syncService.configureBaseUrl(apiUrl);
-                ApiService().updateBaseUrl(apiUrl);
-
-                if (!mounted) return;
-                Navigator.pop(dialogContext, true);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Server settings updated')),
-                );
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      ),
+      settingsService: _settingsService,
+      syncService: _syncService,
+      cleanUrlFormat: _cleanUrlFormat,
     );
-
-    apiUrlController.dispose();
 
     if (result == true) {
       await _refreshServiceStatus();
     }
-  }
-
-  Widget _buildStatusIconButton({
-    required IconData icon,
-    required bool isOnline,
-    required String tooltip,
-    required VoidCallback onPressed,
-  }) {
-    return IconButton(
-      tooltip: tooltip,
-      onPressed: onPressed,
-      icon: Icon(icon, color: isOnline ? Colors.greenAccent : Colors.red),
-    );
   }
 
   void _onOrderMatchStateChanged(
@@ -425,90 +157,10 @@ class _InternalAppState extends State<InternalApp> {
     final result = _orderMatchResult;
     if (result == null) return;
 
-    await showDialog<void>(
+    await showOrderMatchDetailsDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(
-          result.isMatched ? '✓ 订单匹配成功' : '✗ 订单不匹配',
-          style: TextStyle(
-            color: result.isMatched ? Colors.green : Colors.red,
-          ),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              OrderMatchUIBuilder.buildDetailsHeader(result),
-              const SizedBox(height: 12),
-              if (result.serverData != null) ...[
-                OrderMatchUIBuilder.buildDataCard(
-                  title: '服务器数据',
-                  data: result.serverData!,
-                  accentColor: Colors.blue,
-                ),
-                const SizedBox(height: 12),
-              ],
-              if (result.localData != null) ...[
-                OrderMatchUIBuilder.buildDataCard(
-                  title: '本地数据',
-                  data: result.localData!,
-                  accentColor: Colors.orange,
-                ),
-                const SizedBox(height: 12),
-              ],
-              if (result.getMismatchedItems().isNotEmpty) ...[
-                const Text(
-                  '不匹配项',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-                const SizedBox(height: 8),
-                ...result.getMismatchedItems().map(
-                  (item) => Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(Icons.error_outline, size: 16, color: Colors.red),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            item,
-                            style: TextStyle(fontSize: 12, color: Colors.red[700]),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ] else ...[
-                Text(
-                  '所有字段均一致，无需修正。',
-                  style: TextStyle(fontSize: 12, color: Colors.green[700]),
-                ),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('关闭'),
-          ),
-          if (_requestOrderMatchCheck != null)
-            ElevatedButton.icon(
-              onPressed: () async {
-                final requestCheck = _requestOrderMatchCheck;
-                Navigator.pop(dialogContext);
-                if (requestCheck != null) {
-                  await requestCheck();
-                }
-              },
-              icon: const Icon(Icons.refresh),
-              label: const Text('刷新'),
-            ),
-        ],
-      ),
+      result: result,
+      onRefresh: _requestOrderMatchCheck,
     );
   }
 
@@ -742,29 +394,15 @@ class _InternalAppState extends State<InternalApp> {
       SettingsPage(),
     ];
 
-    final List<Widget> appBarActions = [
-      if (_selectedIndex == 0 && _orderMatchResult != null)
-        IconButton(
-          tooltip: '匹配详情',
-          onPressed: _showOrderMatchDetailsDialog,
-          icon: Icon(
-            _orderMatchResult!.isMatched ? Icons.verified : Icons.error_outline,
-            color: _orderMatchResult!.isMatched ? Colors.greenAccent : Colors.red,
-          ),
-        ),
-      _buildStatusIconButton(
-        icon: Icons.print,
-        isOnline: _isPrinterConnected,
-        tooltip: _isPrinterConnected ? 'Printer Connected' : 'Printer Disconnected',
-        onPressed: _showPrinterConfigDialog,
-      ),
-      _buildStatusIconButton(
-        icon: Icons.cloud,
-        isOnline: _isServerConnected,
-        tooltip: _isServerConnected ? 'Server Connected' : 'Server Disconnected',
-        onPressed: _showServerConfigDialog,
-      ),
-    ];
+    final List<Widget> appBarActions = buildServiceStatusActions(
+      selectedIndex: _selectedIndex,
+      orderMatchResult: _orderMatchResult,
+      onShowOrderMatchDetails: _showOrderMatchDetailsDialog,
+      isPrinterConnected: _isPrinterConnected,
+      onOpenPrinterConfig: _showPrinterConfigDialog,
+      isServerConnected: _isServerConnected,
+      onOpenServerConfig: _showServerConfigDialog,
+    );
 
     if (_isAdminMode) {
       appBarActions.addAll([
