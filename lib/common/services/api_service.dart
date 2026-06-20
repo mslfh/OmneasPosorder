@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:hive/hive.dart';
 import 'settings_service.dart';
-import '../../config/env.dart';
 
 class ApiService {
   static final ApiService _instance = ApiService._internal();
@@ -26,7 +25,7 @@ class ApiService {
     } catch (_) {}
     if (baseUrl == null) {
       final settings = _settingsService.getSettings();
-      baseUrl = settings.apiServerUrl.isNotEmpty ? settings.apiServerUrl : Env.apiBaseUrl;
+      baseUrl = settings.apiServerUrl;
     }
     _dio = Dio(BaseOptions(
       baseUrl: baseUrl,
@@ -60,6 +59,9 @@ class ApiService {
   }
 
   Future<Response> get(String path, {Map<String, dynamic>? params}) async {
+    if (_dio.options.baseUrl.trim().isEmpty) {
+      throw Exception('API server URL is not configured');
+    }
     // 保证baseUrl以/结尾，path不以/开头
     String fixedPath = path.startsWith('/') ? path.substring(1) : path;
     if (!_dio.options.baseUrl.endsWith('/')) {
@@ -84,6 +86,9 @@ class ApiService {
   }
 
   Future<Response> post(String path, {dynamic data}) async {
+    if (_dio.options.baseUrl.trim().isEmpty) {
+      throw Exception('API server URL is not configured');
+    }
     // 保证baseUrl以/结尾，path不以/开头
     String fixedPath = path.startsWith('/') ? path.substring(1) : path;
     if (!_dio.options.baseUrl.endsWith('/')) {

@@ -44,9 +44,29 @@ class SyncService {
     ));
   }
 
+  bool _hasValidBaseUrl(String? url) {
+    if (url == null || url.trim().isEmpty) return false;
+    final parsed = Uri.tryParse(url.trim());
+    return parsed != null && parsed.hasScheme && parsed.host.isNotEmpty;
+  }
+
+  String _normalizeBaseUrl(String url) {
+    final trimmed = url.trim();
+    if (trimmed.endsWith('/')) {
+      return trimmed.substring(0, trimmed.length - 1);
+    }
+    return trimmed;
+  }
+
+  bool get isBaseUrlConfigured => _hasValidBaseUrl(_dio.options.baseUrl);
+
   /// 推送单个订单到后端（支持传递printStatus）
   Future<void> syncOrder(String orderId, {PrintStatus? printStatus}) async {
     try {
+      if (!isBaseUrlConfigured) {
+        throw Exception('API server URL is not configured');
+      }
+
       final order = await _databaseService.getOrder(orderId);
       if (order == null) {
         throw Exception('订单不存在: $orderId');
@@ -140,6 +160,11 @@ class SyncService {
   /// 批量同步待同步订单
   Future<void> syncPendingOrders() async {
     try {
+      if (!isBaseUrlConfigured) {
+        _logger.w('未配置后端API地址，跳过批量同步任务');
+        return;
+      }
+
       final pendingOrders = await _databaseService.getPendingSyncOrders();
 
       if (pendingOrders.isEmpty) {
@@ -192,6 +217,11 @@ class SyncService {
   /// 检查网络连接状态
   Future<bool> checkNetworkConnectivity() async {
     try {
+      if (!isBaseUrlConfigured) {
+        _logger.w('未配置后端API地址，跳过网络连通性检查');
+        return false;
+      }
+
       final response = await _dio.get(
         '/health', // 移除 /api 前缀，因为baseUrl已经包含了
         options: Options(
@@ -300,13 +330,23 @@ class SyncService {
 
   /// 配置后端API地址
   void configureBaseUrl(String baseUrl) {
-    _dio.options.baseUrl = baseUrl;
-    _logger.i('后端API地址已配置: $baseUrl');
+    final normalized = _normalizeBaseUrl(baseUrl);
+    _dio.options.baseUrl = normalized;
+
+    if (isBaseUrlConfigured) {
+      _logger.i('后端API地址已配置: $normalized');
+    } else {
+      _logger.w('后端API地址未配置，网络任务将被跳过');
+    }
   }
 
   /// 拉取服务器新订单并同步到本地数据库
   Future<void> fetchAndSyncRemoteOrders() async {
     try {
+      if (!isBaseUrlConfigured) {
+        _logger.w('未配置后端API地址，跳过拉取服务器订单任务');
+        return;
+      }
 
       // 1. 获取本地已同步的最大 remote_order_id
       int latestId = await _databaseService.getMaxRemoteOrderId() ?? 0;

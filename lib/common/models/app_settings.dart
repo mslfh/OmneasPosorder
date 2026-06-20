@@ -35,8 +35,8 @@ class AppSettings {
   int orderMatchCheckIntervalMinutes;
 
   AppSettings({
-    this.apiServerUrl = 'http://127.0.0.1:8000/api',
-    this.printerAddress = '192.168.1.100',
+    this.apiServerUrl = '',
+    this.printerAddress = '',
     this.printerPort = 9100,
     this.printerType = 'network',
     this.enableAutoSync = true,
@@ -50,8 +50,8 @@ class AppSettings {
   /// 修复缺失或无效的字段值（用于向后兼容）
   AppSettings migrateIfNeeded() {
     return AppSettings(
-      apiServerUrl: apiServerUrl.isNotEmpty ? apiServerUrl : 'http://127.0.0.1:8000/api',
-      printerAddress: printerAddress.isNotEmpty ? printerAddress : '192.168.1.100',
+      apiServerUrl: apiServerUrl.trim(),
+      printerAddress: printerAddress.trim(),
       printerPort: printerPort > 0 ? printerPort : 9100,
       printerType: printerType.isNotEmpty ? printerType : 'network',
       enableAutoSync: enableAutoSync,
@@ -106,8 +106,8 @@ class AppSettings {
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     return AppSettings(
-      apiServerUrl: json['apiServerUrl'] ?? 'http://127.0.0.1:8000/api',
-      printerAddress: json['printerAddress'] ?? '192.168.1.100',
+      apiServerUrl: (json['apiServerUrl'] ?? '').toString(),
+      printerAddress: (json['printerAddress'] ?? '').toString(),
       printerPort: json['printerPort'] ?? 9100,
       printerType: json['printerType'] ?? 'network',
       enableAutoSync: json['enableAutoSync'] ?? true,

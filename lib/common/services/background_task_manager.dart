@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/widgets.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:logger/logger.dart';
 import 'order_service.dart';
@@ -442,6 +444,8 @@ void callbackDispatcher() {
     final Logger logger = Logger();
 
     try {
+      await _ensureBackgroundHiveInitialized();
+      await _configureServicesFromSettings();
       logger.i('执行后台任务: $task');
 
       switch (task) {
@@ -654,3 +658,26 @@ class NetworkStatusListener {
     _subscription = null;
   }
 }
+
+bool _isBackgroundHiveInitialized = false;
+
+Future<void> _ensureBackgroundHiveInitialized() async {
+  if (_isBackgroundHiveInitialized) return;
+
+  WidgetsFlutterBinding.ensureInitialized();
+  await Hive.initFlutter();
+  _isBackgroundHiveInitialized = true;
+}
+
+Future<void> _configureServicesFromSettings() async {
+  final settingsService = SettingsService();
+  await settingsService.initialize();
+  final settings = settingsService.getSettings();
+
+  SyncService().configureBaseUrl(settings.apiServerUrl);
+  PrintService().configurePrinter(
+    printerIP: settings.printerAddress,
+    printerPort: settings.printerPort,
+  );
+}
+
