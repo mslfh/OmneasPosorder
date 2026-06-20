@@ -92,12 +92,13 @@ class OrderMatchResult {
 class OrderMatchService {
   static final Logger _logger = Logger();
   static final OrderMatchService _instance = OrderMatchService._internal();
-  
+
   factory OrderMatchService() => _instance;
   OrderMatchService._internal();
 
   final ApiService _apiService = ApiService();
   final DatabaseService _databaseService = DatabaseService();
+
 
   /// 获取服务器数据并执行订单匹配验证
   Future<OrderMatchResult> verifyOrdersMatch() async {
@@ -140,22 +141,15 @@ class OrderMatchService {
           .where((o) => o.orderStatus == OrderStatus.synced)
           .toList();
 
-      // 已同步的terminal订单
-      final terminalSyncedOrders = terminalOrders
-          .where((o) => o.orderStatus == OrderStatus.synced)
-          .toList();
+       // 已同步的terminal订单
+       final terminalSyncedOrders = terminalOrders
+           .where((o) => o.orderStatus == OrderStatus.synced)
+           .toList();
 
-      // 本地最新remote_order_id（仅限今日订单）
-      int localLatestRemoteOrderId = 0;
-      if (onlineOrders.isNotEmpty) {
-        for (var o in onlineOrders) {
-          if (o.remoteOrderId != null && o.remoteOrderId! > localLatestRemoteOrderId) {
-            localLatestRemoteOrderId = o.remoteOrderId!;
-          }
-        }
-      }
+       // 从数据库获取最大的 remote_order_id
+       final latestRemoteOrderId = await _databaseService.getMaxRemoteOrderId() ?? 0;
 
-      // 3. 执行验证
+       // 3. 执行验证
       String? onlineCountError;
       String? onlineSyncedError;
       String? onlineLastOrderError;
@@ -196,21 +190,21 @@ class OrderMatchService {
         terminalLastOrderError = '本地$terminalLastOrderNo != 服务器${data.terminalLastOrderNo}';
       }
 
-      // 验证最新订单ID（本地 remote_order_id vs 服务器 latest_order_id）
-      final serverLatestOrderId = data.latestOrderId ?? 0;
-      if (localLatestRemoteOrderId != serverLatestOrderId) {
-        latestOrderIdError = '本地$localLatestRemoteOrderId != 服务器$serverLatestOrderId';
-      }
+       // 验证最新订单ID（本地 remote_order_id vs 服务器 latest_order_id）
+       final serverLatestOrderId = data.latestOrderId ?? 0;
+       if (latestRemoteOrderId != serverLatestOrderId) {
+         latestOrderIdError = '本地$latestRemoteOrderId != 服务器$serverLatestOrderId';
+       }
 
-      final localData = OrderMatchData(
-        onlineCount: onlineOrders.length,
-        onlineSyncedCount: onlineSyncedOrders.length,
-        onlineLastOrderNo: onlineLastOrderNo,
-        terminalCount: terminalOrders.length,
-        terminalSyncedCount: terminalSyncedOrders.length,
-        terminalLastOrderNo: terminalLastOrderNo,
-        latestRemoteOrderId: localLatestRemoteOrderId,
-      );
+       final localData = OrderMatchData(
+         onlineCount: onlineOrders.length,
+         onlineSyncedCount: onlineSyncedOrders.length,
+         onlineLastOrderNo: onlineLastOrderNo,
+         terminalCount: terminalOrders.length,
+         terminalSyncedCount: terminalSyncedOrders.length,
+         terminalLastOrderNo: terminalLastOrderNo,
+         latestRemoteOrderId: latestRemoteOrderId,
+       );
 
       final isMatched = onlineCountError == null &&
           onlineSyncedError == null &&

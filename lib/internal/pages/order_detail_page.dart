@@ -190,6 +190,8 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
             _buildInfoRow('总金额', '￥${_order!.totalAmount.toStringAsFixed(2)}'),
             if (_order!.syncedTime != null)
               _buildInfoRow('同步时间', _formatDateTime(_order!.syncedTime!)),
+            if (_order!.remoteOrderId != null)
+              _buildInfoRow('服务器ID', '${_order!.remoteOrderId}'),
             if (_order!.printedTime != null)
               _buildInfoRow('打印时间', _formatDateTime(_order!.printedTime!)),
             if (_order!.retryCount > 0)

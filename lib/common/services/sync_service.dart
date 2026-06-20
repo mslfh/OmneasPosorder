@@ -307,8 +307,6 @@ class SyncService {
   /// 拉取服务器新订单并同步到本地数据库
   Future<void> fetchAndSyncRemoteOrders() async {
     try {
-      // 修复历史在线订单时间，避免因早期使用 created_at 导致日期错位
-      await _repairExistingOnlineOrderTimes();
 
       // 1. 获取本地已同步的最大 remote_order_id
       int latestId = await _databaseService.getMaxRemoteOrderId() ?? 0;
@@ -334,7 +332,7 @@ class SyncService {
             // 为拉取的订单生成本地唯一ID（避免与本地订单ID冲突）
             // 保证本地ID的唯一性和一致性，同时通过remoteOrderId和remoteOrderNumber追踪来源
             final now = DateTime.now();
-            final localOrderId = 'ONLINE-${remoteOrderId}-${now.millisecondsSinceEpoch}';
+            final localOrderId = 'ONLINE-$remoteOrderId-${now.millisecondsSinceEpoch}';
             final remoteOrderTime = _parseRemoteOrderTime(order);
             // 映射为本地OrderModel
             final orderModel = OrderModel(
@@ -497,55 +495,5 @@ class SyncService {
     }
 
     return DateTime.now();
-  }
-
-  Future<void> _repairExistingOnlineOrderTimes() async {
-    try {
-      final orders = await _databaseService.getAllOrders(limit: 10000, offset: 0);
-      final onlineOrders = orders.where((o) => o.isOnlineOrder).toList();
-      int fixedCount = 0;
-
-      for (final order in onlineOrders) {
-        final inferred = _inferOrderTimeFromRemoteNumber(order.remoteOrderNumber);
-        if (inferred == null) continue;
-
-        final diffMinutes = order.orderTime.difference(inferred).inMinutes.abs();
-        // 误差超过1小时才修复，避免不必要写库
-        if (diffMinutes >= 60) {
-          await _databaseService.updateOrder(order.copyWith(orderTime: inferred));
-          fixedCount++;
-        }
-      }
-
-      if (fixedCount > 0) {
-        _logger.i('已修复$fixedCount个在线订单时间');
-      }
-    } catch (e) {
-      _logger.w('修复在线订单时间失败: $e');
-    }
-  }
-
-  DateTime? _inferOrderTimeFromRemoteNumber(String? remoteOrderNumber) {
-    if (remoteOrderNumber == null || remoteOrderNumber.isEmpty) return null;
-
-    final match = RegExp(r'-(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$').firstMatch(remoteOrderNumber);
-    if (match == null) return null;
-
-    final month = int.tryParse(match.group(1)!);
-    final day = int.tryParse(match.group(2)!);
-    final hour = int.tryParse(match.group(3)!);
-    final minute = int.tryParse(match.group(4)!);
-    final second = int.tryParse(match.group(5)!);
-    if (month == null || day == null || hour == null || minute == null || second == null) {
-      return null;
-    }
-
-    final now = DateTime.now();
-    var inferred = DateTime(now.year, month, day, hour, minute, second);
-    // 跨年兜底：推断时间若明显在未来，则回退一年
-    if (inferred.isAfter(now.add(const Duration(days: 2)))) {
-      inferred = DateTime(now.year - 1, month, day, hour, minute, second);
-    }
-    return inferred;
   }
 }

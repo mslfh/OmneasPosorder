@@ -73,21 +73,21 @@ Future<void> showOrderMatchDetailsDialog({
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('关闭'),
-        ),
-        if (onRefresh != null)
-          ElevatedButton.icon(
-            onPressed: () async {
-              Navigator.pop(dialogContext);
-              await onRefresh();
-            },
-            icon: const Icon(Icons.refresh),
-            label: const Text('刷新'),
-          ),
-      ],
+       actions: [
+         TextButton(
+           onPressed: () => Navigator.pop(dialogContext),
+           child: const Text('关闭'),
+         ),
+         if (onRefresh != null)
+           ElevatedButton.icon(
+             onPressed: () async {
+               Navigator.pop(dialogContext);
+               await onRefresh();
+             },
+             icon: const Icon(Icons.refresh),
+             label: const Text('刷新'),
+           ),
+       ],
     ),
   );
 }
