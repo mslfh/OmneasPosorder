@@ -100,7 +100,10 @@ class SyncService {
         'local_created_at': order.orderTime.toIso8601String(),
         'note': order.note,
         'type': order.type,
-        'print_status': (printStatus ?? order.printStatus).toString().split('.').last, // 传递打印状态
+        'print_status': (printStatus ?? order.printStatus)
+            .toString()
+            .split('.')
+            .last, // 传递打印状态
       };
 
       // 打印格式化的请求数据
@@ -136,12 +139,12 @@ class SyncService {
       } else {
         throw Exception('后端返回错误状态: ${response.statusCode}');
       }
-
     } on DioException catch (e) {
       print('\n========== 同步错误信息 ==========');
       print('错误类型: DioException');
       print('错误消息: ${e.message}');
-      print('错误响应: ${e.response?.data != null ? const JsonEncoder.withIndent('  ').convert(e.response?.data) : "无响应数据"}');
+      print(
+          '错误响应: ${e.response?.data != null ? const JsonEncoder.withIndent('  ').convert(e.response?.data) : "无响应数据"}');
       print('================================\n');
 
       await _handleSyncError(orderId, e);
@@ -200,7 +203,6 @@ class SyncService {
 
           // 控制同步频率，避免对后端造成压力
           await Future.delayed(Duration(milliseconds: 500));
-
         } catch (e) {
           _logger.e('订单同步失败: ${order.id}, 错误: $e');
           failCount++;
@@ -208,7 +210,6 @@ class SyncService {
       }
 
       _logger.i('批量同步完成 - 成功: $successCount, 失败: $failCount');
-
     } catch (e) {
       _logger.e('批量同步过程出错: $e');
     }
@@ -236,7 +237,8 @@ class SyncService {
   }
 
   /// 更新订单同步成功状态
-  Future<void> _updateOrderSyncSuccess(OrderModel order, dynamic remoteOrderId) async {
+  Future<void> _updateOrderSyncSuccess(
+      OrderModel order, dynamic remoteOrderId) async {
     final updatedOrder = order.copyWith(
       orderStatus: OrderStatus.synced,
       syncedTime: DateTime.now(),
@@ -284,7 +286,9 @@ class SyncService {
 
     // 更新订单错误信息
     final updatedOrder = order.copyWith(
-      orderStatus: order.orderStatus == OrderStatus.synced ? OrderStatus.synced : OrderStatus.pendingSync,
+      orderStatus: order.orderStatus == OrderStatus.synced
+          ? OrderStatus.synced
+          : OrderStatus.pendingSync,
       errorMessage: errorMessage,
       retryCount: order.retryCount + 1,
       lastRetryTime: DateTime.now(),
@@ -354,7 +358,8 @@ class SyncService {
       _logger.i('本地最新remote_order_id: $latestId');
 
       // 2. 拉取服务器新订单
-      final response = await _dio.get('/orders/fetch-new-order?latestId=$latestId');
+      final response =
+          await _dio.get('/orders/fetch-new-order?latestId=$latestId');
       if (response.statusCode == 200 && response.data['success'] == true) {
         final List<dynamic> orders = response.data['data'] ?? [];
         _logger.i('拉取到${orders.length}个新订单');
@@ -365,14 +370,17 @@ class SyncService {
           final remoteOrderNumber = order['order_number'];
           final remoteOrderId = order['id'];
           // 4. 本地orders表去重，插入本地orders表并触发打印
-          final exists = await _databaseService.existsOrderByRemoteNumber(remoteOrderNumber);
+          final exists = await _databaseService
+              .existsOrderByRemoteNumber(remoteOrderNumber);
           if (!exists) {
             // 使用方法映射items和options
-            final items = _mapServerItemsToLocalItems(order['items'] as List<dynamic>? ?? []);
+            final items = _mapServerItemsToLocalItems(
+                order['items'] as List<dynamic>? ?? []);
             // 为拉取的订单生成本地唯一ID（避免与本地订单ID冲突）
             // 保证本地ID的唯一性和一致性，同时通过remoteOrderId和remoteOrderNumber追踪来源
             final now = DateTime.now();
-            final localOrderId = 'ONLINE-$remoteOrderId-${now.millisecondsSinceEpoch}';
+            final localOrderId =
+                'ONLINE-$remoteOrderId-${now.millisecondsSinceEpoch}';
             final remoteOrderTime = _parseRemoteOrderTime(order);
             // 映射为本地OrderModel
             final orderModel = OrderModel(
@@ -381,11 +389,12 @@ class SyncService {
               orderTime: remoteOrderTime,
               items: jsonEncode(items),
               totalAmount: double.tryParse(order['total_amount'] ?? '0') ?? 0.0,
-              discountAmount: double.tryParse(order['discount_amount'] ?? '0') ?? 0.0,
+              discountAmount:
+                  double.tryParse(order['discount_amount'] ?? '0') ?? 0.0,
               taxRate: double.tryParse(order['tax_rate'] ?? '10') ?? 10.0,
               serviceFee: 0.0,
               cashAmount: 0.0, // 线下支付，初始为0
-              posAmount: 0.0,  // 线下支付，初始为0
+              posAmount: 0.0, // 线下支付，初始为0
               orderStatus: OrderStatus.synced, // 服务器订单状态应为已同步
               printStatus: PrintStatus.pending,
               note: order['note'],
@@ -412,8 +421,7 @@ class SyncService {
             final printService = PrintService();
             // 使用样式打印双联小票（顾客用+后厨用）
             await printService.printOrderWithTemplates(orderModel);
-          }
-          else {
+          } else {
             _logger.i('订单已存在本地: $remoteOrderNumber');
           }
         }
@@ -421,61 +429,92 @@ class SyncService {
         _logger.i('开始确认拉取后的订单：');
         _logger.i(orders.map((o) => o['id']).toList());
 
-        if(orders.isEmpty) {
+        if (orders.isEmpty) {
           _logger.i('没有新订单需要确认拉取');
           return;
-        }
-        else{
-          final resp =  await _dio.post('/orders/confirm-pulled-order', data: {
-            'ids': orders.map((o) => o['id']).toList(),
-          }, options: Options(
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer \'${await _getAuthToken()}\'',
-            },
-          ));
+        } else {
+          final resp = await _dio.post('/orders/confirm-pulled-order',
+              data: {
+                'ids': orders.map((o) => o['id']).toList(),
+              },
+              options: Options(
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer \'${await _getAuthToken()}\'',
+                },
+              ));
           if (resp.statusCode == 200) {
             _logger.i('服务器订单已成功拉取并处理');
           } else {
-            _logger.w('确认拉取订单失败: ${response.data['message'] ?? response.statusMessage}');
+            _logger.w(
+                '确认拉取订单失败: ${response.data['message'] ?? response.statusMessage}');
           }
         }
       } else {
-        _logger.w('拉取服务器订单失败: ${response.data['message'] ?? response.statusMessage}');
+        _logger.w(
+            '拉取服务器订单失败: ${response.data['message'] ?? response.statusMessage}');
       }
-
     } catch (e, stack) {
       _logger.e('同步服务器订单异常: $e\n$stack');
     }
   }
 
   /// 服务器items映射为本地OrderModel的items和options
-  List<Map<String, dynamic>> _mapServerItemsToLocalItems(List<dynamic> serverItems) {
+  List<Map<String, dynamic>> _mapServerItemsToLocalItems(
+      List<dynamic> serverItems) {
     return serverItems.map((item) {
       final customizations = item['customization'] as List<dynamic>? ?? [];
       final List<Map<String, dynamic>> options = [];
       for (final c in customizations) {
         if (c['type'] == 'replacement') {
-          options.add({
-            'type': 'CHANGE',
-            'option_id': null,
-            //'option_name': '${c['originalName']}->${c['replacementName']}',
-            'option_name': '${c['replacementName']}',
-            'extra_price': double.tryParse(c['priceChange']?.toString() ?? '0') ?? 0.0,
-          });
-        } else if (c['type'] == 'quantity') {
-          final int original = int.tryParse(c['originalQuantity']?.toString() ?? '0') ?? 0;
-          final int current = int.tryParse(c['currentQuantity']?.toString() ?? '0') ?? 0;
+          final originalName = c['originalName']?.toString() ?? '';
+          final replacementName = c['replacementName']?.toString() ?? '';
+          final priceChange =
+              double.tryParse(c['priceChange']?.toString() ?? '0') ?? 0.0;
+          final isNoodleOrSourceReplacement =
+              _isNoodleOrSourceReplacement(originalName, replacementName);
+
+          if (isNoodleOrSourceReplacement) {
+            options.add({
+              'type': 'CHANGE',
+              'option_id': null,
+              'option_name': replacementName,
+              'extra_price': priceChange,
+            });
+          } else {
+            options.add({
+              'type': 'NO',
+              'option_id': null,
+              'option_name': 'No $originalName',
+              'extra_price': 0.0,
+            });
+            options.add({
+              'type': 'ONLY',
+              'option_id': null,
+              'option_name': '$replacementName Only',
+              'extra_price': priceChange,
+            });
+          }
+        }
+        else if (c['type'] == 'quantity') {
+          final int original =
+              int.tryParse(c['originalQuantity']?.toString() ?? '0') ?? 0;
+          final int current =
+              int.tryParse(c['currentQuantity']?.toString() ?? '0') ?? 0;
           final int diff = current - original;
-          final double priceChange = double.tryParse(c['priceChange']?.toString() ?? '0') ?? 0.0;
+          final double priceChange =
+              double.tryParse(c['priceChange']?.toString() ?? '0') ?? 0.0;
           if (diff > 0) {
-            final double singlePrice = diff > 0 ? priceChange / diff : priceChange;
+            final double singlePrice =
+                diff > 0 ? priceChange / diff : priceChange;
             for (int i = 0; i < diff; i++) {
               final ingredientName = c['ingredientName']?.toString() ?? '';
               final hasExtra = ingredientName.toLowerCase().contains('extra');
-              final normalizedName = hasExtra 
-                ? ingredientName.replaceAll(RegExp(r'extra|Extra|EXTRA', caseSensitive: false), 'EXTRA')
-                : 'EXTRA $ingredientName';
+              final normalizedName = hasExtra
+                  ? ingredientName.replaceAll(
+                      RegExp(r'extra|Extra|EXTRA', caseSensitive: false),
+                      'EXTRA')
+                  : 'EXTRA $ingredientName';
               options.add({
                 'type': 'EXTRA',
                 'option_id': null,
@@ -483,35 +522,51 @@ class SyncService {
                 'extra_price': singlePrice,
               });
             }
-          }
-          else if (diff < 0 && current == 0) {
+          } else if (diff < 0 && current == 0) {
+            final ingredientName = c['ingredientName']?.toString() ?? '';
+            final hasNo = ingredientName.toLowerCase().contains('no');
+            final normalizedName = hasNo
+                ? ingredientName.replaceAll(
+                RegExp(r'no|No|NO', caseSensitive: false),
+                'No')
+                : 'No $ingredientName';
             options.add({
               'type': 'NO',
               'option_id': null,
-              'option_name': 'No ${c['ingredientName']}',
+              'option_name': normalizedName,
               'extra_price': priceChange,
             });
           }
-          else if (diff < 0 && current > 0)
-          {
+          else if (diff < 0 && current > 0) {
             options.add({
               'type': 'CHANGE',
               'option_id': null,
-              'option_name': '${c['ingredientName']} - ${current.abs()}',
+              'option_name': '${c['ingredientName']} ： ${current.abs()}',
               'extra_price': priceChange,
             });
           }
         }
       }
-       return {
-         'id': item['product_id'],
-         'name': item['product_title'],
-         'price': double.tryParse(item['final_amount']?.toString() ?? '0') ?? 0.0,
-         'quantity': item['quantity'] ?? 1,
-         'options': options,
-         'is_printable': item['product']['is_printable'] ?? true,
-       };
+      return {
+        'id': item['product_id'],
+        'name': item['product_title'],
+        'price':
+            double.tryParse(item['final_amount']?.toString() ?? '0') ?? 0.0,
+        'quantity': item['quantity'] ?? 1,
+        'options': options,
+        'is_printable': item['product']['is_printable'] ?? true,
+      };
     }).toList();
+  }
+
+  bool _isNoodleOrSourceReplacement(
+      String originalName, String replacementName) {
+    bool containsKeyword(String value) {
+      final normalized = value.toLowerCase();
+      return normalized.contains('noodle') || normalized.contains('source');
+    }
+
+    return containsKeyword(originalName) && containsKeyword(replacementName);
   }
 
   DateTime _parseRemoteOrderTime(Map<String, dynamic> order) {
