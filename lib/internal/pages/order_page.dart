@@ -59,6 +59,9 @@ class _OrderPageState extends State<OrderPage> {
   OverlayEntry? _quickInputOverlay;
   late final KeyboardEventHandler _keyboardEventHandler;
   final TextEditingController _searchInputController = TextEditingController();
+  final FocusNode _pageKeyboardFocusNode = FocusNode();
+  final FocusNode _searchInputFocusNode = FocusNode();
+  bool _keepSearchFocusOnNextBlur = false;
 
   // 服务和管理器
   final _menuDataService = MenuDataService();
@@ -78,6 +81,7 @@ class _OrderPageState extends State<OrderPage> {
   void initState() {
     super.initState();
     _isAdminMode = widget.isAdminMode;
+    _searchInputFocusNode.addListener(_handleSearchInputFocusChange);
     _uiHelper = UIHelper();
     _orderMatchManager = OrderMatchManager();
     _initializeData();
@@ -159,7 +163,10 @@ class _OrderPageState extends State<OrderPage> {
         addProductIntelligently: _addProductIntelligently,
         addOptionToLastProduct: _addOptionToLastProduct,
         playClickSound: _playClickSound,
-        clearQuickInput: _quickInputManager.clear,
+        clearQuickInput: () {
+          _quickInputManager.clear();
+          _syncSearchInputController();
+        },
         removeQuickInputOverlay: _removeQuickInputOverlay,
         refreshUI: () => setState(() {}),
         onOrder: () async {
@@ -217,6 +224,9 @@ class _OrderPageState extends State<OrderPage> {
 
   @override
   void dispose() {
+    _searchInputFocusNode.removeListener(_handleSearchInputFocusChange);
+    _pageKeyboardFocusNode.dispose();
+    _searchInputFocusNode.dispose();
     _searchInputController.dispose();
     _orderMatchManager.dispose();
     _removeQuickInputOverlay();
@@ -422,6 +432,78 @@ class _OrderPageState extends State<OrderPage> {
 
 
   // 快捷输入相关方法
+  void _syncSearchInputController() {
+    final quickInput = _quickInputManager.input;
+    if (_searchInputController.text == quickInput) return;
+    _searchInputController.text = quickInput;
+    _searchInputController.selection = TextSelection.fromPosition(
+      TextPosition(offset: _searchInputController.text.length),
+    );
+  }
+
+  void _updateQuickInputFromTextField(String value) {
+    _quickInputManager.updateInput(
+      value,
+      allProducts,
+      allOptions: _allOptionsFlatList,
+      preferOptions: orderedProducts.isNotEmpty,
+    );
+    setState(_updateQuickInputOverlay);
+  }
+
+  Future<void> _confirmQuickInputSelection({bool keepSearchFocus = false}) async {
+    final selectedItem = _quickInputManager.getSelectedItem();
+    if (selectedItem == null) return;
+
+    if (selectedItem is MenuItem) {
+      _addProductIntelligently(selectedItem);
+      await _playClickSound();
+    } else if (selectedItem is MenuOption && orderedProducts.isNotEmpty) {
+      _addOptionToLastProduct(selectedItem.type, selectedItem);
+      await _playClickSound();
+    } else {
+      return;
+    }
+
+    _quickInputManager.clear();
+    _syncSearchInputController();
+    _removeQuickInputOverlay();
+
+    if (keepSearchFocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _searchInputFocusNode.requestFocus();
+        }
+      });
+    }
+  }
+
+  void _handleSearchInputFocusChange() {
+    if (_searchInputFocusNode.hasFocus) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _searchInputFocusNode.hasFocus) return;
+      if (_keepSearchFocusOnNextBlur) {
+        _keepSearchFocusOnNextBlur = false;
+        _searchInputFocusNode.requestFocus();
+        return;
+      }
+      _pageKeyboardFocusNode.requestFocus();
+    });
+  }
+
+  bool _shouldHandleGlobalKeyEvent(KeyEvent event) {
+    if (!_searchInputFocusNode.hasFocus) return true;
+
+    final key = event.logicalKey;
+    final isQuickInputControlKey =
+        key == LogicalKeyboardKey.arrowUp ||
+        key == LogicalKeyboardKey.arrowDown ||
+        key == LogicalKeyboardKey.escape ||
+        (key == LogicalKeyboardKey.enter && _quickInputManager.hasInput);
+
+    return isQuickInputControlKey;
+  }
+
   void _updateQuickInputOverlay() {
     // 不调用 performSearch — 快捷输入框有内容时搜索结果已是最新的
     // performSearch 只在输入时调用（在 quickInputHandler 中），不在高亮改变时调用
@@ -449,12 +531,14 @@ class _OrderPageState extends State<OrderPage> {
         isSearchingOptions: _quickInputManager.isSearchingOptions,
         onClose: () {
           _quickInputManager.clear();
+          _syncSearchInputController();
           _removeQuickInputOverlay();
         },
         onItemTap: (item) {
           _addProductIntelligently(item);
           _playClickSound();
           _quickInputManager.clear();
+          _syncSearchInputController();
           _removeQuickInputOverlay();
         },
         onOptionTap: (option) {
@@ -463,6 +547,7 @@ class _OrderPageState extends State<OrderPage> {
             _playClickSound();
           }
           _quickInputManager.clear();
+          _syncSearchInputController();
           _removeQuickInputOverlay();
         },
       ),
@@ -1040,18 +1125,36 @@ class _OrderPageState extends State<OrderPage> {
   @override
   Widget build(BuildContext context) {
     return KeyboardListener(
-      focusNode: FocusNode()..requestFocus(),
+      focusNode: _pageKeyboardFocusNode,
       autofocus: true,
       onKeyEvent: (KeyEvent event) {
+        if (!_shouldHandleGlobalKeyEvent(event)) return;
+        final keepSearchFocusedAfterEnter =
+            event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.enter &&
+            _searchInputFocusNode.hasFocus &&
+            _quickInputManager.hasInput;
+        if (keepSearchFocusedAfterEnter) {
+          _keepSearchFocusOnNextBlur = true;
+        }
         // 统一处理快捷输入 - 既支持商品搜索也支持选项搜索
         _keyboardEventHandler.handle(event, allProducts);
-        _searchInputController.text = _quickInputManager.input;
-        _searchInputController.selection = TextSelection.fromPosition(TextPosition(offset: _searchInputController.text.length));
+        _syncSearchInputController();
+        if (keepSearchFocusedAfterEnter) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _searchInputFocusNode.requestFocus();
+            }
+          });
+        }
       },
       child: Scaffold(
         body: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
+              final isAndroid = Theme.of(context).platform == TargetPlatform.android;
+              final isAndroidTablet = isAndroid && MediaQuery.of(context).size.shortestSide >= 600;
+              final double searchBarHeight = 40.0;
               // 动态计算已点菜品区域高度 - 优化选项累加处理
               final double minHeight = 120.0; // 增加最小高度以容纳更多选项
               final double maxHeight = 280.0; // 增加最大高度以容纳更多选项
@@ -1074,7 +1177,7 @@ class _OrderPageState extends State<OrderPage> {
               // 为Web环境优化布局计算
               final screenHeight = constraints.maxHeight;
               final topSectionHeight = actualHeight; // 动态已点菜品区域
-              final bottomButtonHeight = 60.0; // 减少操作区域高度，使其更紧凑
+              final bottomButtonHeight = 60.0;
               final availableHeight = screenHeight - topSectionHeight - bottomButtonHeight;
 
               return Column(
@@ -1154,7 +1257,7 @@ class _OrderPageState extends State<OrderPage> {
                             children: [
                               // 搜索区
                               Container(
-                                height: 40,
+                                height: searchBarHeight,
                                 color: Colors.grey[100],
                                 child: Padding(
                                   padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -1163,18 +1266,27 @@ class _OrderPageState extends State<OrderPage> {
                                       Icon(Icons.search, size: 20),
                                       SizedBox(width: 8),
                                       Expanded(
-                                        child: Align(
-                                          alignment: Alignment.centerLeft,
-                                          child: Text(
-                                            _quickInputManager.input.isEmpty
-                                              ? 'Type name or acronym to search ...'
-                                              : _quickInputManager.input,
-                                            style: TextStyle(
+                                        child: TextField(
+                                          focusNode: _searchInputFocusNode,
+                                          controller: _searchInputController,
+                                          onChanged: _updateQuickInputFromTextField,
+                                          onTapOutside: (_) {
+                                            _keepSearchFocusOnNextBlur = false;
+                                            _searchInputFocusNode.unfocus();
+                                            _pageKeyboardFocusNode.requestFocus();
+                                          },
+                                          decoration: InputDecoration(
+                                            border: InputBorder.none,
+                                            isCollapsed: true,
+                                            hintText: 'Type to quick search.',
+                                            hintStyle: TextStyle(
                                               fontSize: 14,
-                                              color: _quickInputManager.input.isEmpty
-                                                ? Colors.grey[600]
-                                                : Colors.black,
+                                              color: Colors.grey[600],
                                             ),
+                                          ),
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: Colors.black,
                                           ),
                                         ),
                                       ),
@@ -1248,6 +1360,13 @@ class _OrderPageState extends State<OrderPage> {
                     orderedCount: orderedProducts.length,
                     orderEnabled: orderedProducts.isNotEmpty,
                     onSyncRemoteOrders: _syncRemoteOrders, // 新增
+                    showQuickSelectButton: isAndroidTablet,
+                    onSelectQuickInput: _quickInputManager.hasResults
+                        ? () async {
+                            _keepSearchFocusOnNextBlur = true;
+                            await _confirmQuickInputSelection(keepSearchFocus: true);
+                          }
+                        : null,
                   ),
                 ],
               );

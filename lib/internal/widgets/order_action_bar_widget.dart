@@ -7,6 +7,8 @@ class OrderActionBarWidget extends StatelessWidget {
   final VoidCallback onCustomAction;
   final VoidCallback? onOrder;
   final VoidCallback onSyncRemoteOrders;
+  final VoidCallback? onSelectQuickInput;
+  final bool showQuickSelectButton;
   final int orderedCount;
   final bool orderEnabled;
 
@@ -20,6 +22,8 @@ class OrderActionBarWidget extends StatelessWidget {
     required this.orderedCount,
     required this.orderEnabled,
     required this.onSyncRemoteOrders,
+    this.onSelectQuickInput,
+    this.showQuickSelectButton = false,
   }) : super(key: key);
 
   @override
@@ -149,6 +153,27 @@ class OrderActionBarWidget extends StatelessWidget {
               ),
             ),
           ),
+          if (showQuickSelectButton)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 3.0),
+                child: ElevatedButton.icon(
+                  onPressed: onSelectQuickInput,
+                  icon: Icon(Icons.check_circle_outline, size: 16),
+                  label: Text('SELECT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal[400],
+                    foregroundColor: Colors.white,
+                    elevation: 3,
+                    shadowColor: Colors.teal[200],
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           // Order按钮 - 突出显示
           Expanded(
             flex: 2,

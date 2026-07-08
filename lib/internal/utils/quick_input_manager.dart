@@ -118,6 +118,13 @@ class QuickInputManager {
     _performSearch(allProducts, allOptions: allOptions, preferOptions: preferOptions);
   }
 
+  // 直接更新输入并刷新搜索结果（用于输入框变更）
+  void updateInput(String value, List<MenuItem> allProducts, {List<MenuOption>? allOptions, bool preferOptions = false}) {
+    _input = value;
+    _performSearch(allProducts, allOptions: allOptions, preferOptions: preferOptions);
+    _highlightedIndex = 0;
+  }
+
   // 执行统一搜索 - 同时搜索商品和选项
   void _performSearch(List<MenuItem> allProducts, {List<MenuOption>? allOptions, bool preferOptions = false}) {
     if (_input.isEmpty) {
