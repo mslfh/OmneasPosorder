@@ -28,7 +28,9 @@ import '../services/order_match_manager.dart';
 
 class OrderPage extends StatefulWidget {
   final bool isAdminMode;
-  final void Function(OrderMatchResult? result, Future<void> Function()? requestCheck)? onOrderMatchStateChanged;
+  final void Function(
+          OrderMatchResult? result, Future<void> Function()? requestCheck)?
+      onOrderMatchStateChanged;
 
   const OrderPage({
     Key? key,
@@ -53,6 +55,7 @@ class _OrderPageState extends State<OrderPage> {
   bool _isCardPressed = false;
   int? _pressedCardIndex;
   bool _isAdminMode = false;
+  bool _isAllCategoriesSelected = true;
 
   // 快捷输入
   final _quickInputManager = QuickInputManager();
@@ -239,7 +242,8 @@ class _OrderPageState extends State<OrderPage> {
 
   void _selectOrderedProduct(SelectedProduct ordered) {
     setState(() {
-      selectedOrderedProduct = selectedOrderedProduct == ordered ? null : ordered;
+      selectedOrderedProduct =
+          selectedOrderedProduct == ordered ? null : ordered;
     });
   }
 
@@ -318,11 +322,11 @@ class _OrderPageState extends State<OrderPage> {
     return UIHelper.calculateTitleFontSize(title, containerWidth);
   }
 
-
   void _voidOrder() {
     if (orderedProducts.isEmpty) return;
     setState(() {
-      if (selectedOrderedProduct != null && orderedProducts.contains(selectedOrderedProduct)) {
+      if (selectedOrderedProduct != null &&
+          orderedProducts.contains(selectedOrderedProduct)) {
         orderedProducts.remove(selectedOrderedProduct);
       } else {
         orderedProducts.removeLast();
@@ -398,7 +402,8 @@ class _OrderPageState extends State<OrderPage> {
                         children: [
                           Text(
                             option.name,
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.bold),
                             textAlign: TextAlign.center,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -408,7 +413,10 @@ class _OrderPageState extends State<OrderPage> {
                               padding: const EdgeInsets.only(top: 2.0),
                               child: Text(
                                 '+\$${option.extraCost.toStringAsFixed(2)}',
-                                style: TextStyle(fontSize: 11, color: Colors.red, fontWeight: FontWeight.w600),
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.red,
+                                    fontWeight: FontWeight.w600),
                               ),
                             ),
                         ],
@@ -430,7 +438,6 @@ class _OrderPageState extends State<OrderPage> {
     );
   }
 
-
   // 快捷输入相关方法
   void _syncSearchInputController() {
     final quickInput = _quickInputManager.input;
@@ -451,7 +458,8 @@ class _OrderPageState extends State<OrderPage> {
     setState(_updateQuickInputOverlay);
   }
 
-  Future<void> _confirmQuickInputSelection({bool keepSearchFocus = false}) async {
+  Future<void> _confirmQuickInputSelection(
+      {bool keepSearchFocus = false}) async {
     final selectedItem = _quickInputManager.getSelectedItem();
     if (selectedItem == null) return;
 
@@ -479,6 +487,9 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   void _handleSearchInputFocusChange() {
+    if (mounted) {
+      setState(() {});
+    }
     if (_searchInputFocusNode.hasFocus) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _searchInputFocusNode.hasFocus) return;
@@ -495,8 +506,7 @@ class _OrderPageState extends State<OrderPage> {
     if (!_searchInputFocusNode.hasFocus) return true;
 
     final key = event.logicalKey;
-    final isQuickInputControlKey =
-        key == LogicalKeyboardKey.arrowUp ||
+    final isQuickInputControlKey = key == LogicalKeyboardKey.arrowUp ||
         key == LogicalKeyboardKey.arrowDown ||
         key == LogicalKeyboardKey.escape ||
         (key == LogicalKeyboardKey.enter && _quickInputManager.hasInput);
@@ -597,13 +607,15 @@ class _OrderPageState extends State<OrderPage> {
     switch (key) {
       case LogicalKeyboardKey.arrowLeft:
       case LogicalKeyboardKey.arrowUp:
-        newIndex = currentIndex <= 0 ? orderedProducts.length - 1 : currentIndex - 1;
+        newIndex =
+            currentIndex <= 0 ? orderedProducts.length - 1 : currentIndex - 1;
         break;
       case LogicalKeyboardKey.arrowRight:
       case LogicalKeyboardKey.arrowDown:
-        newIndex = currentIndex >= orderedProducts.length - 1 || currentIndex == -1
-            ? 0
-            : currentIndex + 1;
+        newIndex =
+            currentIndex >= orderedProducts.length - 1 || currentIndex == -1
+                ? 0
+                : currentIndex + 1;
         break;
       default:
         return;
@@ -637,9 +649,13 @@ class _OrderPageState extends State<OrderPage> {
     final codeController = TextEditingController(text: product.code);
     final titleController = TextEditingController(text: product.title);
     final acronymController = TextEditingController(text: product.acronym);
-    final priceController = TextEditingController(text: product.sellingPrice.toString());
-    final stockController = TextEditingController(text: product.stock.toString());
-    String? selectedCategoryId = product.categoryIds.isNotEmpty ? product.categoryIds.first.toString() : null;
+    final priceController =
+        TextEditingController(text: product.sellingPrice.toString());
+    final stockController =
+        TextEditingController(text: product.stock.toString());
+    String? selectedCategoryId = product.categoryIds.isNotEmpty
+        ? product.categoryIds.first.toString()
+        : null;
 
     showDialog(
       context: context,
@@ -736,7 +752,8 @@ class _OrderPageState extends State<OrderPage> {
 
               try {
                 final List<int> categoryIds = [];
-                if (selectedCategoryId != null && selectedCategoryId!.isNotEmpty) {
+                if (selectedCategoryId != null &&
+                    selectedCategoryId!.isNotEmpty) {
                   final catId = int.tryParse(selectedCategoryId!);
                   if (catId != null) {
                     categoryIds.add(catId);
@@ -748,14 +765,17 @@ class _OrderPageState extends State<OrderPage> {
                 final updateData = {
                   'code': codeController.text,
                   'title': titleController.text,
-                  'acronym': acronymController.text.isEmpty ? null : acronymController.text,
+                  'acronym': acronymController.text.isEmpty
+                      ? null
+                      : acronymController.text,
                   'sellingPrice': newPrice,
                   'stock': newStock,
                   'categoryIds': categoryIds,
                 };
 
                 final api = ApiService();
-                await api.put('products/${product.id.toString()}', data: updateData);
+                await api.put('products/${product.id.toString()}',
+                    data: updateData);
 
                 Navigator.pop(context);
 
@@ -769,9 +789,11 @@ class _OrderPageState extends State<OrderPage> {
                   });
                 }
 
-                UIHelper.showSnackBar(context, '菜品已更新', backgroundColor: Colors.green);
+                UIHelper.showSnackBar(context, '菜品已更新',
+                    backgroundColor: Colors.green);
               } catch (e) {
-                UIHelper.showSnackBar(context, '更新失败: $e', backgroundColor: Colors.red);
+                UIHelper.showSnackBar(context, '更新失败: $e',
+                    backgroundColor: Colors.red);
               }
             },
             child: Text('保存'),
@@ -799,30 +821,37 @@ class _OrderPageState extends State<OrderPage> {
                   return ExpansionTile(
                     title: Text(groupType),
                     children: [
-                      ...options.map((option) => ListTile(
-                        title: Text(option.name),
-                        subtitle: Text('额外费用: \$${option.extraCost.toStringAsFixed(2)}'),
-                        trailing: PopupMenuButton(
-                          itemBuilder: (context) => [
-                            PopupMenuItem(
-                              child: Text('编辑'),
-                              onTap: () {
-                                Future.delayed(Duration(milliseconds: 100), () {
-                                  _showEditOptionDialog(option, groupType);
-                                });
-                              },
-                            ),
-                            PopupMenuItem(
-                              child: Text('删除'),
-                              onTap: () {
-                                Future.delayed(Duration(milliseconds: 100), () {
-                                  _showDeleteOptionDialog(option, groupType);
-                                });
-                              },
-                            ),
-                          ],
-                        ),
-                      )).toList(),
+                      ...options
+                          .map((option) => ListTile(
+                                title: Text(option.name),
+                                subtitle: Text(
+                                    '额外费用: \$${option.extraCost.toStringAsFixed(2)}'),
+                                trailing: PopupMenuButton(
+                                  itemBuilder: (context) => [
+                                    PopupMenuItem(
+                                      child: Text('编辑'),
+                                      onTap: () {
+                                        Future.delayed(
+                                            Duration(milliseconds: 100), () {
+                                          _showEditOptionDialog(
+                                              option, groupType);
+                                        });
+                                      },
+                                    ),
+                                    PopupMenuItem(
+                                      child: Text('删除'),
+                                      onTap: () {
+                                        Future.delayed(
+                                            Duration(milliseconds: 100), () {
+                                          _showDeleteOptionDialog(
+                                              option, groupType);
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ))
+                          .toList(),
                       ListTile(
                         leading: Icon(Icons.add),
                         title: Text('添加选项'),
@@ -913,9 +942,11 @@ class _OrderPageState extends State<OrderPage> {
                   });
                 }
 
-                UIHelper.showSnackBar(context, '选项已添加', backgroundColor: Colors.green);
+                UIHelper.showSnackBar(context, '选项已添加',
+                    backgroundColor: Colors.green);
               } catch (e) {
-                UIHelper.showSnackBar(context, '添加失败: $e', backgroundColor: Colors.red);
+                UIHelper.showSnackBar(context, '添加失败: $e',
+                    backgroundColor: Colors.red);
               }
             },
             child: Text('添加'),
@@ -928,7 +959,8 @@ class _OrderPageState extends State<OrderPage> {
   /// Show edit menu option dialog (Admin Mode)
   void _showEditOptionDialog(MenuOption option, String groupType) {
     final nameController = TextEditingController(text: option.name);
-    final costController = TextEditingController(text: option.extraCost.toString());
+    final costController =
+        TextEditingController(text: option.extraCost.toString());
 
     showDialog(
       context: context,
@@ -980,9 +1012,11 @@ class _OrderPageState extends State<OrderPage> {
                   });
                 }
 
-                UIHelper.showSnackBar(context, '选项已更新', backgroundColor: Colors.green);
+                UIHelper.showSnackBar(context, '选项已更新',
+                    backgroundColor: Colors.green);
               } catch (e) {
-                UIHelper.showSnackBar(context, '更新失败: $e', backgroundColor: Colors.red);
+                UIHelper.showSnackBar(context, '更新失败: $e',
+                    backgroundColor: Colors.red);
               }
             },
             child: Text('保存'),
@@ -1112,13 +1146,183 @@ class _OrderPageState extends State<OrderPage> {
     );
   }
 
-
-
-
   Future<void> _performOrderMatchCheck() async {
     await _orderMatchManager.performCheck(_onOrderMatchResultUpdated);
   }
 
+  bool _menuItemMatchesCategory(
+    MenuItem item,
+    Set<String> categoryTitles,
+    Map<int, Category> categoryById,
+  ) {
+    for (final categoryId in item.categoryIds) {
+      final visited = <int>{};
+      int? currentId = categoryId;
+      while (currentId != null && !visited.contains(currentId)) {
+        visited.add(currentId);
+        final category = categoryById[currentId];
+        if (category == null) break;
+        if (categoryTitles.contains(category.title.trim().toLowerCase())) {
+          return true;
+        }
+        currentId = category.parentId;
+      }
+    }
+    return false;
+  }
+
+  bool _menuItemIsFryRice(MenuItem item, Map<int, Category> categoryById) {
+    for (final categoryId in item.categoryIds) {
+      final visited = <int>{};
+      int? currentId = categoryId;
+      while (currentId != null && !visited.contains(currentId)) {
+        visited.add(currentId);
+        final category = categoryById[currentId];
+        if (category == null) break;
+        final normalized = category.title.trim().toLowerCase();
+        if (normalized == 'fry rice' ||
+            normalized == 'fried rice' ||
+            normalized.contains('fry rice') ||
+            normalized.contains('fried rice')) {
+          return true;
+        }
+        currentId = category.parentId;
+      }
+    }
+    return false;
+  }
+
+  List<MenuItem?> _arrangeMenuProductsByColumns(List<MenuItem> sourceProducts) {
+    if (sourceProducts.isEmpty) return <MenuItem?>[];
+
+    final sortedProducts = List<MenuItem>.from(sourceProducts)
+      ..sort((a, b) {
+        final sortCompare = a.sort.compareTo(b.sort);
+        if (sortCompare != 0) return sortCompare;
+        return a.code.compareTo(b.code);
+      });
+
+    final categoryById = <int, Category>{
+      for (final category in categories) category.id: category,
+    };
+
+    final mealProducts = <MenuItem>[];
+    final soupProducts = <MenuItem>[];
+    final drinkAndSnackProducts = <MenuItem>[];
+
+    for (final item in sortedProducts) {
+      final isSoup = _menuItemMatchesCategory(item, {'soup'}, categoryById);
+      final isDrinkOrSnack = _menuItemMatchesCategory(
+        item,
+        {'drink', 'snack'},
+        categoryById,
+      );
+      final isMeal = _menuItemMatchesCategory(
+        item,
+        {'meal', 'noodle', 'fry rice'},
+        categoryById,
+      );
+
+      if (isSoup) {
+        soupProducts.add(item);
+      } else if (isDrinkOrSnack) {
+        drinkAndSnackProducts.add(item);
+      } else if (isMeal) {
+        mealProducts.add(item);
+      } else {
+        mealProducts.add(item);
+      }
+    }
+
+    final fryRiceMeals = <MenuItem>[];
+    final otherMeals = <MenuItem>[];
+    for (final meal in mealProducts) {
+      if (_menuItemIsFryRice(meal, categoryById)) {
+        fryRiceMeals.add(meal);
+      } else {
+        otherMeals.add(meal);
+      }
+    }
+    final prioritizedMealProducts = <MenuItem>[
+      ...fryRiceMeals,
+      ...otherMeals,
+    ];
+
+    final mealColumn1 = <MenuItem>[];
+    final mealColumn2 = <MenuItem>[];
+    final soupOverflowMeals = <MenuItem>[];
+
+    for (final meal in prioritizedMealProducts) {
+      if (mealColumn1.length <= mealColumn2.length) {
+        mealColumn1.add(meal);
+      } else {
+        mealColumn2.add(meal);
+      }
+    }
+
+    while (mealColumn1.isNotEmpty || mealColumn2.isNotEmpty) {
+      final currentHeights = <int>[
+        mealColumn1.length,
+        mealColumn2.length,
+        soupProducts.length + soupOverflowMeals.length,
+      ];
+      final currentSpread = currentHeights.reduce((a, b) => a > b ? a : b) -
+          currentHeights.reduce((a, b) => a < b ? a : b);
+
+      var moveFromColumn1 = mealColumn1.length >= mealColumn2.length;
+      if ((moveFromColumn1 && mealColumn1.isEmpty) ||
+          (!moveFromColumn1 && mealColumn2.isEmpty)) {
+        moveFromColumn1 = !moveFromColumn1;
+      }
+      final sourceColumn = moveFromColumn1 ? mealColumn1 : mealColumn2;
+      if (sourceColumn.isEmpty) break;
+
+      final movedItem = sourceColumn.removeLast();
+      final nextMeal1Height = mealColumn1.length;
+      final nextMeal2Height = mealColumn2.length;
+      final nextSoupHeight = soupProducts.length + soupOverflowMeals.length + 1;
+      final nextHeights = <int>[
+        nextMeal1Height,
+        nextMeal2Height,
+        nextSoupHeight,
+      ];
+      final nextSpread = nextHeights.reduce((a, b) => a > b ? a : b) -
+          nextHeights.reduce((a, b) => a < b ? a : b);
+
+      if (nextSpread > currentSpread) {
+        sourceColumn.add(movedItem);
+        break;
+      }
+
+      soupOverflowMeals.add(movedItem);
+    }
+
+    final soupColumn = <MenuItem>[
+      ...soupProducts,
+      ...soupOverflowMeals,
+    ];
+
+    final columns = <List<MenuItem>>[
+      mealColumn1,
+      mealColumn2,
+      soupColumn,
+      drinkAndSnackProducts,
+    ];
+
+    final maxRows = columns.fold<int>(
+      0,
+      (maxRows, column) => column.length > maxRows ? column.length : maxRows,
+    );
+
+    final arranged = <MenuItem?>[];
+    for (var row = 0; row < maxRows; row++) {
+      for (final column in columns) {
+        arranged.add(row < column.length ? column[row] : null);
+      }
+    }
+
+    return arranged;
+  }
 
   // ...existing code...
 
@@ -1129,8 +1333,7 @@ class _OrderPageState extends State<OrderPage> {
       autofocus: true,
       onKeyEvent: (KeyEvent event) {
         if (!_shouldHandleGlobalKeyEvent(event)) return;
-        final keepSearchFocusedAfterEnter =
-            event is KeyDownEvent &&
+        final keepSearchFocusedAfterEnter = event is KeyDownEvent &&
             event.logicalKey == LogicalKeyboardKey.enter &&
             _searchInputFocusNode.hasFocus &&
             _quickInputManager.hasInput;
@@ -1152,8 +1355,6 @@ class _OrderPageState extends State<OrderPage> {
         body: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final isAndroid = Theme.of(context).platform == TargetPlatform.android;
-              final isAndroidTablet = isAndroid && MediaQuery.of(context).size.shortestSide >= 600;
               final double searchBarHeight = 40.0;
               // 动态计算已点菜品区域高度 - 优化选项累加处理
               final double minHeight = 120.0; // 增加最小高度以容纳更多选项
@@ -1166,19 +1367,25 @@ class _OrderPageState extends State<OrderPage> {
               double maxCardHeight = baseItemHeight;
               for (var product in orderedProducts) {
                 // 为每个菜品计算高度，包括基础高度、选项高度和内边距
-                double cardHeight = baseItemHeight + (product.options.length * optionHeight) + 16; // 增加padding
+                double cardHeight = baseItemHeight +
+                    (product.options.length * optionHeight) +
+                    16; // 增加padding
                 if (cardHeight > maxCardHeight) maxCardHeight = cardHeight;
               }
 
-              final int rowCount = (orderedProducts.length / crossAxisCount).ceil();
-              final double calculatedHeight = (rowCount * maxCardHeight) + 32; // 增加容器padding
-              final double actualHeight = calculatedHeight.clamp(minHeight, maxHeight);
+              final int rowCount =
+                  (orderedProducts.length / crossAxisCount).ceil();
+              final double calculatedHeight =
+                  (rowCount * maxCardHeight) + 32; // 增加容器padding
+              final double actualHeight =
+                  calculatedHeight.clamp(minHeight, maxHeight);
 
               // 为Web环境优化布局计算
               final screenHeight = constraints.maxHeight;
               final topSectionHeight = actualHeight; // 动态已点菜品区域
               final bottomButtonHeight = 60.0;
-              final availableHeight = screenHeight - topSectionHeight - bottomButtonHeight;
+              final availableHeight =
+                  screenHeight - topSectionHeight - bottomButtonHeight;
 
               return Column(
                 children: [
@@ -1210,14 +1417,16 @@ class _OrderPageState extends State<OrderPage> {
                           child: Column(
                             children: [
                               Expanded(
-                                flex: 1,
+                                flex: 6,
                                 child: CategorySidebarWidget(
                                   categories: categories,
-                                  onCategoryTap: (parent, [child]) {
-                                    if (parent == null) {
+                                  onCategoryTap: (category) {
+                                    if (category == null) {
                                       // “全部”按钮，显示所有菜品
                                       setState(() {
-                                        products = List<MenuItem>.from(allProducts);
+                                        _isAllCategoriesSelected = true;
+                                        products =
+                                            List<MenuItem>.from(allProducts);
                                         products.sort((a, b) {
                                           int cmp = a.sort.compareTo(b.sort);
                                           if (cmp != 0) return cmp;
@@ -1225,9 +1434,13 @@ class _OrderPageState extends State<OrderPage> {
                                         });
                                       });
                                     } else {
-                                      int selectedCategoryId = child?.id ?? parent.id;
+                                      final selectedCategoryId = category.id;
                                       setState(() {
-                                        products = allProducts.where((item) => item.categoryIds.contains(selectedCategoryId)).toList();
+                                        _isAllCategoriesSelected = false;
+                                        products = allProducts
+                                            .where((item) => item.categoryIds
+                                                .contains(selectedCategoryId))
+                                            .toList();
                                         products.sort((a, b) {
                                           int cmp = a.sort.compareTo(b.sort);
                                           if (cmp != 0) return cmp;
@@ -1239,13 +1452,15 @@ class _OrderPageState extends State<OrderPage> {
                                 ),
                               ),
                               Expanded(
-                                flex: 1,
+                                flex: 4,
                                 child: MenuOptionPanelWidget(
                                   optionGroups: optionGroups,
                                   orderedProducts: orderedProducts,
                                   onOptionTap: _showOptionDialog,
                                   isAdminMode: _isAdminMode,
-                                  onManageOptions: _isAdminMode ? _showManageOptionsDialog : null,
+                                  onManageOptions: _isAdminMode
+                                      ? _showManageOptionsDialog
+                                      : null,
                                 ),
                               ),
                             ],
@@ -1260,7 +1475,8 @@ class _OrderPageState extends State<OrderPage> {
                                 height: searchBarHeight,
                                 color: Colors.grey[100],
                                 child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16.0),
                                   child: Row(
                                     children: [
                                       Icon(Icons.search, size: 20),
@@ -1269,11 +1485,13 @@ class _OrderPageState extends State<OrderPage> {
                                         child: TextField(
                                           focusNode: _searchInputFocusNode,
                                           controller: _searchInputController,
-                                          onChanged: _updateQuickInputFromTextField,
+                                          onChanged:
+                                              _updateQuickInputFromTextField,
                                           onTapOutside: (_) {
                                             _keepSearchFocusOnNextBlur = false;
                                             _searchInputFocusNode.unfocus();
-                                            _pageKeyboardFocusNode.requestFocus();
+                                            _pageKeyboardFocusNode
+                                                .requestFocus();
                                           },
                                           decoration: InputDecoration(
                                             border: InputBorder.none,
@@ -1296,35 +1514,51 @@ class _OrderPageState extends State<OrderPage> {
                               ),
                               // 菜品网格 - 使用所有剩余空间
                               Expanded(
-                                child: MenuGridWidget(
-                                  products: products,
-                                  categories: categories, // 新增
-                                  isLoading: isLoading,
-                                  error: error,
-                                  onTap: (item) async {
-                                    final index = products.indexOf(item);
-                                    setState(() {
-                                      _isCardPressed = true;
-                                      _pressedCardIndex = index;
-                                    });
-                                    // 150ms后自动恢复动画
-                                    Future.delayed(Duration(milliseconds: 150), () {
-                                      if (mounted) {
+                                child: Builder(
+                                  builder: (_) {
+                                    final arrangedMenuProducts =
+                                        _isAllCategoriesSelected
+                                            ? _arrangeMenuProductsByColumns(
+                                                products)
+                                            : products
+                                                .map<MenuItem?>((item) => item)
+                                                .toList();
+                                    return MenuGridWidget(
+                                      products: arrangedMenuProducts,
+                                      categories: categories, // 新增
+                                      isLoading: isLoading,
+                                      error: error,
+                                      onTap: (item) async {
+                                        final index =
+                                            arrangedMenuProducts.indexOf(item);
                                         setState(() {
-                                          _isCardPressed = false;
-                                          _pressedCardIndex = null;
+                                          _isCardPressed = true;
+                                          _pressedCardIndex = index;
                                         });
-                                      }
-                                    });
-                                    // 声音和添加菜品异步进行
-                                    _playClickSound();
-                                    _addProductIntelligently(item);
+                                        // 150ms后自动恢复动画
+                                        Future.delayed(
+                                            Duration(milliseconds: 150), () {
+                                          if (mounted) {
+                                            setState(() {
+                                              _isCardPressed = false;
+                                              _pressedCardIndex = null;
+                                            });
+                                          }
+                                        });
+                                        // 声音和添加菜品异步进行
+                                        _playClickSound();
+                                        _addProductIntelligently(item);
+                                      },
+                                      calculateTitleFontSize:
+                                          _calculateTitleFontSize,
+                                      isCardPressed: _isCardPressed,
+                                      pressedCardIndex: _pressedCardIndex,
+                                      isAdminMode: _isAdminMode,
+                                      onLongPress: _isAdminMode
+                                          ? _showEditProductDialog
+                                          : null,
+                                    );
                                   },
-                                  calculateTitleFontSize: _calculateTitleFontSize,
-                                  isCardPressed: _isCardPressed,
-                                  pressedCardIndex: _pressedCardIndex,
-                                  isAdminMode: _isAdminMode,
-                                  onLongPress: _isAdminMode ? _showEditProductDialog : null,
                                 ),
                               ),
                             ],
@@ -1342,7 +1576,8 @@ class _OrderPageState extends State<OrderPage> {
                     onOrder: orderedProducts.isEmpty
                         ? null
                         : () async {
-                            final result = await Navigator.of(context).push<bool>(
+                            final result =
+                                await Navigator.of(context).push<bool>(
                               MaterialPageRoute(
                                 builder: (context) => CheckoutPage(
                                   orderedProducts: orderedProducts,
@@ -1360,13 +1595,17 @@ class _OrderPageState extends State<OrderPage> {
                     orderedCount: orderedProducts.length,
                     orderEnabled: orderedProducts.isNotEmpty,
                     onSyncRemoteOrders: _syncRemoteOrders, // 新增
-                    showQuickSelectButton: isAndroidTablet,
-                    onSelectQuickInput: _quickInputManager.hasResults
-                        ? () async {
-                            _keepSearchFocusOnNextBlur = true;
-                            await _confirmQuickInputSelection(keepSearchFocus: true);
-                          }
-                        : null,
+                    showQuickSelectButton: true,
+                    isQuickSearchActive: _searchInputFocusNode.hasFocus,
+                    onSelectQuickInput: () async {
+                      if (_quickInputManager.hasInput) {
+                        _keepSearchFocusOnNextBlur = true;
+                        await _confirmQuickInputSelection(
+                            keepSearchFocus: true);
+                        return;
+                      }
+                      _searchInputFocusNode.requestFocus();
+                    },
                   ),
                 ],
               );

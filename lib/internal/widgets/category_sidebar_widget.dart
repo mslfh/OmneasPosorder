@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../common/models/category.dart';
 
-class CategorySidebarWidget extends StatefulWidget {
+class CategorySidebarWidget extends StatelessWidget {
   final List<Category> categories;
-  final void Function(Category? parent, [Category? child])? onCategoryTap;
+  final void Function(Category? category)? onCategoryTap;
 
   const CategorySidebarWidget({
     Key? key,
@@ -12,40 +12,7 @@ class CategorySidebarWidget extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  State<CategorySidebarWidget> createState() => _CategorySidebarWidgetState();
-}
-
-class _CategorySidebarWidgetState extends State<CategorySidebarWidget> {
-  Set<int> expandedIds = {};
-
-  @override
-  void initState() {
-    super.initState();
-    _expandAllParents();
-  }
-
-  @override
-  void didUpdateWidget(covariant CategorySidebarWidget oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.categories != widget.categories) {
-      _expandAllParents();
-    }
-  }
-
-  void _expandAllParents() {
-    expandedIds = widget.categories
-        .where((category) => category.parentId == null)
-        .map((category) => category.id)
-        .toSet();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final parents = widget.categories.where((c) => c.parentId == null).toList();
-    final childrenMap = <int, List<Category>>{};
-    for (var parent in parents) {
-      childrenMap[parent.id] = widget.categories.where((c) => c.parentId == parent.id).toList();
-    }
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -91,7 +58,7 @@ class _CategorySidebarWidgetState extends State<CategorySidebarWidget> {
           Material(
             color: Colors.white,
             child: InkWell(
-              onTap: () => widget.onCategoryTap?.call(null),
+              onTap: () => onCategoryTap?.call(null),
               child: Container(
                 padding: EdgeInsets.symmetric(horizontal: 8, vertical: 10),
                 child: Row(
@@ -115,86 +82,54 @@ class _CategorySidebarWidgetState extends State<CategorySidebarWidget> {
             child: Container(
               margin: EdgeInsets.all(2),
               child: ListView.builder(
-                itemCount: parents.length,
+                itemCount: categories.length,
                 itemBuilder: (context, index) {
-                  final parent = parents[index];
-                  final children = childrenMap[parent.id]!;
-                  final isExpanded = expandedIds.contains(parent.id);
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Material(
-                        color: Colors.grey[50],
-                        child: InkWell(
-                          onTap: () {
-                            if (children.isEmpty) {
-                              widget.onCategoryTap?.call(parent);
-                            } else {
-                              setState(() {
-                                if (isExpanded) {
-                                  expandedIds.remove(parent.id);
-                                } else {
-                                  expandedIds.add(parent.id);
-                                }
-                              });
-                            }
-                          },
-                          child: Container(
-                            height: 30,
-                            padding: EdgeInsets.symmetric(horizontal: 8),
-                            alignment: Alignment.centerLeft,
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    parent.title,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.grey[800],
-                                    ),
-                                  ),
-                                ),
-                                if (children.isNotEmpty)
-                                  Icon(
-                                    isExpanded ? Icons.expand_more : Icons.chevron_right,
-                                    size: 16,
-                                    color: Colors.grey[600],
-                                  ),
-                              ],
-                            ),
-                          ),
+                  final category = categories[index];
+                  final isParent = category.parentId == null;
+                  return Material(
+                    color: isParent ? Colors.white : Colors.grey[100],
+                    child: InkWell(
+                      onTap: () => onCategoryTap?.call(category),
+                      child: Container(
+                        height: isParent ? 38 : 35,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isParent ? 8 : 20,
                         ),
-                      ),
-                      if (isExpanded && children.isNotEmpty)
-                        ...children.map((child) => Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () => widget.onCategoryTap?.call(parent, child),
-                            child: Container(
-                              height: 25,
-                              padding: EdgeInsets.symmetric(horizontal: 25),
-                              alignment: Alignment.centerLeft,
-                              child: Row(
-                                children: [
-                                  Icon(Icons.arrow_right, size: 12, color: Colors.grey[600]),
-                                  SizedBox(width: 2),
-                                  Expanded(
-                                    child: Text(
-                                      child.title,
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.grey[700],
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
+                        alignment: Alignment.centerLeft,
+                        child: Row(
+                          children: [
+                            Icon(
+                              isParent
+                                  ? Icons.apps
+                                  : Icons.restaurant_menu,
+                              size: 15,
+                              color:
+                                  isParent
+                                      ? Colors.blueGrey[700]
+                                      : Colors.grey[600],
+                            ),
+                            SizedBox(width: 7),
+                            Expanded(
+                              child: Text(
+                                category.title,
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight:
+                                      isParent
+                                          ? FontWeight.w700
+                                          : FontWeight.w600,
+                                  color:
+                                      isParent
+                                          ? Colors.blueGrey[800]
+                                          : Colors.grey[700],
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                          ),
-                        )),
-                    ],
+                          ],
+                        ),
+                      ),
+                    ),
                   );
                 },
               ),

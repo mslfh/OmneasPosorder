@@ -4,7 +4,7 @@ import '../../common/models/category.dart';
 class CategoryColorMapper {
   // 分类背景色映射表
   static final Map<String, Color> _categoryColors = {
-    'Noodle': Colors.grey,
+    'Noodle': Colors.blueGrey,
     'Fry Rice': Colors.orange,
     'Soup': Colors.blue,
     'Snack': Colors.red,

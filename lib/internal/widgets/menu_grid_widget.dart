@@ -4,7 +4,7 @@ import '../../common/models/category.dart';
 import '../utils/category_color_mapper.dart';
 
 class MenuGridWidget extends StatelessWidget {
-  final List<MenuItem> products;
+  final List<MenuItem?> products;
   final List<Category> categories; // 新增
   final bool isLoading;
   final String? error;
@@ -67,9 +67,14 @@ class MenuGridWidget extends StatelessWidget {
       itemCount: products.length,
       itemBuilder: (context, index) {
         final item = products[index];
+        if (item == null) {
+          return const SizedBox.shrink();
+        }
         // 获取分类背景色
-        final backgroundColor = CategoryColorMapper.getCategoryBackgroundColor(item.categoryIds, categories);
-        final borderColor = CategoryColorMapper.getCategoryBorderColor(item.categoryIds, categories);
+        final backgroundColor = CategoryColorMapper.getCategoryBackgroundColor(
+            item.categoryIds, categories);
+        final borderColor = CategoryColorMapper.getCategoryBorderColor(
+            item.categoryIds, categories);
 
         return LayoutBuilder(
           builder: (context, cardConstraints) {
@@ -77,12 +82,24 @@ class MenuGridWidget extends StatelessWidget {
             return AnimatedContainer(
               duration: Duration(milliseconds: 120),
               curve: Curves.easeOut,
-              transform: isPressed ? Matrix4.translationValues(0, -6, 0) : Matrix4.identity(),
+              transform: isPressed
+                  ? Matrix4.translationValues(0, -6, 0)
+                  : Matrix4.identity(),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
                 boxShadow: isPressed
-                    ? [BoxShadow(color: Colors.blue.withOpacity(0.18), blurRadius: 16, offset: Offset(0, 6))]
-                    : [BoxShadow(color: Colors.grey.withOpacity(0.08), blurRadius: 4, offset: Offset(0, 2))],
+                    ? [
+                        BoxShadow(
+                            color: Colors.blue.withOpacity(0.18),
+                            blurRadius: 16,
+                            offset: Offset(0, 6))
+                      ]
+                    : [
+                        BoxShadow(
+                            color: Colors.grey.withOpacity(0.08),
+                            blurRadius: 4,
+                            offset: Offset(0, 2))
+                      ],
               ),
               child: GestureDetector(
                 onTapDown: (_) {}, // 交互由父组件处理
@@ -105,7 +122,10 @@ class MenuGridWidget extends StatelessWidget {
                         gradient: LinearGradient(
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
-                          colors: [backgroundColor, backgroundColor.withOpacity(0.8)],
+                          colors: [
+                            backgroundColor,
+                            backgroundColor.withOpacity(0.8)
+                          ],
                         ),
                       ),
                       child: Stack(
@@ -122,7 +142,9 @@ class MenuGridWidget extends StatelessWidget {
                                       child: Text(
                                         item.title,
                                         style: TextStyle(
-                                          fontSize: calculateTitleFontSize(item.title, cardConstraints.maxWidth),
+                                          fontSize: calculateTitleFontSize(
+                                              item.title,
+                                              cardConstraints.maxWidth),
                                           fontWeight: FontWeight.bold,
                                           color: Colors.black87,
                                           height: 1.1,
@@ -137,18 +159,20 @@ class MenuGridWidget extends StatelessWidget {
                                 if (cardConstraints.maxHeight > 60)
                                   Container(
                                     margin: EdgeInsets.only(top: 2),
-                                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                    padding: EdgeInsets.symmetric(
+                                        horizontal: 4, vertical: 1),
                                     decoration: BoxDecoration(
                                       color: Colors.blue[100],
                                       borderRadius: BorderRadius.circular(3),
-                                      border: Border.all(color: Colors.blue[300]!, width: 0.5),
+                                      border: Border.all(
+                                          color: Colors.blue[300]!, width: 0.5),
                                     ),
                                     child: Text(
                                       item.acronym ?? '', // 兼容null
                                       style: TextStyle(
-                                        fontSize: 9,
+                                        fontSize: 11,
                                         color: Colors.blue[800],
-                                        fontWeight: FontWeight.w600,
+                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                   ),
@@ -159,7 +183,9 @@ class MenuGridWidget extends StatelessWidget {
                             top: 4,
                             right: 4,
                             child: Text(
-                              item.code.length > 4 ? item.code.substring(0, 4) : item.code,
+                              item.code.length > 4
+                                  ? item.code.substring(0, 4)
+                                  : item.code,
                               style: TextStyle(
                                 fontSize: 9,
                                 color: Colors.grey[600],

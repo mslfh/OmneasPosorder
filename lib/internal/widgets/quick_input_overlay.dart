@@ -41,30 +41,33 @@ class QuickInputOverlay extends StatelessWidget {
     } catch (e) {}
 
     return Positioned(
-      left: 120,
-      top: 80,
-      child: Material(
-        elevation: 8,
-        color: Colors.transparent,
-        child: Container(
-          width: 400,
-          constraints: BoxConstraints(maxHeight: 300),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.blue.shade200),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 8,
-                offset: Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+      left: 100,
+      right: 100,
+      bottom: 450,
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: Material(
+          elevation: 8,
+          color: Colors.transparent,
+          child: Container(
+            width: double.infinity,
+            constraints: BoxConstraints(maxWidth: 640, maxHeight: 300),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blue.shade200),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 8,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
               // 输入显示区域
               Container(
                 width: double.infinity,
@@ -202,7 +205,8 @@ class QuickInputOverlay extends StatelessWidget {
                     textAlign: TextAlign.center,
                   ),
                 ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

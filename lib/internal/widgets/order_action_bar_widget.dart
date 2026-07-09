@@ -9,6 +9,7 @@ class OrderActionBarWidget extends StatelessWidget {
   final VoidCallback onSyncRemoteOrders;
   final VoidCallback? onSelectQuickInput;
   final bool showQuickSelectButton;
+  final bool isQuickSearchActive;
   final int orderedCount;
   final bool orderEnabled;
 
@@ -24,6 +25,7 @@ class OrderActionBarWidget extends StatelessWidget {
     required this.onSyncRemoteOrders,
     this.onSelectQuickInput,
     this.showQuickSelectButton = false,
+    this.isQuickSearchActive = false,
   }) : super(key: key);
 
   @override
@@ -69,26 +71,26 @@ class OrderActionBarWidget extends StatelessWidget {
             ),
           ),
           // CLEAR按钮
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 3.0),
-              child: ElevatedButton.icon(
-                onPressed: onClearOrder,
-                icon: Icon(Icons.clear_all, size: 16),
-                label: Text('CLEAR', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange[300],
-                  foregroundColor: Colors.white,
-                  elevation: 3,
-                  shadowColor: Colors.orange[200],
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-            ),
-          ),
+          // Expanded(
+          //   child: Padding(
+          //     padding: const EdgeInsets.symmetric(horizontal: 3.0),
+          //     child: ElevatedButton.icon(
+          //       onPressed: onClearOrder,
+          //       icon: Icon(Icons.clear_all, size: 16),
+          //       label: Text('CLEAR', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+          //       style: ElevatedButton.styleFrom(
+          //         backgroundColor: Colors.orange[300],
+          //         foregroundColor: Colors.white,
+          //         elevation: 3,
+          //         shadowColor: Colors.orange[200],
+          //         padding: EdgeInsets.symmetric(vertical: 12),
+          //         shape: RoundedRectangleBorder(
+          //           borderRadius: BorderRadius.circular(8),
+          //         ),
+          //       ),
+          //     ),
+          //   ),
+          // ),
           // X按钮 - 数量设置
           Expanded(
             child: Padding(
@@ -159,13 +161,19 @@ class OrderActionBarWidget extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 3.0),
                 child: ElevatedButton.icon(
                   onPressed: onSelectQuickInput,
-                  icon: Icon(Icons.check_circle_outline, size: 16),
-                  label: Text('SELECT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                  icon: Icon(
+                    isQuickSearchActive ? Icons.check_circle_outline : Icons.search,
+                    size: 16,
+                  ),
+                  label: Text(
+                    isQuickSearchActive ? 'SELECT' : 'SEARCH',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                  ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.teal[400],
+                    backgroundColor: isQuickSearchActive ? Colors.teal[400] : Colors.indigo[400],
                     foregroundColor: Colors.white,
                     elevation: 3,
-                    shadowColor: Colors.teal[200],
+                    shadowColor: isQuickSearchActive ? Colors.teal[200] : Colors.indigo[200],
                     padding: EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
