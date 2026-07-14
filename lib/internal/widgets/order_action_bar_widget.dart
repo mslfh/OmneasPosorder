@@ -12,6 +12,9 @@ class OrderActionBarWidget extends StatelessWidget {
   final bool isQuickSearchActive;
   final int orderedCount;
   final bool orderEnabled;
+  final String orderLabel;
+  final IconData orderIcon;
+  final Color orderColor;
 
   const OrderActionBarWidget({
     Key? key,
@@ -23,6 +26,9 @@ class OrderActionBarWidget extends StatelessWidget {
     required this.orderedCount,
     required this.orderEnabled,
     required this.onSyncRemoteOrders,
+    this.orderLabel = 'ORDER',
+    this.orderIcon = Icons.shopping_cart,
+    this.orderColor = Colors.green,
     this.onSelectQuickInput,
     this.showQuickSelectButton = false,
     this.isQuickSearchActive = false,
@@ -56,7 +62,9 @@ class OrderActionBarWidget extends StatelessWidget {
               child: ElevatedButton.icon(
                 onPressed: onVoidOrder,
                 icon: Icon(Icons.delete_outline, size: 16),
-                label: Text('VOID', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                label: Text('VOID',
+                    style:
+                        TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.red[300],
                   foregroundColor: Colors.white,
@@ -98,7 +106,9 @@ class OrderActionBarWidget extends StatelessWidget {
               child: ElevatedButton.icon(
                 onPressed: onShowQuantitySelector,
                 icon: Icon(Icons.add_circle_outline, size: 16),
-                label: Text('QTY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                label: Text('QTY',
+                    style:
+                        TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.purple[300],
                   foregroundColor: Colors.white,
@@ -141,7 +151,9 @@ class OrderActionBarWidget extends StatelessWidget {
               child: ElevatedButton.icon(
                 onPressed: onSyncRemoteOrders,
                 icon: Icon(Icons.cloud_download, size: 16),
-                label: Text('PULL', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                label: Text('PULL',
+                    style:
+                        TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.blueAccent,
                   foregroundColor: Colors.white,
@@ -162,7 +174,9 @@ class OrderActionBarWidget extends StatelessWidget {
                 child: ElevatedButton.icon(
                   onPressed: onSelectQuickInput,
                   icon: Icon(
-                    isQuickSearchActive ? Icons.check_circle_outline : Icons.search,
+                    isQuickSearchActive
+                        ? Icons.check_circle_outline
+                        : Icons.search,
                     size: 16,
                   ),
                   label: Text(
@@ -170,10 +184,14 @@ class OrderActionBarWidget extends StatelessWidget {
                     style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: isQuickSearchActive ? Colors.teal[400] : Colors.indigo[400],
+                    backgroundColor: isQuickSearchActive
+                        ? Colors.teal[400]
+                        : Colors.indigo[400],
                     foregroundColor: Colors.white,
                     elevation: 3,
-                    shadowColor: isQuickSearchActive ? Colors.teal[200] : Colors.indigo[200],
+                    shadowColor: isQuickSearchActive
+                        ? Colors.teal[200]
+                        : Colors.indigo[200],
                     padding: EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
@@ -189,20 +207,25 @@ class OrderActionBarWidget extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 3.0),
               child: ElevatedButton.icon(
                 onPressed: orderEnabled ? onOrder : null,
-                icon: Icon(Icons.shopping_cart, size: 18),
+                icon: Icon(orderIcon, size: 18),
                 label: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('ORDER', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    Text(orderLabel,
+                        style: TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.bold)),
                     if (orderedCount > 0)
-                      Text('$orderedCount items', style: TextStyle(fontSize: 9)),
+                      Text('$orderedCount items',
+                          style: TextStyle(fontSize: 9)),
                   ],
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: orderEnabled ? Colors.green[500] : Colors.grey[400],
+                  backgroundColor: orderEnabled ? orderColor : Colors.grey[400],
                   foregroundColor: Colors.white,
                   elevation: orderEnabled ? 6 : 1,
-                  shadowColor: orderEnabled ? Colors.green[300] : Colors.grey[300],
+                  shadowColor: orderEnabled
+                      ? orderColor.withOpacity(0.35)
+                      : Colors.grey[300],
                   padding: EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),

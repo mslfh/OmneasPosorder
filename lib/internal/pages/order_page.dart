@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../common/models/menu_item.dart';
 import '../../common/models/category.dart';
 import '../../common/models/menu_option.dart';
+import '../../common/models/order_model.dart';
 import '../../common/services/sync_service.dart';
 import '../keyboard_handlers/action_key_handler.dart';
 import '../utils/quick_input_manager.dart';
@@ -14,6 +15,7 @@ import '../widgets/menu_option_panel_widget.dart';
 import '../widgets/order_action_bar_widget.dart';
 import '../widgets/menu_grid_widget.dart';
 import '../utils/order_selected.dart';
+import '../utils/online_order_mapper.dart';
 import '../utils/keyboard_event_handler.dart';
 import '../utils/ui_helper.dart';
 import '../keyboard_handlers/navigation_key_handler.dart';
@@ -25,6 +27,7 @@ import '../../common/services/order_match_service.dart';
 import '../../common/services/api_service.dart';
 import '../services/menu_data_service.dart';
 import '../services/order_match_manager.dart';
+import '../widgets/online_order_selection_dialog.dart';
 
 class OrderPage extends StatefulWidget {
   final bool isAdminMode;
@@ -51,6 +54,8 @@ class _OrderPageState extends State<OrderPage> {
   String? error;
   Map<String, List<MenuOption>> optionGroups = {};
   List<SelectedProduct> orderedProducts = [];
+  OrderModel? _selectedOnlineOrder;
+  List<SelectedProduct> _selectedOnlineOrderOriginalProducts = [];
   SelectedProduct? selectedOrderedProduct;
   bool _isCardPressed = false;
   int? _pressedCardIndex;
@@ -107,6 +112,91 @@ class _OrderPageState extends State<OrderPage> {
         error = menuData['error'];
       });
     }
+  }
+
+  bool get _hasSelectedOnlineOrder => _selectedOnlineOrder != null;
+
+  void _clearOnlineOrderSelection() {
+    _selectedOnlineOrder = null;
+    _selectedOnlineOrderOriginalProducts = [];
+  }
+
+  void _applyOnlineOrderToCart(OrderModel order) {
+    final snapshot =
+        OnlineOrderMapper.buildSelectedProducts(order, allProducts);
+    if (snapshot.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      orderedProducts.addAll(snapshot);
+      selectedOrderedProduct = orderedProducts.last;
+      _selectedOnlineOrder = order;
+      _selectedOnlineOrderOriginalProducts =
+          OnlineOrderMapper.cloneSelectedProducts(snapshot);
+    });
+  }
+
+  Future<void> _showOnlineOrderPicker() async {
+    final selectedOrder = await OnlineOrderSelectionDialog.show(context);
+    if (selectedOrder == null || !mounted) return;
+    _applyOnlineOrderToCart(selectedOrder);
+  }
+
+  Future<void> _openCheckoutPage() async {
+    if (orderedProducts.isEmpty && !_hasSelectedOnlineOrder) {
+      await _showOnlineOrderPicker();
+      return;
+    }
+
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (context) => CheckoutPage(
+          orderedProducts: orderedProducts,
+          onlineOrder: _selectedOnlineOrder,
+          originalOnlineOrderedProducts: _selectedOnlineOrderOriginalProducts,
+        ),
+      ),
+    );
+
+    if (result == true) {
+      setState(() {
+        orderedProducts.clear();
+        selectedOrderedProduct = null;
+        _clearOnlineOrderSelection();
+      });
+    }
+  }
+
+  Widget _buildSelectedOnlineOrderBanner() {
+    final order = _selectedOnlineOrder;
+    if (order == null) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.orange.withOpacity(0.35)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.cloud_done, color: Colors.orange[700]),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '已添加在线订单：${order.orderNo}${order.remoteOrderNumber != null ? ' / ${order.remoteOrderNumber}' : ''}',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          Text(
+            '${_selectedOnlineOrderOriginalProducts.length} items',
+            style: TextStyle(color: Colors.orange[800]),
+          ),
+        ],
+      ),
+    );
   }
 
   /// 订单匹配结果更新回调
@@ -272,6 +362,10 @@ class _OrderPageState extends State<OrderPage> {
       } else {
         orderedProducts.remove(ordered);
       }
+      if (orderedProducts.isEmpty) {
+        selectedOrderedProduct = null;
+        _clearOnlineOrderSelection();
+      }
     });
   }
 
@@ -335,6 +429,7 @@ class _OrderPageState extends State<OrderPage> {
         selectedOrderedProduct = orderedProducts.last;
       } else {
         selectedOrderedProduct = null;
+        _clearOnlineOrderSelection();
       }
     });
   }
@@ -345,6 +440,7 @@ class _OrderPageState extends State<OrderPage> {
       setState(() {
         orderedProducts.clear();
         selectedOrderedProduct = null;
+        _clearOnlineOrderSelection();
       });
     }
   }
@@ -594,6 +690,9 @@ class _OrderPageState extends State<OrderPage> {
       } else {
         // 设置新数量
         targetProduct!.quantity = quantity;
+      }
+      if (orderedProducts.isEmpty) {
+        _clearOnlineOrderSelection();
       }
     });
   }
@@ -1382,7 +1481,8 @@ class _OrderPageState extends State<OrderPage> {
 
               // 为Web环境优化布局计算
               final screenHeight = constraints.maxHeight;
-              final topSectionHeight = actualHeight; // 动态已点菜品区域
+              final topSectionHeight =
+                  actualHeight + (_selectedOnlineOrder != null ? 72.0 : 0.0);
               final bottomButtonHeight = 60.0;
               final availableHeight =
                   screenHeight - topSectionHeight - bottomButtonHeight;
@@ -1390,6 +1490,7 @@ class _OrderPageState extends State<OrderPage> {
               return Column(
                 children: [
                   // 已点菜品列表 - 动态高度
+                  _buildSelectedOnlineOrderBanner(),
                   OrderedProductListWidget(
                     orderedProducts: orderedProducts,
                     selectedOrderedProduct: selectedOrderedProduct,
@@ -1573,30 +1674,24 @@ class _OrderPageState extends State<OrderPage> {
                     onClearOrder: _clearOrder,
                     onShowQuantitySelector: _showQuantitySelector,
                     onCustomAction: _customAction,
-                    onOrder: orderedProducts.isEmpty
-                        ? null
-                        : () async {
-                            final result =
-                                await Navigator.of(context).push<bool>(
-                              MaterialPageRoute(
-                                builder: (context) => CheckoutPage(
-                                  orderedProducts: orderedProducts,
-                                ),
-                              ),
-                            );
-                            // 如果返回 true，表示订单成功，清空购物车
-                            if (result == true) {
-                              setState(() {
-                                orderedProducts.clear();
-                                selectedOrderedProduct = null;
-                              });
-                            }
-                          },
+                    onOrder: _openCheckoutPage,
                     orderedCount: orderedProducts.length,
-                    orderEnabled: orderedProducts.isNotEmpty,
+                    orderEnabled: true,
                     onSyncRemoteOrders: _syncRemoteOrders, // 新增
                     showQuickSelectButton: true,
                     isQuickSearchActive: _searchInputFocusNode.hasFocus,
+                    orderLabel:
+                        orderedProducts.isEmpty && !_hasSelectedOnlineOrder
+                            ? 'ADD ORDER'
+                            : 'ORDER',
+                    orderIcon:
+                        orderedProducts.isEmpty && !_hasSelectedOnlineOrder
+                            ? Icons.playlist_add
+                            : Icons.shopping_cart,
+                    orderColor:
+                        orderedProducts.isEmpty && !_hasSelectedOnlineOrder
+                            ? Colors.blueGrey
+                            : Colors.green,
                     onSelectQuickInput: () async {
                       if (_quickInputManager.hasInput) {
                         _keepSearchFocusOnNextBlur = true;

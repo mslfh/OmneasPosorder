@@ -1,13 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../common/models/order_model.dart';
 import '../../common/services/order_service.dart';
 import '../../common/services/settings_service.dart';
 import 'order_list_page.dart';
 import '../utils/order_selected.dart';
+import '../utils/online_order_mapper.dart';
 
 class CheckoutPage extends StatefulWidget {
   final List<SelectedProduct> orderedProducts;
-  const CheckoutPage({Key? key, required this.orderedProducts}) : super(key: key);
+  final OrderModel? onlineOrder;
+  final List<SelectedProduct> originalOnlineOrderedProducts;
+
+  const CheckoutPage({
+    Key? key,
+    required this.orderedProducts,
+    this.onlineOrder,
+    this.originalOnlineOrderedProducts = const [],
+  }) : super(key: key);
 
   @override
   State<CheckoutPage> createState() => _CheckoutPageState();
@@ -19,7 +29,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
   String orderType = 'TAKE AWAY'; // 添加订单类型状态
   final TextEditingController _controller = TextEditingController();
   final FocusNode _amountInputFocusNode = FocusNode(); // 金额输入框的焦点节点
-  final TextEditingController _noteController = TextEditingController(); // 订单备注输入框
+  final TextEditingController _noteController =
+      TextEditingController(); // 订单备注输入框
   final FocusNode _noteInputFocusNode = FocusNode(); // 备注输入框的焦点节点
   bool keepChange = false; // 新增：是否放弃找零
   bool isPlacingOrder = false; // 新增：下单任务进行中状态
@@ -50,18 +61,72 @@ class _CheckoutPageState extends State<CheckoutPage> {
     double sum = 0.0;
     for (var p in widget.orderedProducts) {
       double itemPrice = p.product.sellingPrice;
-      double optionsTotal = p.options.fold(0.0, (s, o) => s + o.option.extraCost);
+      double optionsTotal =
+          p.options.fold(0.0, (s, o) => s + o.option.extraCost);
       sum += (itemPrice + optionsTotal) * p.quantity; // multiply by quantity
     }
     return sum;
   }
+
   double get change => receivedAmount - totalPrice;
+  bool get hasOnlineOrder => widget.onlineOrder != null;
+  bool get onlineOrderItemsChanged =>
+      hasOnlineOrder &&
+      !OnlineOrderMapper.areSelectedProductsEqual(
+        widget.orderedProducts,
+        widget.originalOnlineOrderedProducts,
+      );
+
+  Widget _buildOnlineOrderInfoCard() {
+    final order = widget.onlineOrder!;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.blue.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.blue.withOpacity(0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.cloud_done, color: Colors.blue[700], size: 18),
+              const SizedBox(width: 6),
+              Text(
+                'Online Order #${order.orderNo}',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text('Remote: ${order.remoteOrderNumber ?? '-'}'),
+          Text(
+              'Current status: ${order.orderStatus.name} / ${order.syncStatus.name}'),
+          if (order.note != null && order.note!.isNotEmpty)
+            Text('Note: ${order.note}'),
+          Text(
+            onlineOrderItemsChanged
+                ? 'Items changed: yes'
+                : 'Items changed: no',
+            style: TextStyle(
+              color: onlineOrderItemsChanged
+                  ? Colors.orange[800]
+                  : Colors.green[700],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   void updateReceivedAmount(double value) {
     setState(() {
       receivedAmount = value;
       _controller.text = value == 0.0 ? '' : value.toString();
-      _controller.selection = TextSelection.fromPosition(TextPosition(offset: _controller.text.length));
+      _controller.selection = TextSelection.fromPosition(
+          TextPosition(offset: _controller.text.length));
     });
   }
 
@@ -79,7 +144,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
     final key = event.logicalKey;
 
     // Ctrl 键：切换订单类型（全局生效，无需焦点）
-    if (key == LogicalKeyboardKey.controlLeft || key == LogicalKeyboardKey.controlRight) {
+    if (key == LogicalKeyboardKey.controlLeft ||
+        key == LogicalKeyboardKey.controlRight) {
       _toggleOrderType();
       return;
     }
@@ -128,16 +194,21 @@ class _CheckoutPageState extends State<CheckoutPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Ordered Items', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text('Ordered Items',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               SizedBox(height: 8),
+              if (hasOnlineOrder) _buildOnlineOrderInfoCard(),
+              if (hasOnlineOrder) SizedBox(height: 8),
               Expanded(
                 child: ListView.builder(
                   itemCount: widget.orderedProducts.length,
                   itemBuilder: (context, idx) {
                     final p = widget.orderedProducts[idx];
                     double itemPrice = p.product.sellingPrice;
-                    double optionsTotal = p.options.fold(0.0, (s, o) => s + o.option.extraCost);
-                    double itemTotalPrice = (itemPrice + optionsTotal) * p.quantity;
+                    double optionsTotal =
+                        p.options.fold(0.0, (s, o) => s + o.option.extraCost);
+                    double itemTotalPrice =
+                        (itemPrice + optionsTotal) * p.quantity;
 
                     return Card(
                       child: Padding(
@@ -149,19 +220,19 @@ class _CheckoutPageState extends State<CheckoutPage> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Expanded(
-                                  child: Text(
-                                    p.product.title,
-                                    style: TextStyle(fontWeight: FontWeight.bold)
-                                  )
-                                ),
+                                    child: Text(p.product.title,
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.bold))),
                                 Row(
                                   children: [
                                     Container(
-                                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      padding: EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 4),
                                       decoration: BoxDecoration(
                                         color: Colors.blue[100],
                                         borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(color: Colors.blue[300]!, width: 1),
+                                        border: Border.all(
+                                            color: Colors.blue[300]!, width: 1),
                                       ),
                                       child: Text(
                                         'x${p.quantity}',
@@ -173,8 +244,10 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                       ),
                                     ),
                                     SizedBox(width: 8),
-                                    Text('\$${itemTotalPrice.toStringAsFixed(2)}',
-                                      style: TextStyle(fontWeight: FontWeight.bold)),
+                                    Text(
+                                        '\$${itemTotalPrice.toStringAsFixed(2)}',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.bold)),
                                   ],
                                 ),
                               ],
@@ -182,36 +255,48 @@ class _CheckoutPageState extends State<CheckoutPage> {
                             SizedBox(height: 4),
                             Row(
                               children: [
-                                Text('Unit price: \$${itemPrice.toStringAsFixed(2)}',
-                                  style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+                                Text(
+                                    'Unit price: \$${itemPrice.toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                        fontSize: 14, color: Colors.grey[600])),
                               ],
                             ),
                             ...p.options.map((opt) => Padding(
-                              padding: const EdgeInsets.only(top: 2.0),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text('${opt.type}: ${opt.option.name}',
-                                    style: TextStyle(fontSize: 13, color: Colors.grey[700])),
-                                  if (opt.option.extraCost > 0)
-                                    Text('+\$${opt.option.extraCost.toStringAsFixed(2)}',
-                                      style: TextStyle(fontSize: 12, color: Colors.red)),
-                                ],
-                              ),
-                            ))
+                                  padding: const EdgeInsets.only(top: 2.0),
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text('${opt.type}: ${opt.option.name}',
+                                          style: TextStyle(
+                                              fontSize: 13,
+                                              color: Colors.grey[700])),
+                                      if (opt.option.extraCost > 0)
+                                        Text(
+                                            '+\$${opt.option.extraCost.toStringAsFixed(2)}',
+                                            style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.red)),
+                                    ],
+                                  ),
+                                ))
                           ],
                         ),
-                        ),
-                      );
-                    },
+                      ),
+                    );
+                  },
                 ),
               ),
               Divider(),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Total', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  Text('\$${totalPrice.toStringAsFixed(2)}', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  Text('Total',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text('\$${totalPrice.toStringAsFixed(2)}',
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 ],
               ),
               SizedBox(height: 16),
@@ -219,25 +304,34 @@ class _CheckoutPageState extends State<CheckoutPage> {
               Row(
                 children: [
                   // 左侧：Order Type 标签
-                  Text('Order Type: ', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text('Order Type: ',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   Spacer(), // 推送右侧内容到最右边
                   // 右侧：只有订单类型切换按钮
                   ElevatedButton.icon(
                     onPressed: _toggleOrderType,
                     icon: Icon(
-                      orderType == 'DINE IN' ? Icons.restaurant : Icons.takeout_dining,
-                      size: 18
-                    ),
+                        orderType == 'DINE IN'
+                            ? Icons.restaurant
+                            : Icons.takeout_dining,
+                        size: 18),
                     label: Text(
                       orderType,
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                      style:
+                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                     ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: orderType == 'DINE IN' ? Colors.blue[400] : Colors.green[400],
+                      backgroundColor: orderType == 'DINE IN'
+                          ? Colors.blue[400]
+                          : Colors.green[400],
                       foregroundColor: Colors.white,
                       elevation: 3,
-                      shadowColor: orderType == 'DINE IN' ? Colors.blue[200] : Colors.green[200],
-                      padding: EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                      shadowColor: orderType == 'DINE IN'
+                          ? Colors.blue[200]
+                          : Colors.green[200],
+                      padding:
+                          EdgeInsets.symmetric(vertical: 10, horizontal: 16),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -249,7 +343,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
               // 支付方式显示
               Row(
                 children: [
-                  Text('Payment Method: ', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text('Payment Method: ',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   Spacer(),
                   Container(
                     padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -260,7 +356,6 @@ class _CheckoutPageState extends State<CheckoutPage> {
                         color: isCash ? Colors.amber[400]! : Colors.blue[400]!,
                         width: 1.5,
                       ),
-
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -276,7 +371,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
-                            color: isCash ? Colors.amber[800] : Colors.blue[800],
+                            color:
+                                isCash ? Colors.amber[800] : Colors.blue[800],
                           ),
                         ),
                       ],
@@ -318,12 +414,14 @@ class _CheckoutPageState extends State<CheckoutPage> {
                         return KeyEventResult.ignored;
                       },
                       child: TextField(
-                        keyboardType: TextInputType.numberWithOptions(decimal: true),
+                        keyboardType:
+                            TextInputType.numberWithOptions(decimal: true),
                         decoration: InputDecoration(
                           labelText: '\$ Received Amount',
                           border: OutlineInputBorder(),
                           // 添加提示文本，告知用户快捷键
-                          helperText: 'Ctrl: Switch DINE IN / TAKE AWAY, Space: POS Payment',
+                          helperText:
+                              'Ctrl: Switch DINE IN / TAKE AWAY, Space: POS Payment',
                         ),
                         controller: _controller,
                         focusNode: _amountInputFocusNode,
@@ -378,12 +476,15 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                     setState(() {
                                       keepChange = true;
                                     });
-                            },
+                                  },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: keepChange ? Colors.grey : Colors.deepOrange,
+                              backgroundColor:
+                                  keepChange ? Colors.grey : Colors.deepOrange,
                               foregroundColor: Colors.white,
-                              padding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                              textStyle: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 10),
+                              textStyle: TextStyle(
+                                  fontSize: 11, fontWeight: FontWeight.bold),
                               minimumSize: Size(0, 0),
                             ),
                             child: Text(keepChange ? 'Kept Change' : 'Keep'),
@@ -393,8 +494,10 @@ class _CheckoutPageState extends State<CheckoutPage> {
                   ),
                   Text(
                     keepChange
-                      ? '\$0.00'
-                      : (change < 0 ? '-\$${change.abs().toStringAsFixed(2)}' : '\$${change.toStringAsFixed(2)}'),
+                        ? '\$0.00'
+                        : (change < 0
+                            ? '-\$${change.abs().toStringAsFixed(2)}'
+                            : '\$${change.toStringAsFixed(2)}'),
                     style: TextStyle(
                       fontSize: 20,
                       color: change < 0
@@ -411,14 +514,19 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   ElevatedButton(
-                    onPressed: isPlacingOrder ? null : () {
-                      _placeOrder();
-                    },
+                    onPressed: isPlacingOrder
+                        ? null
+                        : () {
+                            _placeOrder();
+                          },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isPlacingOrder ? Colors.grey : Colors.green,
+                      backgroundColor:
+                          isPlacingOrder ? Colors.grey : Colors.green,
                       foregroundColor: Colors.white,
-                      padding: EdgeInsets.symmetric(vertical: 16, horizontal: 32),
-                      textStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      padding:
+                          EdgeInsets.symmetric(vertical: 16, horizontal: 32),
+                      textStyle:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -429,7 +537,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
                       children: [
                         Icon(Icons.shopping_cart_checkout, size: 20),
                         SizedBox(width: 8),
-                        Text(isPlacingOrder ? 'Placing Order...' : 'Place Order'),
+                        Text(isPlacingOrder
+                            ? 'Placing Order...'
+                            : 'Place Order'),
                       ],
                     ),
                   ),
@@ -489,18 +599,21 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Order ID: ${orderId} - $orderType'),
+                  Text(hasOnlineOrder
+                      ? 'Online Order ID: ${orderId} - $orderType'
+                      : 'Order ID: ${orderId} - $orderType'),
                   SizedBox(height: 8),
-                  Text('Note: ${_noteController.text.trim().isEmpty ? 'None' : _noteController.text.trim()}'),
+                  Text(
+                      'Note: ${_noteController.text.trim().isEmpty ? 'None' : _noteController.text.trim()}'),
                   SizedBox(height: 8),
                   Text('Paid By: ${isCash ? 'Cash' : 'POS'}'),
                   SizedBox(height: 8),
                   Text('Total Amount: \$${totalAmount.toStringAsFixed(2)}'),
                   SizedBox(height: 8),
-                  Text('Change: \$${keepChange ? '0.00 (Kept)' : change < 0 ? change.toStringAsFixed(2) + '(Insufficient！)' : change.toStringAsFixed(2)}'),
+                  Text(
+                      'Change: \$${keepChange ? '0.00 (Kept)' : change < 0 ? change.toStringAsFixed(2) + '(Insufficient！)' : change.toStringAsFixed(2)}'),
                   SizedBox(height: 8),
-
-                   Container(
+                  Container(
                     padding: EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: Colors.blue.withOpacity(0.1),
@@ -512,11 +625,15 @@ class _CheckoutPageState extends State<CheckoutPage> {
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.check_circle, color: Colors.green, size: 16),
+                            Icon(Icons.check_circle,
+                                color: Colors.green, size: 16),
                             SizedBox(width: 4),
                             Text(
-                              'Order saved locally',
-                              style: TextStyle(color: Colors.green, fontSize: 12),
+                              hasOnlineOrder
+                                  ? 'Order completed'
+                                  : 'Order saved locally',
+                              style:
+                                  TextStyle(color: Colors.green, fontSize: 12),
                             ),
                           ],
                         ),
@@ -528,22 +645,46 @@ class _CheckoutPageState extends State<CheckoutPage> {
                             children: [
                               Row(
                                 children: [
-                                  Icon(Icons.sync, color: settings.enableAutoSync ? Colors.deepOrangeAccent : Colors.grey, size: 16),
+                                  Icon(Icons.sync,
+                                      color: settings.enableAutoSync
+                                          ? Colors.deepOrangeAccent
+                                          : Colors.grey,
+                                      size: 16),
                                   SizedBox(width: 4),
                                   Text(
-                                    settings.enableAutoSync ? 'Syncing to server' : 'Sync skipped',
-                                    style: TextStyle(color: settings.enableAutoSync ? Colors.deepOrangeAccent : Colors.grey, fontSize: 12),
+                                    hasOnlineOrder
+                                        ? (onlineOrderItemsChanged
+                                            ? 'Server updated, completing order'
+                                            : 'Server update not needed')
+                                        : (settings.enableAutoSync
+                                            ? 'Syncing to server'
+                                            : 'Sync skipped'),
+                                    style: TextStyle(
+                                        color: settings.enableAutoSync
+                                            ? Colors.deepOrangeAccent
+                                            : Colors.grey,
+                                        fontSize: 12),
                                   ),
                                 ],
                               ),
                               SizedBox(height: 4),
                               Row(
                                 children: [
-                                  Icon(Icons.print, color: settings.enableAutoPrint ? Colors.blue : Colors.grey, size: 16),
+                                  Icon(Icons.print,
+                                      color: settings.enableAutoPrint
+                                          ? Colors.blue
+                                          : Colors.grey,
+                                      size: 16),
                                   SizedBox(width: 4),
                                   Text(
-                                    settings.enableAutoPrint ? 'Sending to printer' : 'Printing skipped',
-                                    style: TextStyle(color: settings.enableAutoPrint ? Colors.blue : Colors.grey, fontSize: 12),
+                                    settings.enableAutoPrint
+                                        ? 'Sending to printer'
+                                        : 'Printing skipped',
+                                    style: TextStyle(
+                                        color: settings.enableAutoPrint
+                                            ? Colors.blue
+                                            : Colors.grey,
+                                        fontSize: 12),
                                   ),
                                 ],
                               ),
@@ -562,7 +703,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
                     Navigator.of(dialogContext).pop(); // 关闭对话框
                     Navigator.of(context).pop(true); // 返回 true 给 OrderPage，清空点单
                   },
-                  child: Text('Continue${countdownSeconds > 0 ? ' ($countdownSeconds)' : ''}'),
+                  child: Text(
+                      'Continue${countdownSeconds > 0 ? ' ($countdownSeconds)' : ''}'),
                 ),
                 ElevatedButton(
                   onPressed: () {
@@ -623,7 +765,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
       barrierDismissible: true,
       builder: (context) => AlertDialog(
         title: Text('Missing Amount'),
-        content: Text('Please input received amount or press Space to use POS payment.'),
+        content: Text(
+            'Please input received amount or press Space to use POS payment.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -644,30 +787,13 @@ class _CheckoutPageState extends State<CheckoutPage> {
       return;
     }
 
-    setState(() { isPlacingOrder = true; });
+    setState(() {
+      isPlacingOrder = true;
+    });
     try {
       final orderService = OrderService();
-
-      // 准备订单项目
-      final orderItems = widget.orderedProducts.map((p) {
-        // 计算选项的额外费用
-        final options = p.options.map((o) => {
-          'type': o.type,
-          'option_id': o.option.id,
-          'option_name': o.option.name,
-          'extra_price': o.option.extraCost, // 添加选项的额外费用
-        }).toList();
-
-        return {
-          'id': p.product.id,
-          'name': p.product.title,
-          'price': p.product.sellingPrice,
-          'quantity': p.quantity,
-          'options': options,
-          // 使用 MenuItem 的 isPrintable 字段（若存在），以便打印流程能基于该字段判断后厨打印
-          'is_printable': p.product.isPrintable,
-        };
-      }).toList();
+      final orderItems =
+          OnlineOrderMapper.toCheckoutItems(widget.orderedProducts);
 
       // 计算总金额
       double totalAmount = 0;
@@ -679,28 +805,57 @@ class _CheckoutPageState extends State<CheckoutPage> {
         totalAmount += itemTotal * product.quantity;
       }
 
-      // 下单，包含所有新增字段
-      final orderId = await orderService.placeOrder(
-        items: orderItems,
-        totalAmount: totalAmount,
-        discountAmount: 0.0, // 默认无折扣
-        taxRate: 10.0,      // 默认税率 10%
-        serviceFee: 0.0,    // 默认无服务费
-        cashAmount: isCash ? receivedAmount : 0.0,
-        posAmount: isCash ? 0.0 : receivedAmount,
-        note: _noteController.text.trim(),
-        type: orderType == 'DINE IN' ? 'dinein' : 'takeaway',
-        cashChange: isCash ? (keepChange ? 0.0 : double.parse((receivedAmount - totalAmount).toStringAsFixed(2))) : 0.0, // 放弃找零逻辑
-        voucherAmount: 0.0, // 新增券金额字段，默认为0.00
-      );
-      setState(() { keepChange = false; }); // 下单后重置
+      final cashChangeValue = isCash
+          ? (keepChange
+              ? 0.0
+              : double.parse((receivedAmount - totalPrice).toStringAsFixed(2)))
+          : 0.0;
+
+      String orderId;
+      if (hasOnlineOrder) {
+        await orderService.completeOnlineOrderCheckout(
+          order: widget.onlineOrder!,
+          items: orderItems,
+          totalAmount: totalAmount,
+          discountAmount: 0.0,
+          taxRate: 10.0,
+          serviceFee: 0.0,
+          cashAmount: isCash ? receivedAmount : 0.0,
+          posAmount: isCash ? 0.0 : receivedAmount,
+          note: _noteController.text.trim(),
+          type: orderType == 'DINE IN' ? 'dinein' : 'takeaway',
+          cashChange: cashChangeValue,
+          voucherAmount: 0.0,
+          itemsChanged: onlineOrderItemsChanged,
+        );
+        orderId = widget.onlineOrder!.id;
+      } else {
+        orderId = await orderService.placeOrder(
+          items: orderItems,
+          totalAmount: totalAmount,
+          discountAmount: 0.0, // 默认无折扣
+          taxRate: 10.0, // 默认税率 10%
+          serviceFee: 0.0, // 默认无服务费
+          cashAmount: isCash ? receivedAmount : 0.0,
+          posAmount: isCash ? 0.0 : receivedAmount,
+          note: _noteController.text.trim(),
+          type: orderType == 'DINE IN' ? 'dinein' : 'takeaway',
+          cashChange: cashChangeValue, // 放弃找零逻辑
+          voucherAmount: 0.0, // 新增券金额字段，默认为0.00
+        );
+      }
+      setState(() {
+        keepChange = false;
+      }); // 下单后重置
 
       // 显示成功对话框
       _showOrderSuccessDialog(orderId, totalAmount);
     } catch (e) {
       _showErrorDialog('Order placement failed: $e');
     } finally {
-      setState(() { isPlacingOrder = false; });
+      setState(() {
+        isPlacingOrder = false;
+      });
     }
   }
 }

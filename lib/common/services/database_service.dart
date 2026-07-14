@@ -37,8 +37,9 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 1, // 增加版本号以支持新字段
+      version: 2,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -76,6 +77,7 @@ class DatabaseService {
         cash_amount REAL NOT NULL DEFAULT 0,
         pos_amount REAL NOT NULL DEFAULT 0,
         order_status INTEGER NOT NULL DEFAULT 0,
+        sync_status INTEGER NOT NULL DEFAULT 0,
         print_status INTEGER NOT NULL DEFAULT 0,
         error_message TEXT,
         retry_count INTEGER NOT NULL DEFAULT 0,
@@ -133,7 +135,8 @@ class DatabaseService {
     ''');
 
     // 创建索引
-    await db.execute('CREATE INDEX idx_orders_status ON orders(order_status, print_status)');
+    await db.execute(
+        'CREATE INDEX idx_orders_status ON orders(order_status, sync_status, print_status)');
     await db.execute('CREATE INDEX idx_orders_time ON orders(order_time)');
     await db.execute('CREATE INDEX idx_orders_no ON orders(order_no)');
     await db.execute('CREATE INDEX idx_logs_order_id ON logs(order_id)');
@@ -145,16 +148,69 @@ class DatabaseService {
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     _logger.i('数据库从版本 $oldVersion 升级到版本 $newVersion');
 
-    // 从版本 1 升级到版本 2：添加 is_online_order 字段
+    // 从版本 1 升级到版本 2：添加 sync_status 和 is_online_order 字段，并迁移旧状态
     if (oldVersion < 2) {
+      try {
+        await db.execute(
+          'ALTER TABLE orders ADD COLUMN sync_status INTEGER NOT NULL DEFAULT 0',
+        );
+        _logger.i('已为 orders 表添加 sync_status 字段');
+      } catch (e) {
+        _logger.w('添加 sync_status 字段时出错: $e');
+      }
+
       try {
         await db.execute(
           'ALTER TABLE orders ADD COLUMN is_online_order INTEGER NOT NULL DEFAULT 0',
         );
         _logger.i('已为 orders 表添加 is_online_order 字段');
       } catch (e) {
-        // 字段可能已存在，忽略错误
         _logger.w('添加 is_online_order 字段时出错: $e');
+      }
+
+      try {
+        await db.rawUpdate('''
+          UPDATE orders
+          SET sync_status = CASE
+            WHEN order_status = 5 THEN 1
+            WHEN is_online_order = 1
+              OR remote_order_id IS NOT NULL
+              OR remote_order_number IS NOT NULL
+            THEN 1
+            WHEN order_status = 4 THEN 3
+            ELSE 0
+          END
+        ''');
+        await db.rawUpdate('''
+          UPDATE orders
+          SET order_status = CASE
+            WHEN order_status = 0 THEN 0
+            WHEN order_status = 1 THEN 2
+            WHEN order_status = 2 THEN 1
+            WHEN order_status = 3 THEN 2
+            WHEN order_status = 4 THEN 3
+            WHEN order_status = 5 THEN
+              CASE
+                WHEN is_online_order = 1
+                  OR remote_order_id IS NOT NULL
+                  OR remote_order_number IS NOT NULL
+                THEN 1
+                ELSE 2
+              END
+            ELSE order_status
+          END
+        ''');
+        _logger.i('已迁移旧订单状态字段');
+      } catch (e) {
+        _logger.w('迁移旧订单状态时出错: $e');
+      }
+
+      try {
+        await db.execute('DROP INDEX IF EXISTS idx_orders_status');
+        await db.execute(
+            'CREATE INDEX idx_orders_status ON orders(order_status, sync_status, print_status)');
+      } catch (e) {
+        _logger.w('重建订单状态索引时出错: $e');
       }
     }
   }
@@ -225,8 +281,8 @@ class DatabaseService {
     try {
       final maps = await db.query(
         'orders',
-        where: 'order_status IN (?, ?)',
-        whereArgs: [OrderStatus.pending.index, OrderStatus.pendingSync.index],
+        where: 'sync_status IN (?, ?)',
+        whereArgs: [SyncStatus.pending.index, SyncStatus.syncFailed.index],
         orderBy: 'order_time ASC',
       );
 
@@ -255,8 +311,37 @@ class DatabaseService {
     }
   }
 
+  /// 获取当天待完成的在线订单
+  Future<List<OrderModel>> getPendingOnlineOrders({DateTime? date}) async {
+    final db = await database;
+    try {
+      final now = date ?? DateTime.now();
+      final start = DateTime(now.year, now.month, now.day).toIso8601String();
+      final end = DateTime(now.year, now.month, now.day, 23, 59, 59, 999)
+          .toIso8601String();
+      final maps = await db.query(
+        'orders',
+        where:
+            'is_online_order = 1 AND order_status IN (?, ?) AND order_time BETWEEN ? AND ?',
+        whereArgs: [
+          OrderStatus.pending.index,
+          OrderStatus.confirmed.index,
+          start,
+          end
+        ],
+        orderBy: 'order_time ASC',
+      );
+
+      return maps.map((map) => OrderModel.fromMap(map)).toList();
+    } catch (e) {
+      _logger.e('获取待完成在线订单失败: $e');
+      throw e;
+    }
+  }
+
   // 获取所有订单（分页）
-  Future<List<OrderModel>> getAllOrders({int limit = 50, int offset = 0}) async {
+  Future<List<OrderModel>> getAllOrders(
+      {int limit = 50, int offset = 0}) async {
     final db = await database;
     try {
       final maps = await db.query(
@@ -274,7 +359,8 @@ class DatabaseService {
   }
 
   // 获取日期范围内的订单
-  Future<List<OrderModel>> getOrdersByDateRange(DateTime startDate, DateTime endDate) async {
+  Future<List<OrderModel>> getOrdersByDateRange(
+      DateTime startDate, DateTime endDate) async {
     final db = await database;
     try {
       final maps = await db.query(
@@ -297,8 +383,10 @@ class DatabaseService {
   /// 获取指定日期的所有订单
   Future<List<OrderModel>> getOrdersByDate(DateTime date) async {
     final db = await database;
-    final startDate = DateTime(date.year, date.month, date.day).toIso8601String();
-    final endDate = DateTime(date.year, date.month, date.day, 23, 59, 59, 999).toIso8601String();
+    final startDate =
+        DateTime(date.year, date.month, date.day).toIso8601String();
+    final endDate = DateTime(date.year, date.month, date.day, 23, 59, 59, 999)
+        .toIso8601String();
 
     try {
       final List<Map<String, dynamic>> results = await db.query(
@@ -395,24 +483,28 @@ class DatabaseService {
       // 目标日期（默认今天）
       final base = date ?? DateTime.now();
       final startOfDay = DateTime(base.year, base.month, base.day);
-      final endOfDay = DateTime(base.year, base.month, base.day, 23, 59, 59, 999);
+      final endOfDay =
+          DateTime(base.year, base.month, base.day, 23, 59, 59, 999);
 
       final todayCount = Sqflite.firstIntValue(await db.rawQuery(
-        'SELECT COUNT(*) FROM orders WHERE order_time BETWEEN ? AND ?',
-        [startOfDay.toIso8601String(), endOfDay.toIso8601String()],
-      )) ?? 0;
+            'SELECT COUNT(*) FROM orders WHERE order_time BETWEEN ? AND ?',
+            [startOfDay.toIso8601String(), endOfDay.toIso8601String()],
+          )) ??
+          0;
 
       // 待同步订单数（全库）
       final pendingSyncCount = Sqflite.firstIntValue(await db.rawQuery(
-        'SELECT COUNT(*) FROM orders WHERE order_status IN (?, ?)',
-        [OrderStatus.pending.index, OrderStatus.pendingSync.index],
-      )) ?? 0;
+            'SELECT COUNT(*) FROM orders WHERE sync_status IN (?, ?)',
+            [SyncStatus.pending.index, SyncStatus.syncFailed.index],
+          )) ??
+          0;
 
       // 待打印订单数（全库）
       final pendingPrintCount = Sqflite.firstIntValue(await db.rawQuery(
-        'SELECT COUNT(*) FROM orders WHERE print_status IN (?, ?)',
-        [PrintStatus.pending.index, PrintStatus.printFailed.index],
-      )) ?? 0;
+            'SELECT COUNT(*) FROM orders WHERE print_status IN (?, ?)',
+            [PrintStatus.pending.index, PrintStatus.printFailed.index],
+          )) ??
+          0;
 
       return {
         'todayCount': todayCount,
@@ -430,7 +522,8 @@ class DatabaseService {
   /// 获取本地已同步的最大 remote_order_id
   Future<int?> getMaxRemoteOrderId() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT MAX(remote_order_id) as maxId FROM orders');
+    final result =
+        await db.rawQuery('SELECT MAX(remote_order_id) as maxId FROM orders');
     if (result.isNotEmpty && result.first['maxId'] != null) {
       return result.first['maxId'] as int;
     }
@@ -483,13 +576,15 @@ class DatabaseService {
       data['additions'] = '[]';
     }
 
-    await db.insert('server_orders', data, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert('server_orders', data,
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /// 判断本地 orders 表是否已存在指定 remote_order_number
   Future<bool> existsOrderByRemoteNumber(String remoteOrderNumber) async {
     final db = await database;
-    final result = await db.query('orders', where: 'remote_order_number = ?', whereArgs: [remoteOrderNumber]);
+    final result = await db.query('orders',
+        where: 'remote_order_number = ?', whereArgs: [remoteOrderNumber]);
     return result.isNotEmpty;
   }
 

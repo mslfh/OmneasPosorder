@@ -2,48 +2,151 @@ import 'dart:convert';
 
 // 订单状态枚举
 enum OrderStatus {
-  pending,      // 待处理
-  pendingSync,  // 待同步
-  confirmed,    // 已确认
-  completed,    // 已完成
-  cancelled,    // 已取消
-  synced,       // 已同步
+  pending, // 待处理
+  confirmed, // 已确认
+  completed, // 已完成
+  cancelled, // 已取消
+}
+
+// 同步状态枚举
+enum SyncStatus {
+  pending, // 待同步
+  synced, // 已同步
+  syncFailed, // 同步失败
+  skipped, // 已跳过
 }
 
 // 打印状态枚举
 enum PrintStatus {
-  pending,      // 待打印
-  printed,      // 已打印
-  printFailed,  // 打印失败
-  skipped,      // 跳过打印（例如自动打印被禁用）
+  pending, // 待打印
+  printed, // 已打印
+  printFailed, // 打印失败
+  skipped, // 跳过打印（例如自动打印被禁用）
+}
+
+bool _isTruthy(dynamic value) {
+  return value == 1 || value == true || value == '1';
+}
+
+int _readIndex(dynamic value, {int fallback = 0}) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '') ?? fallback;
+}
+
+OrderStatus _readOrderStatus(Map<String, dynamic> map) {
+  final raw = map['order_status'];
+  if (raw is String) {
+    final normalized = raw.toLowerCase();
+    return OrderStatus.values.firstWhere(
+      (status) => status.name == normalized,
+      orElse: () => OrderStatus.pending,
+    );
+  }
+
+  final index = _readIndex(raw);
+  final hasSyncStatus =
+      map.containsKey('sync_status') && map['sync_status'] != null;
+  if (hasSyncStatus) {
+    switch (index) {
+      case 0:
+        return OrderStatus.pending;
+      case 1:
+        return OrderStatus.confirmed;
+      case 2:
+        return OrderStatus.completed;
+      case 3:
+        return OrderStatus.cancelled;
+    }
+  }
+
+  final isOnlineOrder = _isTruthy(map['is_online_order']) ||
+      map['remote_order_id'] != null ||
+      (map['remote_order_number']?.toString().isNotEmpty ?? false);
+
+  switch (index) {
+    case 0:
+      return OrderStatus.pending;
+    case 1:
+      return OrderStatus.completed;
+    case 2:
+      return OrderStatus.confirmed;
+    case 3:
+      return OrderStatus.completed;
+    case 4:
+      return OrderStatus.cancelled;
+    case 5:
+      return isOnlineOrder ? OrderStatus.confirmed : OrderStatus.completed;
+    default:
+      return OrderStatus.pending;
+  }
+}
+
+SyncStatus _readSyncStatus(Map<String, dynamic> map) {
+  final raw = map['sync_status'];
+  if (raw is String) {
+    final normalized = raw.toLowerCase();
+    return SyncStatus.values.firstWhere(
+      (status) => status.name == normalized,
+      orElse: () => SyncStatus.pending,
+    );
+  }
+
+  if (raw != null) {
+    switch (_readIndex(raw)) {
+      case 0:
+        return SyncStatus.pending;
+      case 1:
+        return SyncStatus.synced;
+      case 2:
+        return SyncStatus.syncFailed;
+      case 3:
+        return SyncStatus.skipped;
+      default:
+        return SyncStatus.pending;
+    }
+  }
+
+  final legacyOrderStatus = _readIndex(map['order_status']);
+  if (legacyOrderStatus == 5) {
+    return SyncStatus.synced;
+  }
+  if (_isTruthy(map['is_online_order']) ||
+      map['remote_order_id'] != null ||
+      (map['remote_order_number']?.toString().isNotEmpty ?? false)) {
+    return SyncStatus.synced;
+  }
+
+  return SyncStatus.pending;
 }
 
 // 订单模型
 class OrderModel {
-  final String id;           // UUID
-  final String orderNo;      // 订单编号 (当天第几单)
-  final DateTime orderTime;  // 下单时间
-  final String items;        // 菜品详情 JSON
-  final double totalAmount;  // 总金额
+  final String id; // UUID
+  final String orderNo; // 订单编号 (当天第几单)
+  final DateTime orderTime; // 下单时间
+  final String items; // 菜品详情 JSON
+  final double totalAmount; // 总金额
   final double discountAmount; // 折扣金额
-  final double taxRate;      // 税率
-  final double serviceFee;   // 服务费
-  final double cashAmount;   // 现金金额
-  final double posAmount;    // POS金额
-  final double cashChange;    // 现金找零
+  final double taxRate; // 税率
+  final double serviceFee; // 服务费
+  final double cashAmount; // 现金金额
+  final double posAmount; // POS金额
+  final double cashChange; // 现金找零
   final double voucherAmount; // 券金额
-  final OrderStatus orderStatus;  // 订单状态
-  final PrintStatus printStatus;  // 打印状态
-  final String? errorMessage;     // 错误信息
-  final int retryCount;           // 重试次数
-  final DateTime? lastRetryTime;  // 最后重试时间
-  final DateTime? syncedTime;     // 同步时间
-  final DateTime? printedTime;    // 打印时间
-  final String? note;         // 订单备注
-  final String? type;         // 订单类型（takeaway/dinein）
-  final int? remoteOrderId;      // 服务器订单id
+  final OrderStatus orderStatus; // 订单状态
+  final SyncStatus syncStatus; // 同步状态
+  final PrintStatus printStatus; // 打印状态
+  final String? errorMessage; // 错误信息
+  final int retryCount; // 重试次数
+  final DateTime? lastRetryTime; // 最后重试时间
+  final DateTime? syncedTime; // 同步时间
+  final DateTime? printedTime; // 打印时间
+  final String? note; // 订单备注
+  final String? type; // 订单类型（takeaway/dinein）
+  final int? remoteOrderId; // 服务器订单id
   final String? remoteOrderNumber; // 服务器订单号
-  final bool isOnlineOrder;    // 是否为服务器拉取订单
+  final bool isOnlineOrder; // 是否为服务器拉取订单
 
   OrderModel({
     required this.id,
@@ -57,6 +160,7 @@ class OrderModel {
     this.cashAmount = 0.0,
     this.posAmount = 0.0,
     this.orderStatus = OrderStatus.pending,
+    this.syncStatus = SyncStatus.pending,
     this.printStatus = PrintStatus.pending,
     this.errorMessage,
     this.retryCount = 0,
@@ -85,7 +189,8 @@ class OrderModel {
       serviceFee: map['service_fee']?.toDouble() ?? 0.0,
       cashAmount: map['cash_amount']?.toDouble() ?? 0.0,
       posAmount: map['pos_amount']?.toDouble() ?? 0.0,
-      orderStatus: OrderStatus.values[map['order_status']],
+      orderStatus: _readOrderStatus(map),
+      syncStatus: _readSyncStatus(map),
       printStatus: PrintStatus.values[map['print_status']],
       errorMessage: map['error_message'],
       retryCount: map['retry_count'] ?? 0,
@@ -104,7 +209,8 @@ class OrderModel {
       voucherAmount: map['voucher_amount']?.toDouble() ?? 0.0,
       remoteOrderId: map['remote_order_id'],
       remoteOrderNumber: map['remote_order_number'],
-      isOnlineOrder: map['is_online_order'] == 1 || map['is_online_order'] == true,
+      isOnlineOrder:
+          map['is_online_order'] == 1 || map['is_online_order'] == true,
     );
   }
 
@@ -122,6 +228,7 @@ class OrderModel {
       'cash_amount': cashAmount,
       'pos_amount': posAmount,
       'order_status': orderStatus.index,
+      'sync_status': syncStatus.index,
       'print_status': printStatus.index,
       'error_message': errorMessage,
       'retry_count': retryCount,
@@ -151,6 +258,7 @@ class OrderModel {
     double? cashAmount,
     double? posAmount,
     OrderStatus? orderStatus,
+    SyncStatus? syncStatus,
     PrintStatus? printStatus,
     String? errorMessage,
     int? retryCount,
@@ -177,6 +285,7 @@ class OrderModel {
       cashAmount: cashAmount ?? this.cashAmount,
       posAmount: posAmount ?? this.posAmount,
       orderStatus: orderStatus ?? this.orderStatus,
+      syncStatus: syncStatus ?? this.syncStatus,
       printStatus: printStatus ?? this.printStatus,
       errorMessage: errorMessage ?? this.errorMessage,
       retryCount: retryCount ?? this.retryCount,
@@ -208,8 +317,8 @@ class OrderModel {
 class LogModel {
   final int? id;
   final String orderId;
-  final String action;        // 'order', 'sync', 'print'
-  final String status;        // 'success', 'error'
+  final String action; // 'order', 'sync', 'print'
+  final String status; // 'success', 'error'
   final String? message;
   final DateTime timestamp;
 

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:logger/logger.dart';
 import '../models/order_model.dart';
+import '../utils/order_item_mapper.dart';
 import 'database_service.dart';
 import 'print_service.dart';
 
@@ -70,6 +71,11 @@ class SyncService {
       final order = await _databaseService.getOrder(orderId);
       if (order == null) {
         throw Exception('订单不存在: $orderId');
+      }
+      if (order.syncStatus == SyncStatus.synced ||
+          order.syncStatus == SyncStatus.skipped) {
+        _logger.i('订单无需再次同步: $orderId');
+        return;
       }
       // 新增：如果是服务器订单，直接跳过同步
       if (order.isOnlineOrder) {
@@ -240,7 +246,7 @@ class SyncService {
   Future<void> _updateOrderSyncSuccess(
       OrderModel order, dynamic remoteOrderId) async {
     final updatedOrder = order.copyWith(
-      orderStatus: OrderStatus.synced,
+      syncStatus: SyncStatus.synced,
       syncedTime: DateTime.now(),
       remoteOrderId: remoteOrderId,
       errorMessage: null, // 清除错误信息
@@ -286,9 +292,7 @@ class SyncService {
 
     // 更新订单错误信息
     final updatedOrder = order.copyWith(
-      orderStatus: order.orderStatus == OrderStatus.synced
-          ? OrderStatus.synced
-          : OrderStatus.pendingSync,
+      syncStatus: SyncStatus.syncFailed,
       errorMessage: errorMessage,
       retryCount: order.retryCount + 1,
       lastRetryTime: DateTime.now(),
@@ -374,7 +378,7 @@ class SyncService {
               .existsOrderByRemoteNumber(remoteOrderNumber);
           if (!exists) {
             // 使用方法映射items和options
-            final items = _mapServerItemsToLocalItems(
+            final items = OrderItemMapper.mapServerItemsToLocalItems(
                 order['items'] as List<dynamic>? ?? []);
             // 为拉取的订单生成本地唯一ID（避免与本地订单ID冲突）
             // 保证本地ID的唯一性和一致性，同时通过remoteOrderId和remoteOrderNumber追踪来源
@@ -395,7 +399,8 @@ class SyncService {
               serviceFee: 0.0,
               cashAmount: 0.0, // 线下支付，初始为0
               posAmount: 0.0, // 线下支付，初始为0
-              orderStatus: OrderStatus.synced, // 服务器订单状态应为已同步
+              orderStatus: OrderStatus.pending,
+              syncStatus: SyncStatus.synced,
               printStatus: PrintStatus.pending,
               note: order['note'],
               type: order['type'],
@@ -495,8 +500,7 @@ class SyncService {
               'extra_price': priceChange,
             });
           }
-        }
-        else if (c['type'] == 'quantity') {
+        } else if (c['type'] == 'quantity') {
           final int original =
               int.tryParse(c['originalQuantity']?.toString() ?? '0') ?? 0;
           final int current =
@@ -527,8 +531,7 @@ class SyncService {
             final hasNo = ingredientName.toLowerCase().contains('no');
             final normalizedName = hasNo
                 ? ingredientName.replaceAll(
-                RegExp(r'no|No|NO', caseSensitive: false),
-                'No')
+                    RegExp(r'no|No|NO', caseSensitive: false), 'No')
                 : 'No $ingredientName';
             options.add({
               'type': 'NO',
@@ -536,8 +539,7 @@ class SyncService {
               'option_name': normalizedName,
               'extra_price': priceChange,
             });
-          }
-          else if (diff < 0 && current > 0) {
+          } else if (diff < 0 && current > 0) {
             options.add({
               'type': 'CHANGE',
               'option_id': null,

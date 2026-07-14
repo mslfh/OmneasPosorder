@@ -65,52 +65,74 @@ class _OrderListPageState extends State<OrderListPage> {
     try {
       final decoded = jsonDecode(order.items);
       if (decoded is List) {
-        return decoded.map((item) {
-          if (item is Map) {
-            final name = item['name'] ?? item['product_title'] ?? item['product_name'] ?? '';
-            final note = item['note'] ?? '';
-            return '$name $note';
-          }
-          return item.toString();
-        }).join(' ').toLowerCase();
+        return decoded
+            .map((item) {
+              if (item is Map) {
+                final name = item['name'] ??
+                    item['product_title'] ??
+                    item['product_name'] ??
+                    '';
+                final note = item['note'] ?? '';
+                return '$name $note';
+              }
+              return item.toString();
+            })
+            .join(' ')
+            .toLowerCase();
       }
     } catch (_) {}
     return '';
   }
 
   String _serverItemSearchText(ServerOrderModel order) {
-    return order.items.map((item) {
-      if (item is Map) {
-        final name = item['product_title'] ?? item['name'] ?? item['product_name'] ?? '';
-        final note = item['note'] ?? '';
-        return '$name $note';
-      }
-      return item.toString();
-    }).join(' ').toLowerCase();
+    return order.items
+        .map((item) {
+          if (item is Map) {
+            final name = item['product_title'] ??
+                item['name'] ??
+                item['product_name'] ??
+                '';
+            final note = item['note'] ?? '';
+            return '$name $note';
+          }
+          return item.toString();
+        })
+        .join(' ')
+        .toLowerCase();
   }
 
   String _serverCustomerSearchText(ServerOrderModel order) {
-    return order.additions.map((item) {
-      if (item is Map) {
-        final name = item['customer_name'] ?? item['name'] ?? '';
-        final phone = item['customer_phone'] ?? item['phone'] ?? '';
-        final remark = item['remark'] ?? item['note'] ?? '';
-        return '$name $phone $remark';
-      }
-      return item.toString();
-    }).join(' ').toLowerCase();
+    return order.additions
+        .map((item) {
+          if (item is Map) {
+            final name = item['customer_name'] ?? item['name'] ?? '';
+            final phone = item['customer_phone'] ?? item['phone'] ?? '';
+            final remark = item['remark'] ?? item['note'] ?? '';
+            return '$name $phone $remark';
+          }
+          return item.toString();
+        })
+        .join(' ')
+        .toLowerCase();
   }
 
   String _localItemNamesDisplayText(OrderModel order) {
     try {
       final decoded = jsonDecode(order.items);
       if (decoded is List) {
-        final names = decoded.map((item) {
-          if (item is Map) {
-            return (item['name'] ?? item['product_title'] ?? item['product_name'] ?? '').toString();
-          }
-          return '';
-        }).where((name) => name.trim().isNotEmpty).toList();
+        final names = decoded
+            .map((item) {
+              if (item is Map) {
+                return (item['name'] ??
+                        item['product_title'] ??
+                        item['product_name'] ??
+                        '')
+                    .toString();
+              }
+              return '';
+            })
+            .where((name) => name.trim().isNotEmpty)
+            .toList();
 
         if (names.isNotEmpty) {
           return names.join(', ');
@@ -144,13 +166,25 @@ class _OrderListPageState extends State<OrderListPage> {
   List<OrderModel> get _filteredOrders {
     switch (_orderChannelFilter) {
       case OrderChannelFilter.local:
-        return _orders.where((o) => !o.isOnlineOrder && _matchesLocalOrder(o)).toList();
+        return _orders
+            .where((o) => !o.isOnlineOrder && _matchesLocalOrder(o))
+            .toList();
       case OrderChannelFilter.online:
-        return _orders.where((o) => o.isOnlineOrder && _matchesLocalOrder(o)).toList();
+        return _orders
+            .where((o) => o.isOnlineOrder && _matchesLocalOrder(o))
+            .toList();
       case OrderChannelFilter.pendingSync:
-        return _orders.where((o) => o.orderStatus != OrderStatus.synced && _matchesLocalOrder(o)).toList();
+        return _orders
+            .where((o) =>
+                o.syncStatus != SyncStatus.synced &&
+                o.syncStatus != SyncStatus.skipped &&
+                _matchesLocalOrder(o))
+            .toList();
       case OrderChannelFilter.pendingPrint:
-        return _orders.where((o) => o.printStatus != PrintStatus.printed && _matchesLocalOrder(o)).toList();
+        return _orders
+            .where((o) =>
+                o.printStatus != PrintStatus.printed && _matchesLocalOrder(o))
+            .toList();
       case OrderChannelFilter.all:
       default:
         return _orders.where(_matchesLocalOrder).toList();
@@ -215,7 +249,7 @@ class _OrderListPageState extends State<OrderListPage> {
             date: _selectedDate,
           );
         }
-        
+
         final stats = await _orderService.getOrderStats(date: _selectedDate);
 
         setState(() {
@@ -242,7 +276,8 @@ class _OrderListPageState extends State<OrderListPage> {
 
   Future<void> _retryOrder(OrderModel order) async {
     try {
-      if (order.orderStatus != OrderStatus.synced) {
+      if (order.syncStatus != SyncStatus.synced &&
+          order.syncStatus != SyncStatus.skipped) {
         await _orderService.retrySyncOrder(order.id);
         _showSuccessSnackBar('Sync retry submitted');
       }
@@ -502,12 +537,15 @@ class _OrderListPageState extends State<OrderListPage> {
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
-                      Text('Source: ', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      Text('Source: ',
+                          style: TextStyle(fontSize: 12, color: Colors.grey)),
                       _buildServerPlaceFilterChip('All', ServerPlaceFilter.all),
                       SizedBox(width: 8),
-                      _buildServerPlaceFilterChip('Online', ServerPlaceFilter.online),
+                      _buildServerPlaceFilterChip(
+                          'Online', ServerPlaceFilter.online),
                       SizedBox(width: 8),
-                      _buildServerPlaceFilterChip('Terminal', ServerPlaceFilter.terminal),
+                      _buildServerPlaceFilterChip(
+                          'Terminal', ServerPlaceFilter.terminal),
                     ],
                   ),
                 ),
@@ -516,14 +554,19 @@ class _OrderListPageState extends State<OrderListPage> {
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
-                      Text('Status: ', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                      _buildServerStatusFilterChip('All', ServerStatusFilter.all),
+                      Text('Status: ',
+                          style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      _buildServerStatusFilterChip(
+                          'All', ServerStatusFilter.all),
                       SizedBox(width: 8),
-                      _buildServerStatusFilterChip('Pending', ServerStatusFilter.pending),
+                      _buildServerStatusFilterChip(
+                          'Pending', ServerStatusFilter.pending),
                       SizedBox(width: 8),
-                      _buildServerStatusFilterChip('Completed', ServerStatusFilter.completed),
+                      _buildServerStatusFilterChip(
+                          'Completed', ServerStatusFilter.completed),
                       SizedBox(width: 8),
-                      _buildServerStatusFilterChip('Cancelled', ServerStatusFilter.cancelled),
+                      _buildServerStatusFilterChip(
+                          'Cancelled', ServerStatusFilter.cancelled),
                     ],
                   ),
                 ),
@@ -538,7 +581,8 @@ class _OrderListPageState extends State<OrderListPage> {
             if (_orderChannelFilter == OrderChannelFilter.pendingSync)
               _buildFilterChip('Pending Sync', OrderChannelFilter.pendingSync),
             if (_orderChannelFilter == OrderChannelFilter.pendingPrint)
-              _buildFilterChip('Pending Print', OrderChannelFilter.pendingPrint),
+              _buildFilterChip(
+                  'Pending Print', OrderChannelFilter.pendingPrint),
           ];
 
           if (constraints.maxWidth < 320) {
@@ -656,7 +700,8 @@ class _OrderListPageState extends State<OrderListPage> {
               Colors.orange,
               Icons.sync_problem,
               onTap: () {
-                setState(() => _orderChannelFilter = OrderChannelFilter.pendingSync);
+                setState(
+                    () => _orderChannelFilter = OrderChannelFilter.pendingSync);
                 _refreshData();
               },
             ),
@@ -669,7 +714,8 @@ class _OrderListPageState extends State<OrderListPage> {
               Colors.red,
               Icons.print_disabled,
               onTap: () {
-                setState(() => _orderChannelFilter = OrderChannelFilter.pendingPrint);
+                setState(() =>
+                    _orderChannelFilter = OrderChannelFilter.pendingPrint);
                 _refreshData();
               },
             ),
@@ -679,8 +725,8 @@ class _OrderListPageState extends State<OrderListPage> {
     );
   }
 
-  Widget _buildStatCard(
-      String title, String value, Color color, IconData icon, {VoidCallback? onTap}) {
+  Widget _buildStatCard(String title, String value, Color color, IconData icon,
+      {VoidCallback? onTap}) {
     return GestureDetector(
       onTap: onTap,
       child: Card(
@@ -688,7 +734,8 @@ class _OrderListPageState extends State<OrderListPage> {
         color: color.withOpacity(0.06),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: color.withOpacity(0.18), width: onTap != null ? 1.5 : 1.0),
+          side: BorderSide(
+              color: color.withOpacity(0.18), width: onTap != null ? 1.5 : 1.0),
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -741,14 +788,14 @@ class _OrderListPageState extends State<OrderListPage> {
 
   Widget _buildOrderList() {
     final filteredOrders = _filteredOrders;
-     return ListView.builder(
+    return ListView.builder(
       itemCount: filteredOrders.length,
-       itemBuilder: (context, index) {
+      itemBuilder: (context, index) {
         final order = filteredOrders[index];
-         return _buildOrderCard(order);
-       },
-     );
-   }
+        return _buildOrderCard(order);
+      },
+    );
+  }
 
   Widget _buildServerOrderList() {
     final filtered = _filteredServerOrders;
@@ -762,7 +809,8 @@ class _OrderListPageState extends State<OrderListPage> {
   }
 
   Widget _buildOrderCard(OrderModel order) {
-    final hasError = order.orderStatus != OrderStatus.synced ||
+    final hasError = (order.syncStatus != SyncStatus.synced &&
+            order.syncStatus != SyncStatus.skipped) ||
         order.printStatus != PrintStatus.printed;
     final itemNames = _localItemNamesDisplayText(order);
 
@@ -804,6 +852,11 @@ class _OrderListPageState extends State<OrderListPage> {
                 _buildStatusChip(
                   _getOrderStatusText(order.orderStatus),
                   _getOrderStatusColor(order.orderStatus),
+                ),
+                SizedBox(width: 8),
+                _buildStatusChip(
+                  _getSyncStatusText(order.syncStatus),
+                  _getSyncStatusColor(order.syncStatus),
                 ),
                 SizedBox(width: 8),
                 _buildStatusChip(
@@ -925,14 +978,17 @@ class _OrderListPageState extends State<OrderListPage> {
             Container(
               padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: order.placeIn == 'online' ? Colors.purple[50] : Colors.blue[50],
+                color: order.placeIn == 'online'
+                    ? Colors.purple[50]
+                    : Colors.blue[50],
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
                 order.placeIn.toUpperCase(),
                 style: TextStyle(
                   fontSize: 10,
-                  color: order.placeIn == 'online' ? Colors.purple : Colors.blue,
+                  color:
+                      order.placeIn == 'online' ? Colors.purple : Colors.blue,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -942,7 +998,8 @@ class _OrderListPageState extends State<OrderListPage> {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Amount: \$${order.finalAmount} | ${order.type.toUpperCase()}'),
+            Text(
+                'Amount: \$${order.finalAmount} | ${order.type.toUpperCase()}'),
             if (order.items.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 4.0),
@@ -958,18 +1015,16 @@ class _OrderListPageState extends State<OrderListPage> {
               children: [
                 _buildStatusChip(
                   order.status.toUpperCase(),
-                  order.status == 'completed' ? Colors.green : (order.status == 'cancelled' ? Colors.red : Colors.orange),
+                  order.status == 'completed'
+                      ? Colors.green
+                      : (order.status == 'cancelled'
+                          ? Colors.red
+                          : Colors.orange),
                 ),
                 SizedBox(width: 8),
-                _buildStatusChip(
-                  "Sync ${order.syncStatus}",
-                  Colors.orange
-                ),
+                _buildStatusChip("Sync ${order.syncStatus}", Colors.orange),
                 SizedBox(width: 8),
-                _buildStatusChip(
-                  "Print ${order.printStatus}",
-                  Colors.blue
-                ),
+                _buildStatusChip("Print ${order.printStatus}", Colors.blue),
               ],
             ),
             SizedBox(height: 8),
@@ -1038,16 +1093,12 @@ class _OrderListPageState extends State<OrderListPage> {
     switch (status) {
       case OrderStatus.pending:
         return 'Pending';
-      case OrderStatus.pendingSync:
-        return 'Syncing';
       case OrderStatus.confirmed:
         return 'Confirmed';
       case OrderStatus.completed:
         return 'Completed';
       case OrderStatus.cancelled:
         return 'Cancelled';
-      case OrderStatus.synced:
-        return 'Synced';
     }
   }
 
@@ -1055,16 +1106,38 @@ class _OrderListPageState extends State<OrderListPage> {
     switch (status) {
       case OrderStatus.pending:
         return Colors.grey;
-      case OrderStatus.pendingSync:
-        return Colors.orange;
       case OrderStatus.confirmed:
         return Colors.blue;
       case OrderStatus.completed:
         return Colors.green;
       case OrderStatus.cancelled:
         return Colors.red;
-      case OrderStatus.synced:
-        return Colors.green[700]!;
+    }
+  }
+
+  String _getSyncStatusText(SyncStatus status) {
+    switch (status) {
+      case SyncStatus.pending:
+        return 'Sync Pending';
+      case SyncStatus.synced:
+        return 'Synced';
+      case SyncStatus.syncFailed:
+        return 'Sync Failed';
+      case SyncStatus.skipped:
+        return 'Skipped';
+    }
+  }
+
+  Color _getSyncStatusColor(SyncStatus status) {
+    switch (status) {
+      case SyncStatus.pending:
+        return Colors.orange;
+      case SyncStatus.synced:
+        return Colors.green;
+      case SyncStatus.syncFailed:
+        return Colors.red;
+      case SyncStatus.skipped:
+        return Colors.grey;
     }
   }
 

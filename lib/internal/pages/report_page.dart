@@ -15,8 +15,10 @@ class _ReportPageState extends State<ReportPage> {
   final PrintService _printService = PrintService();
 
   // 默认显示今天的数据
-  DateTime _startDate = DateTime.now().copyWith(hour: 0, minute: 0, second: 0, microsecond: 0);
-  DateTime _endDate = DateTime.now().copyWith(hour: 23, minute: 59, second: 59, microsecond: 999);
+  DateTime _startDate =
+      DateTime.now().copyWith(hour: 0, minute: 0, second: 0, microsecond: 0);
+  DateTime _endDate = DateTime.now()
+      .copyWith(hour: 23, minute: 59, second: 59, microsecond: 999);
 
   OrderStats? _stats;
   List<OrderModel> _orders = [];
@@ -34,12 +36,15 @@ class _ReportPageState extends State<ReportPage> {
     });
 
     try {
-      final orders = await _databaseService.getOrdersByDateRange(_startDate, _endDate);
-      print('Found ${orders.length} orders for date range: ${_startDate} to ${_endDate}');
+      final orders =
+          await _databaseService.getOrdersByDateRange(_startDate, _endDate);
+      print(
+          'Found ${orders.length} orders for date range: ${_startDate} to ${_endDate}');
 
       // 调试：打印订单信息
       for (final order in orders) {
-        print('Order ${order.id}: ${order.totalAmount}, Cash: ${order.cashAmount}, POS: ${order.posAmount}, Status: ${order.orderStatus}');
+        print(
+            'Order ${order.id}: ${order.totalAmount}, Cash: ${order.cashAmount}, POS: ${order.posAmount}, Status: ${order.orderStatus}');
       }
 
       final stats = _calculateStats(orders);
@@ -81,8 +86,8 @@ class _ReportPageState extends State<ReportPage> {
       }
 
       switch (order.orderStatus) {
+        case OrderStatus.confirmed:
         case OrderStatus.completed:
-        case OrderStatus.synced:
           completedOrders++;
           break;
         case OrderStatus.cancelled:
@@ -105,7 +110,8 @@ class _ReportPageState extends State<ReportPage> {
       }
     }
 
-    print('Stats calculated - Total: $totalRevenue, Cash: $cashRevenue, POS: $posRevenue, Orders: $totalOrders, Completed: $completedOrders');
+    print(
+        'Stats calculated - Total: $totalRevenue, Cash: $cashRevenue, POS: $posRevenue, Orders: $totalOrders, Completed: $completedOrders');
 
     return OrderStats(
       totalRevenue: totalRevenue,
@@ -395,7 +401,8 @@ class _ReportPageState extends State<ReportPage> {
                     backgroundColor: _getRankColor(index),
                     child: Text(
                       '${index + 1}',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold),
                     ),
                   ),
                   title: Text(item.name),
@@ -448,7 +455,8 @@ class _ReportPageState extends State<ReportPage> {
                   final order = _orders[index];
                   return ListTile(
                     title: Text('Order #${order.id.substring(0, 8)}'),
-                    subtitle: Text(DateFormat('yyyy-MM-dd HH:mm').format(order.orderTime)),
+                    subtitle: Text(
+                        DateFormat('yyyy-MM-dd HH:mm').format(order.orderTime)),
                     trailing: Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -479,16 +487,12 @@ class _ReportPageState extends State<ReportPage> {
     switch (status) {
       case OrderStatus.pending:
         return 'Pending';
-      case OrderStatus.pendingSync:
-        return 'Pending Sync';
       case OrderStatus.confirmed:
         return 'Confirmed';
       case OrderStatus.completed:
         return 'Completed';
       case OrderStatus.cancelled:
         return 'Cancelled';
-      case OrderStatus.synced:
-        return 'Synced';
     }
   }
 
@@ -496,16 +500,12 @@ class _ReportPageState extends State<ReportPage> {
     switch (status) {
       case OrderStatus.pending:
         return Colors.orange;
-      case OrderStatus.pendingSync:
-        return Colors.blue[300]!;
       case OrderStatus.confirmed:
         return Colors.blue;
       case OrderStatus.completed:
         return Colors.green;
       case OrderStatus.cancelled:
         return Colors.red;
-      case OrderStatus.synced:
-        return Colors.green[300]!;
     }
   }
 }

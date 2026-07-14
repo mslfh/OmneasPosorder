@@ -38,6 +38,8 @@ class PrintService {
     final updatedOrder = order.copyWith(
       printStatus: PrintStatus.skipped,
       printedTime: DateTime.now(),
+      orderStatus:
+          order.isOnlineOrder ? OrderStatus.confirmed : order.orderStatus,
       errorMessage: null,
     );
 
@@ -358,6 +360,8 @@ class PrintService {
     final updatedOrder = order.copyWith(
       printStatus: PrintStatus.printed,
       printedTime: DateTime.now(),
+      orderStatus:
+          order.isOnlineOrder ? OrderStatus.confirmed : order.orderStatus,
     );
 
     await _databaseService.updateOrder(updatedOrder);
@@ -747,7 +751,7 @@ class PrintService {
         commands.addAll([0x1D, 0x21, 0x11]); // GS ! 16 倍高
       }
       // 选项
-      else{
+      else {
         commands.addAll([0x1B, 0x4D, 0x00]); // ESC M 0 字体A（比菜品小一号）
         commands.addAll([0x1D, 0x21, 0x01]); // GS ! 1 高2宽1（比菜品小一档）
       }

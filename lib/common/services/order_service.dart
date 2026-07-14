@@ -79,7 +79,8 @@ class OrderService {
         serviceFee: serviceFee,
         cashAmount: cashAmount,
         posAmount: posAmount,
-        orderStatus: OrderStatus.pending,
+        orderStatus: OrderStatus.completed,
+        syncStatus: SyncStatus.pending,
         printStatus: PrintStatus.pending,
         note: note,
         type: type,
@@ -107,15 +108,15 @@ class OrderService {
         if (settings.enableAutoSync) {
           _syncToBackendWithPrintStatus(printedOrder);
         } else {
-          // 自动同步关闭：标记为待同步（pendingSync），以便在 UI 中显示为未同步并允许手动重试
+          // 自动同步关闭：标记为已跳过同步
           await _databaseService.updateOrder(
-            printedOrder.copyWith(orderStatus: OrderStatus.pendingSync),
+            printedOrder.copyWith(syncStatus: SyncStatus.skipped),
           );
           await _databaseService.insertLog(LogModel(
             orderId: orderId,
             action: 'sync',
             status: 'skipped',
-            message: 'Auto sync disabled, marked as pendingSync',
+            message: 'Auto sync disabled, marked as skipped',
             timestamp: DateTime.now(),
           ));
         }
@@ -124,7 +125,8 @@ class OrderService {
       }
       // 返回订单编号
       return orderNo;
-    } catch (e) {
+    }
+    catch (e) {
       _logger.e('下单失败: $orderId, 错误: $e');
 
       // 记录错误日志
@@ -143,10 +145,6 @@ class OrderService {
   /// 异步推送同步到后端（带printStatus）
   Future<void> _syncToBackendWithPrintStatus(OrderModel order) async {
     try {
-      // // 更新状态为pending_sync
-      // await _databaseService
-      //     .updateOrder(order.copyWith(orderStatus: OrderStatus.pendingSync));
-
       // 调用同步服务，传递printStatus
       await _syncService.syncOrder(order.id, printStatus: order.printStatus);
     } catch (e) {
@@ -157,6 +155,7 @@ class OrderService {
       if (latestOrder != null) {
         await _databaseService.updateOrder(latestOrder.copyWith(
           errorMessage: '同步失败: $e',
+          syncStatus: SyncStatus.syncFailed,
           retryCount: latestOrder.retryCount + 1,
           lastRetryTime: DateTime.now(),
         ));
@@ -186,6 +185,9 @@ class OrderService {
             order.copyWith(
               printStatus: PrintStatus.skipped,
               printedTime: DateTime.now(),
+              orderStatus: order.isOnlineOrder
+                  ? OrderStatus.confirmed
+                  : order.orderStatus,
               errorMessage: null,
             ),
           );
@@ -331,6 +333,11 @@ class OrderService {
     return await _databaseService.getPendingPrintOrders();
   }
 
+  /// 获取待完成的在线订单（已拉取、已打印、待结账）
+  Future<List<OrderModel>> getPendingOnlineOrders({DateTime? date}) async {
+    return await _databaseService.getPendingOnlineOrders(date: date);
+  }
+
   /// 获取订单列表，支持按日期过滤（如果传入 date 则返回该日期的所有订单）
   Future<List<OrderModel>> getOrders(
       {int limit = 50, int offset = 0, DateTime? date}) async {
@@ -375,7 +382,7 @@ class OrderService {
     final order = await _databaseService.getOrder(orderId);
     if (order != null) {
       await _databaseService.updateOrder(order.copyWith(
-        orderStatus: OrderStatus.synced,
+        syncStatus: SyncStatus.synced,
         syncedTime: DateTime.now(),
         errorMessage: null, // 清除错误信息
       ));
@@ -391,6 +398,123 @@ class OrderService {
 
       _logger.i('订单标记为已同步: $orderId');
     }
+  }
+
+  Future<void> _updateOrderByTerminal(
+    OrderModel order,
+    List<Map<String, dynamic>> items,
+  ) async {
+    if (order.remoteOrderId == null &&
+        (order.remoteOrderNumber?.isEmpty ?? true)) {
+      throw Exception('在线订单缺少远程标识，无法更新服务器订单');
+    }
+
+    final payload = {
+      'order_id': order.id,
+      'remote_order_id': order.remoteOrderId,
+      'remote_order_number': order.remoteOrderNumber,
+      'order_no': order.orderNo,
+      'order_time': order.orderTime.toIso8601String(),
+      'items': items,
+      'total_amount': order.totalAmount,
+      'discount_amount': order.discountAmount,
+      'tax_rate': order.taxRate,
+      'service_fee': order.serviceFee,
+      'cash_amount': order.cashAmount,
+      'pos_amount': order.posAmount,
+      'cash_change': order.cashChange,
+      'voucher_amount': order.voucherAmount,
+      'note': order.note,
+      'type': order.type,
+      'status': order.orderStatus.name,
+      'sync_status': order.syncStatus.name,
+      'print_status': order.printStatus.name,
+    };
+
+    await _apiService.put(
+      '/orders/update-order-by-terminal',
+      data: payload,
+    );
+  }
+
+  Future<void> _completeOrderByTerminal(OrderModel order) async {
+    if (order.remoteOrderId == null &&
+        (order.remoteOrderNumber?.isEmpty ?? true)) {
+      throw Exception('在线订单缺少远程标识，无法完成服务器订单');
+    }
+
+    final payload = {
+      'order_id': order.id,
+      'remote_order_id': order.remoteOrderId,
+      'remote_order_number': order.remoteOrderNumber,
+      'order_no': order.orderNo,
+      'order_time': order.orderTime.toIso8601String(),
+      'total_amount': order.totalAmount,
+      'cash_amount': order.cashAmount,
+      'pos_amount': order.posAmount,
+      'cash_change': order.cashChange,
+      'voucher_amount': order.voucherAmount,
+      'note': order.note,
+      'type': order.type,
+      'status': OrderStatus.completed.name,
+      'sync_status': SyncStatus.synced.name,
+      'print_status': order.printStatus.name,
+    };
+
+    await _apiService.put(
+      '/orders/complete-order-by-terminal',
+      data: payload,
+    );
+  }
+
+  /// 完成在线订单结账
+  Future<void> completeOnlineOrderCheckout({
+    required OrderModel order,
+    required List<Map<String, dynamic>> items,
+    required double totalAmount,
+    required double discountAmount,
+    required double taxRate,
+    required double serviceFee,
+    required double cashAmount,
+    required double posAmount,
+    required String? note,
+    required String type,
+    required double cashChange,
+    required double voucherAmount,
+    required bool itemsChanged,
+  }) async {
+    final updatedOrder = order.copyWith(
+      items: jsonEncode(items),
+      totalAmount: totalAmount,
+      discountAmount: discountAmount,
+      taxRate: taxRate,
+      serviceFee: serviceFee,
+      cashAmount: cashAmount,
+      posAmount: posAmount,
+      cashChange: cashChange,
+      voucherAmount: voucherAmount,
+      note: note,
+      type: type,
+      orderStatus: OrderStatus.completed,
+      syncedTime: itemsChanged ? DateTime.now() : order.syncedTime,
+      errorMessage: null,
+    );
+
+    if (itemsChanged) {
+      await _updateOrderByTerminal(updatedOrder, items);
+    }
+
+    await _completeOrderByTerminal(updatedOrder);
+
+    await _databaseService.updateOrder(updatedOrder);
+
+    await _databaseService.insertLog(LogModel(
+      orderId: order.id,
+      action: 'checkout',
+      status: 'success',
+      message: itemsChanged ? '在线订单已完成并同步更新到服务器' : '在线订单已完成',
+      timestamp: DateTime.now(),
+    ));
   }
 
   /// 标记订单打印成功
@@ -416,7 +540,8 @@ class OrderService {
   }
 
   /// 更新订单状态
-  Future<void> updateStatus(String orderId, {OrderStatus? orderStatus, PrintStatus? printStatus}) async {
+  Future<void> updateStatus(String orderId,
+      {OrderStatus? orderStatus, PrintStatus? printStatus}) async {
     final order = await _databaseService.getOrder(orderId);
     if (order != null) {
       final updatedOrder = order.copyWith(
@@ -503,7 +628,8 @@ class OrderService {
           // 兼容接口返回单个订单对象，而不是数组的情况
           ordersData = [ordersSource];
         } else {
-          throw Exception('Unexpected server order payload: ${ordersSource.runtimeType}');
+          throw Exception(
+              'Unexpected server order payload: ${ordersSource.runtimeType}');
         }
 
         return ordersData
@@ -522,9 +648,11 @@ class OrderService {
   /// 拉取服务器订单到本地数据库
   Future<String> pullServerOrderToLocal(ServerOrderModel serverOrder) async {
     try {
-      final alreadyExistsById = await _databaseService.existsOrderByRemoteId(serverOrder.id);
+      final alreadyExistsById =
+          await _databaseService.existsOrderByRemoteId(serverOrder.id);
       final alreadyExistsByNumber = serverOrder.orderNumber.isNotEmpty
-          ? await _databaseService.existsOrderByRemoteNumber(serverOrder.orderNumber)
+          ? await _databaseService
+              .existsOrderByRemoteNumber(serverOrder.orderNumber)
           : false;
 
       if (alreadyExistsById || alreadyExistsByNumber) {
@@ -548,6 +676,7 @@ class OrderService {
         cashAmount: 0.0,
         posAmount: 0.0,
         orderStatus: OrderStatus.pending,
+        syncStatus: SyncStatus.synced,
         printStatus: PrintStatus.pending,
         note: serverOrder.note,
         type: serverOrder.type,
@@ -572,9 +701,7 @@ class OrderService {
         if (settings.enableAutoSync) {
           _syncToBackendWithPrintStatus(printedOrder);
         } else {
-          await _databaseService.updateOrder(
-            printedOrder.copyWith(orderStatus: OrderStatus.pendingSync),
-          );
+          _logger.i('在线订单已落地并完成打印，跳过额外同步');
         }
       }
 

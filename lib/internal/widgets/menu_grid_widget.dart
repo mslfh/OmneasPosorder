@@ -130,53 +130,51 @@ class MenuGridWidget extends StatelessWidget {
                       ),
                       child: Stack(
                         children: [
-                          Padding(
-                            padding: const EdgeInsets.all(6.0),
-                            child: Column(
-                              children: [
-                                Expanded(
-                                  child: Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.only(right: 20.0),
-                                    child: Center(
+                          Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(6.0),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    item.title,
+                                    style: TextStyle(
+                                      fontSize: calculateTitleFontSize(
+                                          item.title,
+                                          cardConstraints.maxWidth),
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black87,
+                                      height: 1.2,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  if (cardConstraints.maxHeight > 60)
+                                    Container(
+                                      margin: EdgeInsets.only(top: 2),
+                                      padding: EdgeInsets.symmetric(
+                                          horizontal: 4, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue[100],
+                                        borderRadius: BorderRadius.circular(3),
+                                        border: Border.all(
+                                            color: Colors.blue[300]!,
+                                            width: 0.5),
+                                      ),
                                       child: Text(
-                                        item.title,
+                                        item.acronym ?? '', // 兼容null
                                         style: TextStyle(
-                                          fontSize: calculateTitleFontSize(
-                                              item.title,
-                                              cardConstraints.maxWidth),
+                                          fontSize: 11,
+                                          color: Colors.blue[800],
                                           fontWeight: FontWeight.bold,
-                                          color: Colors.black87,
-                                          height: 1.1,
                                         ),
-                                        textAlign: TextAlign.center,
-                                        maxLines: null,
-                                        overflow: TextOverflow.visible,
                                       ),
                                     ),
-                                  ),
-                                ),
-                                if (cardConstraints.maxHeight > 60)
-                                  Container(
-                                    margin: EdgeInsets.only(top: 2),
-                                    padding: EdgeInsets.symmetric(
-                                        horizontal: 4, vertical: 1),
-                                    decoration: BoxDecoration(
-                                      color: Colors.blue[100],
-                                      borderRadius: BorderRadius.circular(3),
-                                      border: Border.all(
-                                          color: Colors.blue[300]!, width: 0.5),
-                                    ),
-                                    child: Text(
-                                      item.acronym ?? '', // 兼容null
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.blue[800],
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                           Positioned(

@@ -260,6 +260,16 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
             SizedBox(height: 8),
             Row(
               children: [
+                Text('同步状态: '),
+                _buildStatusChip(
+                  _getSyncStatusText(_order!.syncStatus),
+                  _getSyncStatusColor(_order!.syncStatus),
+                ),
+              ],
+            ),
+            SizedBox(height: 8),
+            Row(
+              children: [
                 Text('打印状态: '),
                 _buildStatusChip(
                   _getPrintStatusText(_order!.printStatus),
@@ -434,9 +444,8 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
               padding: EdgeInsets.only(left: 4),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: options
-                    .map((option) => _buildOptionRow(option))
-                    .toList(),
+                children:
+                    options.map((option) => _buildOptionRow(option)).toList(),
               ),
             ),
           ],
@@ -460,7 +469,8 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
     final optionType = option['type']?.toString() ?? '';
     final optionName = option['option_name']?.toString() ?? '';
     final extraPrice = _toDouble(option['extra_price']) ?? 0.0;
-    final displayPrice = extraPrice == 0 ? '' : ' (+￥${extraPrice.toStringAsFixed(2)})';
+    final displayPrice =
+        extraPrice == 0 ? '' : ' (+￥${extraPrice.toStringAsFixed(2)})';
 
     return Padding(
       padding: EdgeInsets.only(top: 2),
@@ -557,7 +567,6 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
     return double.tryParse(value?.toString() ?? '');
   }
 
-
   Widget _buildNotFoundState() {
     return Center(
       child: Column(
@@ -576,23 +585,19 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
 
   String _formatDateTime(DateTime dateTime) {
     return '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} '
-           '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}:${dateTime.second.toString().padLeft(2, '0')}';
+        '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}:${dateTime.second.toString().padLeft(2, '0')}';
   }
 
   String _getOrderStatusText(OrderStatus status) {
     switch (status) {
       case OrderStatus.pending:
         return '待处理';
-      case OrderStatus.pendingSync:
-        return '待同步';
       case OrderStatus.confirmed:
         return '已确认';
       case OrderStatus.completed:
         return '已完成';
       case OrderStatus.cancelled:
         return '已取消';
-      case OrderStatus.synced:
-        return '已同步';
     }
   }
 
@@ -600,16 +605,38 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
     switch (status) {
       case OrderStatus.pending:
         return Colors.grey;
-      case OrderStatus.pendingSync:
-        return Colors.orange;
       case OrderStatus.confirmed:
         return Colors.blue;
       case OrderStatus.completed:
         return Colors.green;
       case OrderStatus.cancelled:
         return Colors.red;
-      case OrderStatus.synced:
-        return Colors.green[700]!;
+    }
+  }
+
+  String _getSyncStatusText(SyncStatus status) {
+    switch (status) {
+      case SyncStatus.pending:
+        return '待同步';
+      case SyncStatus.synced:
+        return '已同步';
+      case SyncStatus.syncFailed:
+        return '同步失败';
+      case SyncStatus.skipped:
+        return '已跳过';
+    }
+  }
+
+  Color _getSyncStatusColor(SyncStatus status) {
+    switch (status) {
+      case SyncStatus.pending:
+        return Colors.orange;
+      case SyncStatus.synced:
+        return Colors.green;
+      case SyncStatus.syncFailed:
+        return Colors.red;
+      case SyncStatus.skipped:
+        return Colors.grey;
     }
   }
 

@@ -3,7 +3,8 @@ import '../../common/models/menu_item.dart';
 import '../../common/models/menu_option.dart';
 import '../utils/quick_input_manager.dart';
 
-typedef KeyEventHandler = bool Function(KeyEvent event, List<MenuItem> products);
+typedef KeyEventHandler = bool Function(
+    KeyEvent event, List<MenuItem> products);
 
 KeyEventHandler enterKeyHandler({
   required QuickInputManager quickInputManager,
@@ -47,8 +48,8 @@ KeyEventHandler enterKeyHandler({
           }
         }
       }
-      // 如果没有快捷输入且有已点菜品，则触发下单
-      else if (!quickInputManager.hasInput && hasOrderedProducts() && onOrder != null) {
+      // 如果没有快捷输入，则触发订单动作（下单或添加在线订单）
+      else if (!quickInputManager.hasInput && onOrder != null) {
         print('[DEBUG] 触发下单操作');
         playClickSound();
         onOrder();
