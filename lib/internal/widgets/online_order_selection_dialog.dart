@@ -30,7 +30,15 @@ class _OnlineOrderSelectionDialogState
   }
 
   String _formatOrderTime(DateTime time) {
-    return '${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')} ${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _timeAgo(DateTime time) {
+    final diff = DateTime.now().difference(time);
+    if (diff.inSeconds < 60) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}mins ago';
+    if (diff.inHours < 24) return '${diff.inHours}hours ago';
+    return '${diff.inDays}d ago';
   }
 
   Widget _buildStatusChip(OrderStatus status) {
@@ -64,40 +72,65 @@ class _OnlineOrderSelectionDialogState
     final extra = items.length > itemNames.length
         ? ' +${items.length - itemNames.length} more'
         : '';
+    final orderNumberText = (order.remoteOrderNumber != null &&
+            order.remoteOrderNumber!.isNotEmpty)
+        ? '#Online ${order.orderNo}'
+        : '#${order.orderNo}';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // 大字体：订单号 + 状态
         Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(
-              'Remote: ${order.remoteOrderNumber ?? '-'}',
-              style: TextStyle(color: Colors.grey[700], fontSize: 12),
+            Expanded(
+              child: Text(
+                orderNumberText,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-            const Spacer(),
-            Text(
-              _formatOrderTime(order.orderTime),
-              style: TextStyle(color: Colors.grey[700], fontSize: 12),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Text(
-              'Amount ￥${order.totalAmount.toStringAsFixed(2)}',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-            ),
-            const Spacer(),
+            const SizedBox(width: 8),
             _buildStatusChip(order.orderStatus),
           ],
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
+        // 中字体：下单时间 + xx ago，以及金额
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '${_timeAgo(order.orderTime)} · ${_formatOrderTime(order.orderTime)}',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[800],
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '￥${order.totalAmount.toStringAsFixed(2)}',
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        // 小字体：商品明细
         if (itemNames.isNotEmpty)
           Text(
             'Items: ${itemNames.join(', ')}$extra',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
           ),
         if (order.note != null && order.note!.isNotEmpty) ...[
           const SizedBox(height: 4),
@@ -105,7 +138,7 @@ class _OnlineOrderSelectionDialogState
             'Note: ${order.note}',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: Colors.grey[700]),
+            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
           ),
         ],
       ],
@@ -115,10 +148,10 @@ class _OnlineOrderSelectionDialogState
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('选择在线订单（今天）'),
+      title: const Text('选择在线订单'),
       content: SizedBox(
-        width: 560,
-        height: 420,
+        width: 450,
+        height: 450,
         child: FutureBuilder<List<OrderModel>>(
           future: _ordersFuture,
           builder: (context, snapshot) {
@@ -149,7 +182,7 @@ class _OnlineOrderSelectionDialogState
                     borderRadius: BorderRadius.circular(14),
                     onTap: () => Navigator.of(context).pop(order),
                     child: Padding(
-                      padding: const EdgeInsets.all(14),
+                      padding: const EdgeInsets.all(10),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [

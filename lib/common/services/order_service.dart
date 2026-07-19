@@ -10,8 +10,6 @@ import 'api_service.dart';
 
 class OrderService {
   static final Logger _logger = Logger();
-  // random helper removed (unused)
-
   final DatabaseService _databaseService = DatabaseService();
   final SyncService _syncService = SyncService();
   final PrintService _printService = PrintService();
@@ -44,7 +42,7 @@ class OrderService {
   /// 下单核心流程：本地事务思维
   /// 1. 先本地落单（pending状态）
   /// 2. 异步打印（先打印小票）
-  /// 3. 异步同步到后端（同步时传递print_status）
+  /// 3. 异步同步到后端
   Future<String> placeOrder({
     required List<Map<String, dynamic>> items,
     required double totalAmount,
@@ -142,7 +140,7 @@ class OrderService {
     }
   }
 
-  /// 异步推送同步到后端（带printStatus）
+  /// 异步推送同步到后端
   Future<void> _syncToBackendWithPrintStatus(OrderModel order) async {
     try {
       // 调用同步服务，传递printStatus
@@ -206,7 +204,7 @@ class OrderService {
       // 调用打印服务
       await _printService.printOrderWithTemplates(order);
     } catch (e) {
-      _logger.e('添加到打印队列失败: , 错误: $e');
+      _logger.e('添加到打印队列失败: ${order.id}, 错误: $e');
 
       // 更新打印状态为失败
       final dbOrder = await _databaseService.getOrder(order.id);
@@ -344,7 +342,6 @@ class OrderService {
     if (date != null) {
       return await _databaseService.getOrdersByDate(date);
     }
-
     return await _databaseService.getAllOrders(limit: limit, offset: offset);
   }
 
@@ -410,26 +407,18 @@ class OrderService {
     }
 
     final payload = {
-      'order_id': order.id,
       'remote_order_id': order.remoteOrderId,
       'remote_order_number': order.remoteOrderNumber,
-      'order_no': order.orderNo,
       'order_time': order.orderTime.toIso8601String(),
       'items': items,
       'total_amount': order.totalAmount,
-      'discount_amount': order.discountAmount,
-      'tax_rate': order.taxRate,
-      'service_fee': order.serviceFee,
-      'cash_amount': order.cashAmount,
-      'pos_amount': order.posAmount,
-      'cash_change': order.cashChange,
-      'voucher_amount': order.voucherAmount,
       'note': order.note,
       'type': order.type,
       'status': order.orderStatus.name,
       'sync_status': order.syncStatus.name,
       'print_status': order.printStatus.name,
     };
+    print(payload);
 
     await _apiService.put(
       '/orders/update-order-by-terminal',
@@ -442,9 +431,7 @@ class OrderService {
         (order.remoteOrderNumber?.isEmpty ?? true)) {
       throw Exception('在线订单缺少远程标识，无法完成服务器订单');
     }
-
     final payload = {
-      'order_id': order.id,
       'remote_order_id': order.remoteOrderId,
       'remote_order_number': order.remoteOrderNumber,
       'order_no': order.orderNo,
@@ -461,7 +448,8 @@ class OrderService {
       'print_status': order.printStatus.name,
     };
 
-    await _apiService.put(
+    print(payload);
+    await _apiService.post(
       '/orders/complete-order-by-terminal',
       data: payload,
     );

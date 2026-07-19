@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'app.dart';
 import 'common/models/menu_item_adapter.dart';
 import 'common/models/category_adapter.dart';
@@ -13,6 +14,8 @@ import 'common/services/background_task_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 初始化前台服务通信端口（须在 runApp 之前调用）
+  FlutterForegroundTask.initCommunicationPort();
   await Hive.initFlutter();
   Hive.registerAdapter(MenuItemAdapterAdapter());
   Hive.registerAdapter(CategoryAdapterAdapter());

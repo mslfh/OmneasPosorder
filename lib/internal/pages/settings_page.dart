@@ -32,9 +32,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final _apiUrlController = TextEditingController();
   final _printerAddressController = TextEditingController();
   final _printerPortController = TextEditingController();
-  final _syncTaskIntervalController = TextEditingController();
   final _fetchRemoteOrdersIntervalController = TextEditingController();
-  final _printRetryTaskIntervalController = TextEditingController();
   final _orderMatchCheckIntervalController = TextEditingController();
 
   @override
@@ -48,9 +46,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _apiUrlController.dispose();
     _printerAddressController.dispose();
     _printerPortController.dispose();
-    _syncTaskIntervalController.dispose();
     _fetchRemoteOrdersIntervalController.dispose();
-    _printRetryTaskIntervalController.dispose();
     _orderMatchCheckIntervalController.dispose();
     super.dispose();
   }
@@ -64,9 +60,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _apiUrlController.text = _settings.apiServerUrl;
       _printerAddressController.text = _settings.printerAddress;
       _printerPortController.text = _settings.printerPort.toString();
-      _syncTaskIntervalController.text = _settings.syncTaskIntervalMinutes.toString();
       _fetchRemoteOrdersIntervalController.text = _settings.fetchRemoteOrdersIntervalSeconds.toString();
-      _printRetryTaskIntervalController.text = _settings.printRetryTaskIntervalMinutes.toString();
       _orderMatchCheckIntervalController.text = _settings.orderMatchCheckIntervalMinutes.toString();
 
       setState(() => _isLoading = false);
@@ -89,9 +83,7 @@ class _SettingsPageState extends State<SettingsPage> {
       final apiUrl = _cleanUrlFormat(_apiUrlController.text.trim());
       final printerAddress = _printerAddressController.text.trim();
       final printerPort = int.tryParse(_printerPortController.text.trim());
-      final syncTaskInterval = int.tryParse(_syncTaskIntervalController.text.trim());
       final fetchRemoteOrdersInterval = int.tryParse(_fetchRemoteOrdersIntervalController.text.trim());
-      final printRetryTaskInterval = int.tryParse(_printRetryTaskIntervalController.text.trim());
       final orderMatchCheckInterval = int.tryParse(_orderMatchCheckIntervalController.text.trim());
 
       if (apiUrl.isEmpty) {
@@ -106,16 +98,8 @@ class _SettingsPageState extends State<SettingsPage> {
         throw Exception('Invalid printer port');
       }
 
-      if (syncTaskInterval == null || syncTaskInterval <= 0) {
-        throw Exception('Sync task interval must be greater than 0');
-      }
-
       if (fetchRemoteOrdersInterval == null || fetchRemoteOrdersInterval <= 0) {
         throw Exception('Fetch remote orders interval must be greater than 0');
-      }
-
-      if (printRetryTaskInterval == null || printRetryTaskInterval <= 0) {
-        throw Exception('Print retry task interval must be greater than 0');
       }
 
       if (orderMatchCheckInterval == null || orderMatchCheckInterval <= 0) {
@@ -127,9 +111,7 @@ class _SettingsPageState extends State<SettingsPage> {
         apiServerUrl: apiUrl,
         printerAddress: printerAddress,
         printerPort: printerPort,
-        syncTaskIntervalMinutes: syncTaskInterval,
         fetchRemoteOrdersIntervalSeconds: fetchRemoteOrdersInterval,
-        printRetryTaskIntervalMinutes: printRetryTaskInterval,
         orderMatchCheckIntervalMinutes: orderMatchCheckInterval,
       );
 
@@ -336,17 +318,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 SizedBox(height: 16),
                 TextFormField(
-                  controller: _syncTaskIntervalController,
-                  decoration: InputDecoration(
-                    labelText: 'Sync Task Interval (minutes)',
-                    hintText: '5',
-                    prefixIcon: Icon(Icons.sync),
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                ),
-                SizedBox(height: 12),
-                TextFormField(
                   controller: _fetchRemoteOrdersIntervalController,
                   decoration: InputDecoration(
                     labelText: 'Fetch Remote Orders Interval (seconds)',
@@ -357,17 +328,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   keyboardType: TextInputType.number,
                 ),
                 SizedBox(height: 12),
-                 TextFormField(
-                   controller: _printRetryTaskIntervalController,
-                   decoration: InputDecoration(
-                     labelText: 'Print Retry Task Interval (minutes)',
-                     hintText: '2',
-                     prefixIcon: Icon(Icons.print),
-                     border: OutlineInputBorder(),
-                   ),
-                   keyboardType: TextInputType.number,
-                 ),
-                 SizedBox(height: 12),
                  TextFormField(
                     controller: _orderMatchCheckIntervalController,
                     decoration: InputDecoration(

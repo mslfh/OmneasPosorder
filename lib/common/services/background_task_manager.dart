@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/widgets.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:workmanager/workmanager.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:logger/logger.dart';
 import 'order_service.dart';
 import 'sync_service.dart';
@@ -27,6 +28,9 @@ class BackgroundTaskManager {
   static const String fetchRemoteOrdersTaskName = 'fetch_remote_orders_task';
   static const String fetchRemoteOrdersChainTaskName = 'fetch_remote_orders_chain_task';
   static const String orderMatchTaskName = 'order_match_task';
+  // 前台服务：保证熄屏/Doze模式下拉取远程订单任务仍能持续触发
+  static const int _foregroundServiceId = 4001;
+  static const String _foregroundNotificationChannelId = 'fetch_remote_orders_channel';
   static bool _isInitialized = false;
 
   // 任务执行状态锁，防止并发执行
@@ -64,13 +68,16 @@ class BackgroundTaskManager {
       }
 
       if (_isMobilePlatform) {
-        // 移动平台使用 workmanager
+        // 移动平台使用 workmanager 作为兜底（周期最小15分钟，受Doze限制）
         await Workmanager().initialize(
           callbackDispatcher,
           isInDebugMode: false,
         );
         await _registerPeriodicTasks();
         await _scheduleFetchRemoteOrdersChain(forceReplace: true);
+
+        // 前台服务作为主力：不受熄屏/Doze省电限制，保证拉单任务持续触发
+        await _startForegroundFetchService();
         _logger.i('移动平台后台任务管理器初始化成功');
       } else {
         // Windows/Web 平台使用定时器
@@ -97,6 +104,7 @@ class BackgroundTaskManager {
         await Workmanager().cancelAll();
         await _registerPeriodicTasks();
         await _scheduleFetchRemoteOrdersChain(forceReplace: true);
+        await _startForegroundFetchService();
         _logger.i('移动平台后台任务已根据最新设置刷新');
       } else {
         await _cancelDesktopTimers();
@@ -115,6 +123,7 @@ class BackgroundTaskManager {
     await settingsService.initialize();
     final settings = settingsService.getSettings();
 
+    /* 暂时移除独立的同步和打印重试任务，由维护任务统一处理
     // 同步任务 - 使用配置的间隔
     _syncTimer = Timer.periodic(Duration(minutes: settings.syncTaskIntervalMinutes), (timer) async {
       try {
@@ -123,6 +132,7 @@ class BackgroundTaskManager {
         _logger.e('桌面平台同步任务失败: $e');
       }
     });
+    */
 
     // 拉取服务器新订单任务 - 使用配置的间隔
     _fetchRemoteOrdersTimer = Timer.periodic(Duration(seconds: settings.fetchRemoteOrdersIntervalSeconds), (timer) async {
@@ -133,6 +143,7 @@ class BackgroundTaskManager {
       }
     });
 
+    /* 暂时移除独立的同步和打印重试任务，由维护任务统一处理
     // 打印重试任务 - 使用配置的间隔
     _printTimer = Timer.periodic(Duration(minutes: settings.printRetryTaskIntervalMinutes), (timer) async {
       try {
@@ -141,6 +152,7 @@ class BackgroundTaskManager {
         _logger.e('桌面平台打印重试任务失败: $e');
       }
     });
+    */
 
     // 维护任务 - 每小时执行一次
     _maintenanceTimer = Timer.periodic(Duration(hours: 1), (timer) async {
@@ -219,6 +231,7 @@ class BackgroundTaskManager {
       await settingsService.initialize();
       final settings = settingsService.getSettings();
 
+      /* 暂时移除独立的同步和打印重试任务，由维护任务统一处理
       // 同步任务 - 使用配置的间隔
       await Workmanager().registerPeriodicTask(
         syncTaskName,
@@ -246,6 +259,7 @@ class BackgroundTaskManager {
           requiresStorageNotLow: false,
         ),
       );
+      */
 
       // 维护任务 - 每小时执行一次
       await Workmanager().registerPeriodicTask(
@@ -331,6 +345,95 @@ class BackgroundTaskManager {
     }
   }
 
+  /// 申请前台服务所需的通知/电池优化豁免权限（尽力而为，不阻塞流程）
+  Future<void> _requestForegroundServicePermissions() async {
+    try {
+      final notificationPermission =
+          await FlutterForegroundTask.checkNotificationPermission();
+      if (notificationPermission != NotificationPermission.granted) {
+        await FlutterForegroundTask.requestNotificationPermission();
+      }
+
+      if (Platform.isAndroid) {
+        if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
+          await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+        }
+      }
+    } catch (e) {
+      _logger.e('申请前台服务权限失败: $e');
+    }
+  }
+
+  /// 启动（或按最新间隔重启）前台拉单服务，确保熄屏时也能持续拉取远程订单
+  Future<void> _startForegroundFetchService() async {
+    if (!_isMobilePlatform) return;
+
+    try {
+      await _requestForegroundServicePermissions();
+
+      final settingsService = SettingsService();
+      await settingsService.initialize();
+      final settings = settingsService.getSettings();
+      final intervalSeconds = settings.fetchRemoteOrdersIntervalSeconds > 0
+          ? settings.fetchRemoteOrdersIntervalSeconds
+          : 5;
+
+      final taskOptions = ForegroundTaskOptions(
+        eventAction:
+            ForegroundTaskEventAction.repeat(intervalSeconds * 1000),
+        autoRunOnBoot: true,
+        autoRunOnMyPackageReplaced: true,
+        allowWakeLock: true,
+        allowWifiLock: true,
+      );
+
+      if (await FlutterForegroundTask.isRunningService) {
+        await FlutterForegroundTask.updateService(
+          foregroundTaskOptions: taskOptions,
+          notificationTitle: '远程订单拉取服务运行中',
+          notificationText: '每 $intervalSeconds 秒拉取一次远程订单',
+        );
+      } else {
+        FlutterForegroundTask.init(
+          androidNotificationOptions: AndroidNotificationOptions(
+            channelId: _foregroundNotificationChannelId,
+            channelName: '远程订单拉取服务',
+            channelDescription: '保持后台运行以持续拉取远程订单，即使设备熄屏也不中断',
+            onlyAlertOnce: true,
+          ),
+          iosNotificationOptions: const IOSNotificationOptions(
+            showNotification: false,
+            playSound: false,
+          ),
+          foregroundTaskOptions: taskOptions,
+        );
+
+        await FlutterForegroundTask.startService(
+          serviceId: _foregroundServiceId,
+          notificationTitle: '远程订单拉取服务运行中',
+          notificationText: '每 $intervalSeconds 秒拉取一次远程订单',
+          callback: startFetchRemoteOrdersForegroundTask,
+        );
+      }
+
+      _logger.i('前台拉单服务已启动/更新，间隔 $intervalSeconds 秒');
+    } catch (e) {
+      _logger.e('启动前台拉单服务失败: $e');
+    }
+  }
+
+  /// 停止前台拉单服务
+  Future<void> _stopForegroundFetchService() async {
+    if (!_isMobilePlatform) return;
+    try {
+      if (await FlutterForegroundTask.isRunningService) {
+        await FlutterForegroundTask.stopService();
+      }
+    } catch (e) {
+      _logger.e('停止前台拉单服务失败: $e');
+    }
+  }
+
   /// 立即执行同步任务
   Future<void> triggerSyncTask() async {
     try {
@@ -384,6 +487,7 @@ class BackgroundTaskManager {
       if (_isMobilePlatform) {
         await Workmanager().cancelAll();
         await Workmanager().cancelByUniqueName(fetchRemoteOrdersChainTaskName);
+        await _stopForegroundFetchService();
         _logger.i('所有后台任务已取消（移动平台）');
       } else {
         // Windows 平台取消定时器
@@ -403,6 +507,7 @@ class BackgroundTaskManager {
         await Workmanager().cancelByUniqueName(taskName);
         if (taskName == fetchRemoteOrdersTaskName) {
           await Workmanager().cancelByUniqueName(fetchRemoteOrdersChainTaskName);
+          await _stopForegroundFetchService();
         }
         _logger.i('任务已取消: $taskName（移动平台）');
       } else {
@@ -449,6 +554,7 @@ void callbackDispatcher() {
       logger.i('执行后台任务: $task');
 
       switch (task) {
+        /* 暂时移除独立的同步和打印重试任务
         case BackgroundTaskManager.syncTaskName:
           await _executeSyncTask();
           break;
@@ -456,6 +562,7 @@ void callbackDispatcher() {
         case BackgroundTaskManager.printTaskName:
           await _executePrintRetryTask();
           break;
+        */
 
         case BackgroundTaskManager.maintenanceTaskName:
           await _executeMaintenanceTask();
@@ -483,6 +590,52 @@ void callbackDispatcher() {
       return false;
     }
   });
+}
+
+/// 前台服务专用任务回调，在独立的后台隔离区(isolate)中运行，
+/// 不受Doze/App Standby省电策略限制，保证熄屏时也能持续拉单。
+@pragma('vm:entry-point')
+void startFetchRemoteOrdersForegroundTask() {
+  FlutterForegroundTask.setTaskHandler(_FetchRemoteOrdersTaskHandler());
+}
+
+class _FetchRemoteOrdersTaskHandler extends TaskHandler {
+  final Logger _logger = Logger();
+
+  @override
+  Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
+    try {
+      await _ensureBackgroundHiveInitialized();
+      await _configureServicesFromSettings();
+      _logger.i('前台拉单服务已启动 (starter: ${starter.name})');
+      // 启动时立即执行一次，避免等待首个周期
+      await _executeFetchRemoteOrdersTask();
+    } catch (e) {
+      _logger.e('前台拉单服务启动失败: $e');
+    }
+  }
+
+  @override
+  void onRepeatEvent(DateTime timestamp) {
+    _executeFetchRemoteOrdersTask();
+  }
+
+  @override
+  Future<void> onDestroy(DateTime timestamp) async {
+    _logger.i('前台拉单服务已停止');
+  }
+
+  @override
+  void onReceiveData(Object data) {}
+
+  @override
+  void onNotificationButtonPressed(String id) {}
+
+  @override
+  void onNotificationPressed() {}
+
+  @override
+  void onNotificationDismissed() {}
 }
 
 Future<void> _scheduleNextFetchRemoteOrdersChainTask() async {

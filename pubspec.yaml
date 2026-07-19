@@ -47,6 +47,8 @@ dependencies:
   uuid: ^4.1.0
   # 工作队列
   workmanager: ^0.5.2
+  # 前台服务，保证熄屏/Doze模式下仍可持续拉取远程订单
+  flutter_foreground_task: ^8.17.0
   # 日志记录
   logger: ^2.0.2+1
   # 国际化支持
