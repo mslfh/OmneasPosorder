@@ -95,6 +95,7 @@ class SyncService {
         'order_id': order.id,
         'order_no': order.orderNo,
         'order_time': order.orderTime.toIso8601String(),
+        'created_at': order.createdAt.toIso8601String(),
         'items': jsonDecode(order.items),
         'total_amount': order.totalAmount,
         'discount_amount': order.discountAmount,
@@ -103,7 +104,7 @@ class SyncService {
         'cash_amount': order.cashAmount,
         'pos_amount': order.posAmount,
         'cash_change': order.cashChange,
-        'local_created_at': order.orderTime.toIso8601String(),
+        'local_created_at': order.createdAt.toIso8601String(),
         'note': order.note,
         'type': order.type,
         'print_status': (printStatus ?? order.printStatus)
@@ -386,11 +387,13 @@ class SyncService {
             final localOrderId =
                 'ONLINE-$remoteOrderId-${now.millisecondsSinceEpoch}';
             final remoteOrderTime = _parseRemoteOrderTime(order);
+            final remoteCreatedAt = _parseRemoteCreatedAt(order);
             // 映射为本地OrderModel
             final orderModel = OrderModel(
               id: localOrderId, // 生成的唯一本地ID，避免与本地订单ID冲突
               orderNo: order['order_no'] ?? '',
               orderTime: remoteOrderTime,
+              createdAt: remoteCreatedAt,
               items: jsonEncode(items),
               totalAmount: double.tryParse(order['total_amount'] ?? '0') ?? 0.0,
               discountAmount:
@@ -464,112 +467,6 @@ class SyncService {
     }
   }
 
-  /// 服务器items映射为本地OrderModel的items和options
-  List<Map<String, dynamic>> _mapServerItemsToLocalItems(
-      List<dynamic> serverItems) {
-    return serverItems.map((item) {
-      final customizations = item['customization'] as List<dynamic>? ?? [];
-      final List<Map<String, dynamic>> options = [];
-      for (final c in customizations) {
-        if (c['type'] == 'replacement') {
-          final originalName = c['originalName']?.toString() ?? '';
-          final replacementName = c['replacementName']?.toString() ?? '';
-          final priceChange =
-              double.tryParse(c['priceChange']?.toString() ?? '0') ?? 0.0;
-          final isNoodleOrSourceReplacement =
-              _isNoodleOrSourceReplacement(originalName, replacementName);
-
-          if (isNoodleOrSourceReplacement) {
-            options.add({
-              'type': 'CHANGE',
-              'option_id': null,
-              'option_name': replacementName,
-              'extra_price': priceChange,
-            });
-          } else {
-            options.add({
-              'type': 'NO',
-              'option_id': null,
-              'option_name': 'No $originalName',
-              'extra_price': 0.0,
-            });
-            options.add({
-              'type': 'ONLY',
-              'option_id': null,
-              'option_name': '$replacementName Only',
-              'extra_price': priceChange,
-            });
-          }
-        } else if (c['type'] == 'quantity') {
-          final int original =
-              int.tryParse(c['originalQuantity']?.toString() ?? '0') ?? 0;
-          final int current =
-              int.tryParse(c['currentQuantity']?.toString() ?? '0') ?? 0;
-          final int diff = current - original;
-          final double priceChange =
-              double.tryParse(c['priceChange']?.toString() ?? '0') ?? 0.0;
-          if (diff > 0) {
-            final double singlePrice =
-                diff > 0 ? priceChange / diff : priceChange;
-            for (int i = 0; i < diff; i++) {
-              final ingredientName = c['ingredientName']?.toString() ?? '';
-              final hasExtra = ingredientName.toLowerCase().contains('extra');
-              final normalizedName = hasExtra
-                  ? ingredientName.replaceAll(
-                      RegExp(r'extra|Extra|EXTRA', caseSensitive: false),
-                      'EXTRA')
-                  : 'EXTRA $ingredientName';
-              options.add({
-                'type': 'EXTRA',
-                'option_id': null,
-                'option_name': normalizedName,
-                'extra_price': singlePrice,
-              });
-            }
-          } else if (diff < 0 && current == 0) {
-            final ingredientName = c['ingredientName']?.toString() ?? '';
-            final hasNo = ingredientName.toLowerCase().contains('no');
-            final normalizedName = hasNo
-                ? ingredientName.replaceAll(
-                    RegExp(r'no|No|NO', caseSensitive: false), 'No')
-                : 'No $ingredientName';
-            options.add({
-              'type': 'NO',
-              'option_id': null,
-              'option_name': normalizedName,
-              'extra_price': priceChange,
-            });
-          } else if (diff < 0 && current > 0) {
-            options.add({
-              'type': 'CHANGE',
-              'option_id': null,
-              'option_name': '${c['ingredientName']} ： ${current.abs()}',
-              'extra_price': priceChange,
-            });
-          }
-        }
-      }
-      return {
-        'id': item['product_id'],
-        'name': item['product_title'],
-        'price':
-            double.tryParse(item['final_amount']?.toString() ?? '0') ?? 0.0,
-        'quantity': item['quantity'] ?? 1,
-        'options': options,
-        'is_printable': item['product']['is_printable'] ?? true,
-      };
-    }).toList();
-  }
-
-  bool _isNoodleOrSourceReplacement(
-      String originalName, String replacementName) {
-    bool containsKeyword(String value) {
-      final normalized = value.toLowerCase();
-      return normalized.contains('noodle') || normalized.contains('source');
-    }
-
-    return containsKeyword(originalName) && containsKeyword(replacementName);
-  }
 
   DateTime _parseRemoteOrderTime(Map<String, dynamic> order) {
     final rawOrderTime = order['order_time']?.toString();
@@ -579,15 +476,18 @@ class SyncService {
           : rawOrderTime.replaceFirst(' ', 'T');
       final parsed = DateTime.tryParse(normalized);
       if (parsed != null) {
-        return parsed.toLocal();
+        return parsed.isUtc ? parsed.toLocal() : parsed;
       }
     }
+    return _parseRemoteCreatedAt(order);
+  }
 
+  DateTime _parseRemoteCreatedAt(Map<String, dynamic> order) {
     final rawCreatedAt = order['created_at']?.toString();
     if (rawCreatedAt != null && rawCreatedAt.isNotEmpty) {
       final parsed = DateTime.tryParse(rawCreatedAt);
       if (parsed != null) {
-        return parsed.toLocal();
+        return parsed.isUtc ? parsed.toLocal() : parsed;
       }
     }
 

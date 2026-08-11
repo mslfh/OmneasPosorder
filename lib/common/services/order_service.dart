@@ -55,11 +55,14 @@ class OrderService {
     String? type,
     double cashChange = 0.0, // 新增找零参数
     double voucherAmount = 0.0, // 新增券金额参数
+    DateTime? expectedTime, // 可选的预计时间
   }) async {
-    final DateTime orderTime = DateTime.now();
+    final DateTime now = DateTime.now();
+    final DateTime createdAt = now;
+    final DateTime orderTime = expectedTime ?? now;
     final String orderNo = await _generateOrderNo();
     final String orderId =
-        '$orderNo-${(orderTime.month).toString().padLeft(2, '0')}${orderTime.day.toString()}${orderTime.hour.toString()}${orderTime.minute.toString()}${orderTime.second.toString()}';
+        '$orderNo-${createdAt.month.toString().padLeft(2, '0')}${createdAt.day.toString().padLeft(2, '0')}${createdAt.hour.toString().padLeft(2, '0')}${createdAt.minute.toString().padLeft(2, '0')}${createdAt.second.toString().padLeft(2, '0')}';
 
     try {
       // 直接使用传入的 items，不再覆盖 extra_price 字段
@@ -70,6 +73,7 @@ class OrderService {
         id: orderId,
         orderNo: orderNo,
         orderTime: orderTime,
+        createdAt: createdAt,
         items: jsonEncode(updatedItems),
         totalAmount: totalAmount,
         discountAmount: discountAmount,
@@ -648,14 +652,19 @@ class OrderService {
       }
 
       final DateTime orderTime = serverOrder.orderTime ?? DateTime.now();
+      final DateTime createdAt = serverOrder.createdAt != null
+          ? DateTime.parse(serverOrder.createdAt!)
+          : DateTime.now();
+
       final String orderId =
-          '${serverOrder.orderNo}-${(orderTime.month).toString().padLeft(2, '0')}${orderTime.day.toString()}${orderTime.hour.toString()}${orderTime.minute.toString()}${orderTime.second.toString()}';
+          '${serverOrder.orderNo}-${createdAt.month.toString().padLeft(2, '0')}${createdAt.day.toString().padLeft(2, '0')}${createdAt.hour.toString().padLeft(2, '0')}${createdAt.minute.toString().padLeft(2, '0')}${createdAt.second.toString().padLeft(2, '0')}';
 
       // 创建本地订单
       final order = OrderModel(
         id: orderId,
         orderNo: serverOrder.orderNo,
         orderTime: orderTime,
+        createdAt: createdAt,
         items: jsonEncode(serverOrder.items),
         totalAmount: double.tryParse(serverOrder.finalAmount) ?? 0.0,
         discountAmount: double.tryParse(serverOrder.discountAmount) ?? 0.0,
@@ -712,6 +721,9 @@ class OrderService {
         id: serverOrder.id.toString(),
         orderNo: serverOrder.orderNo,
         orderTime: orderTime,
+        createdAt: serverOrder.createdAt != null
+            ? DateTime.parse(serverOrder.createdAt!)
+            : DateTime.now(),
         items: jsonEncode(serverOrder.items),
         totalAmount: double.tryParse(serverOrder.finalAmount) ?? 0.0,
         discountAmount: double.tryParse(serverOrder.discountAmount) ?? 0.0,

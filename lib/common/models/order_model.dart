@@ -124,7 +124,8 @@ SyncStatus _readSyncStatus(Map<String, dynamic> map) {
 class OrderModel {
   final String id; // UUID
   final String orderNo; // 订单编号 (当天第几单)
-  final DateTime orderTime; // 下单时间
+  final DateTime orderTime; // 订单预计时间 (Expected Time)
+  final DateTime createdAt; // 下单时间 (Creation Time)
   final String items; // 菜品详情 JSON
   final double totalAmount; // 总金额
   final double discountAmount; // 折扣金额
@@ -152,6 +153,7 @@ class OrderModel {
     required this.id,
     required this.orderNo,
     required this.orderTime,
+    required this.createdAt,
     required this.items,
     required this.totalAmount,
     this.discountAmount = 0.0,
@@ -182,6 +184,9 @@ class OrderModel {
       id: map['id'],
       orderNo: map['order_no'],
       orderTime: DateTime.parse(map['order_time']),
+      createdAt: map['created_at'] != null
+          ? DateTime.parse(map['created_at'])
+          : DateTime.parse(map['order_time']),
       items: map['items'],
       totalAmount: map['total_amount'],
       discountAmount: map['discount_amount']?.toDouble() ?? 0.0,
@@ -220,6 +225,7 @@ class OrderModel {
       'id': id,
       'order_no': orderNo,
       'order_time': orderTime.toIso8601String(),
+      'created_at': createdAt.toIso8601String(),
       'items': items,
       'total_amount': totalAmount,
       'discount_amount': discountAmount,
@@ -250,6 +256,7 @@ class OrderModel {
     String? id,
     String? orderNo,
     DateTime? orderTime,
+    DateTime? createdAt,
     String? items,
     double? totalAmount,
     double? discountAmount,
@@ -277,6 +284,7 @@ class OrderModel {
       id: id ?? this.id,
       orderNo: orderNo ?? this.orderNo,
       orderTime: orderTime ?? this.orderTime,
+      createdAt: createdAt ?? this.createdAt,
       items: items ?? this.items,
       totalAmount: totalAmount ?? this.totalAmount,
       discountAmount: discountAmount ?? this.discountAmount,

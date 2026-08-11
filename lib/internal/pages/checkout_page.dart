@@ -381,7 +381,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 ],
               ),
               SizedBox(height: 16),
-              // Card area：仅保留左侧 Pos 按钮
+              // Card area：Pos 和 Cash 按钮
               Row(
                 mainAxisAlignment: MainAxisAlignment.start,
                 children: [
@@ -393,6 +393,16 @@ class _CheckoutPageState extends State<CheckoutPage> {
                       });
                     },
                     child: Text('POS'),
+                  ),
+                  SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () {
+                      setState(() {
+                        isCash = true; // Cash 支付
+                        updateReceivedAmount(totalPrice);
+                      });
+                    },
+                    child: Text('Cash'),
                   ),
                 ],
               ),

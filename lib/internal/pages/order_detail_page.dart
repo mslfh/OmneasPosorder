@@ -186,7 +186,8 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
             ),
             SizedBox(height: 12),
             _buildInfoRow('订单号', _order!.id),
-            _buildInfoRow('下单时间', _formatDateTime(_order!.orderTime)),
+            _buildInfoRow('下单时间', _formatDateTime(_order!.createdAt)),
+            _buildInfoRow('预计时间', _formatDateTime(_order!.orderTime)),
             _buildInfoRow('总金额', '￥${_order!.totalAmount.toStringAsFixed(2)}'),
             if (_order!.syncedTime != null)
               _buildInfoRow('同步时间', _formatDateTime(_order!.syncedTime!)),

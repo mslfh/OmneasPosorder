@@ -560,6 +560,11 @@ class PrintService {
     return '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')}';
   }
 
+  /// 格式化时间（仅时间 HH:mm）
+  String _formatTimeOnly(DateTime dateTime) {
+    return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+
   /// 配置打印设置
   void configurePrinter({
     String? printerIP,
@@ -833,6 +838,11 @@ class PrintService {
     content.writeln("------------------------------");
     content.writeln("ORDER #" + order.orderNo);
     content.writeln(order.type);
+    // 如果订单的预计时间晚于当前时间 10 分钟以上（预订件），打印显眼提醒
+    if (order.orderTime.difference(DateTime.now()).inMinutes >= 10) {
+      final typeStr = (order.type ?? 'ORDER').toUpperCase();
+      content.writeln("！！** $typeStr AT ${_formatTimeOnly(order.orderTime)} **！！");
+    }
     content.writeln("------------------------------");
     // 分块标识：ITEMS
     content.writeln('[ITEMS]');

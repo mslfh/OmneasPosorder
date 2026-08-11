@@ -9,6 +9,7 @@ import 'order_service.dart';
 import 'sync_service.dart';
 import 'print_service.dart';
 import 'settings_service.dart';
+import '../models/store_hours_config.dart';
 
 class ServiceStatusResult {
   final bool isPrinterConnected;
@@ -17,6 +18,26 @@ class ServiceStatusResult {
   const ServiceStatusResult({
     required this.isPrinterConnected,
     required this.isServerConnected,
+  });
+}
+
+class TaskStatusReport {
+  final bool isInitialized;
+  final bool isForegroundRunning;
+  final int? foregroundIntervalSeconds;
+  final Map<String, bool> activeTasks; // 针对桌面端或执行锁状态
+  final bool? notificationPermission;
+  final bool? batteryOptimizationExempt;
+  final bool isWithinStoreHours;
+
+  const TaskStatusReport({
+    required this.isInitialized,
+    required this.isForegroundRunning,
+    this.foregroundIntervalSeconds,
+    required this.activeTasks,
+    this.notificationPermission,
+    this.batteryOptimizationExempt,
+    required this.isWithinStoreHours,
   });
 }
 
@@ -154,8 +175,8 @@ class BackgroundTaskManager {
     });
     */
 
-    // 维护任务 - 每小时执行一次
-    _maintenanceTimer = Timer.periodic(Duration(hours: 1), (timer) async {
+    // 维护任务 - 每 5 分钟执行一次（桌面端可以更频繁）
+    _maintenanceTimer = Timer.periodic(Duration(minutes: 5), (timer) async {
       try {
         await _executeMaintenanceTask();
       } catch (e) {
@@ -261,17 +282,17 @@ class BackgroundTaskManager {
       );
       */
 
-      // 维护任务 - 每小时执行一次
+      // 维护任务 - 每 15 分钟执行一次 (Android 系统的最小周期)
       await Workmanager().registerPeriodicTask(
         maintenanceTaskName,
         maintenanceTaskName,
-        frequency: Duration(hours: 1),
+        frequency: Duration(minutes: 15),
         constraints: Constraints(
           networkType: NetworkType.not_required,
-          requiresBatteryNotLow: true, // 电量充足时执行
+          requiresBatteryNotLow: true,
           requiresCharging: false,
           requiresDeviceIdle: false,
-          requiresStorageNotLow: true, // 存储空间充足
+          requiresStorageNotLow: true,
         ),
       );
 
@@ -369,6 +390,12 @@ class BackgroundTaskManager {
     if (!_isMobilePlatform) return;
 
     try {
+      // 启动前先检查营业时间
+      if (!await _isWithinStoreHours()) {
+        _logger.i('当前非营业时间，暂缓启动前台拉单服务');
+        return;
+      }
+
       await _requestForegroundServicePermissions();
 
       final settingsService = SettingsService();
@@ -432,6 +459,48 @@ class BackgroundTaskManager {
     } catch (e) {
       _logger.e('停止前台拉单服务失败: $e');
     }
+  }
+
+  /// 获取详细的任务运行状态报告
+  Future<TaskStatusReport> getTaskStatusReport() async {
+    bool isForegroundRunning = false;
+    int? interval;
+    bool? notifPerm;
+    bool? batteryExempt;
+
+    if (_isMobilePlatform) {
+      isForegroundRunning = await FlutterForegroundTask.isRunningService;
+      final settingsService = SettingsService();
+      await settingsService.initialize();
+      interval = settingsService.getSettings().fetchRemoteOrdersIntervalSeconds;
+
+      notifPerm = (await FlutterForegroundTask.checkNotificationPermission()) ==
+          NotificationPermission.granted;
+
+      if (Platform.isAndroid) {
+        batteryExempt = await FlutterForegroundTask.isIgnoringBatteryOptimizations;
+      }
+    }
+
+    final Map<String, bool> activeTasks = {};
+    if (_isMobilePlatform) {
+      activeTasks['Foreground Service'] = isForegroundRunning;
+      activeTasks['Workmanager Tasks'] = true; // 已初始化即为真
+    } else {
+      activeTasks['Fetch Orders Timer'] = _fetchRemoteOrdersTimer != null;
+      activeTasks['Maintenance Timer'] = _maintenanceTimer != null;
+      activeTasks['Order Match Timer'] = _orderMatchTimer != null;
+    }
+
+    return TaskStatusReport(
+      isInitialized: _isInitialized,
+      isForegroundRunning: isForegroundRunning,
+      foregroundIntervalSeconds: interval,
+      activeTasks: activeTasks,
+      notificationPermission: notifPerm,
+      batteryOptimizationExempt: batteryExempt,
+      isWithinStoreHours: await _isWithinStoreHours(),
+    );
   }
 
   /// 立即执行同步任务
@@ -672,9 +741,15 @@ Future<void> _scheduleNextFetchRemoteOrdersChainTask() async {
 /// 执行同步任务
 Future<void> _executeSyncTask() async {
   if (BackgroundTaskManager._isSyncing) return;
-  BackgroundTaskManager._isSyncing = true;
   
   final Logger logger = Logger();
+  
+  if (!await _isWithinStoreHours()) {
+    logger.i('非营业时间，跳过同步任务');
+    return;
+  }
+
+  BackgroundTaskManager._isSyncing = true;
 
   try {
     final syncService = SyncService();
@@ -696,9 +771,15 @@ Future<void> _executeSyncTask() async {
 /// 执行打印重试任务
 Future<void> _executePrintRetryTask() async {
   if (BackgroundTaskManager._isPrinting) return;
-  BackgroundTaskManager._isPrinting = true;
 
   final Logger logger = Logger();
+
+  if (!await _isWithinStoreHours()) {
+    logger.i('非营业时间，跳过打印重试任务');
+    return;
+  }
+
+  BackgroundTaskManager._isPrinting = true;
 
   try {
     final printService = PrintService();
@@ -726,9 +807,33 @@ Future<void> _executePrintRetryTask() async {
 /// 执行维护任务
 Future<void> _executeMaintenanceTask() async {
   if (BackgroundTaskManager._isMaintaining) return;
-  BackgroundTaskManager._isMaintaining = true;
 
   final Logger logger = Logger();
+  final isWithinHours = await _isWithinStoreHours();
+
+  // 1. 根据营业时间自动管理前台服务的开关
+  if (Platform.isAndroid || Platform.isIOS) {
+    try {
+      final isRunning = await FlutterForegroundTask.isRunningService;
+      if (isWithinHours && !isRunning) {
+        logger.i('检测到进入营业时间，正在自动启动前台拉单服务...');
+        await BackgroundTaskManager()._startForegroundFetchService();
+      } else if (!isWithinHours && isRunning) {
+        logger.i('检测到已过营业时间，正在自动停止前台拉单服务...');
+        await BackgroundTaskManager()._stopForegroundFetchService();
+      }
+    } catch (e) {
+      logger.e('维护任务中管理前台服务失败: $e');
+    }
+  }
+
+  // 2. 如果是非营业时间，跳过后续的数据维护逻辑（如清理日志、同步等）
+  if (!isWithinHours) {
+    logger.i('非营业时间，跳过数据维护逻辑');
+    return;
+  }
+
+  BackgroundTaskManager._isMaintaining = true;
 
   try {
     final orderService = OrderService();
@@ -745,9 +850,15 @@ Future<void> _executeMaintenanceTask() async {
 /// 执行远程订单拉取任务
 Future<void> _executeFetchRemoteOrdersTask() async {
   if (BackgroundTaskManager._isFetching) return;
-  BackgroundTaskManager._isFetching = true;
 
   final Logger logger = Logger();
+
+  if (!await _isWithinStoreHours()) {
+    logger.i('非营业时间，跳过拉取远程订单任务');
+    return;
+  }
+
+  BackgroundTaskManager._isFetching = true;
   try {
     final syncService = SyncService();
     await syncService.fetchAndSyncRemoteOrders();
@@ -761,9 +872,15 @@ Future<void> _executeFetchRemoteOrdersTask() async {
 /// 执行订单对账任务
 Future<void> _executeOrderMatchTask() async {
   if (BackgroundTaskManager._isMatching) return;
-  BackgroundTaskManager._isMatching = true;
 
   final Logger logger = Logger();
+
+  if (!await _isWithinStoreHours()) {
+    logger.i('非营业时间，跳过订单对账任务');
+    return;
+  }
+
+  BackgroundTaskManager._isMatching = true;
   try {
     final syncService = SyncService();
     // 对账前先尝试同步待处理订单
@@ -832,5 +949,16 @@ Future<void> _configureServicesFromSettings() async {
     printerIP: settings.printerAddress,
     printerPort: settings.printerPort,
   );
+}
+
+Future<bool> _isWithinStoreHours() async {
+  try {
+    final settingsService = SettingsService();
+    final config = await settingsService.fetchStoreHours();
+    return config.isWithin(DateTime.now());
+  } catch (e) {
+    Logger().e('检查营业时间出错: $e');
+    return true; // 出错时默认允许执行，避免任务彻底锁死
+  }
 }
 

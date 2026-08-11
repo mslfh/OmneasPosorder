@@ -1,11 +1,16 @@
+import 'dart:convert';
 import 'package:hive/hive.dart';
 import 'package:logger/logger.dart';
 import '../models/app_settings.dart';
+import '../models/store_hours_config.dart';
+import 'api_service.dart';
 
 class SettingsService {
   static final Logger _logger = Logger();
   static const String _boxName = 'settings';
   static const String _settingsKey = 'app_settings';
+
+  final ApiService _apiService = ApiService();
 
   // 单例模式
   static SettingsService? _instance;
@@ -120,6 +125,77 @@ class SettingsService {
       orderMatchCheckIntervalMinutes: orderMatchCheckIntervalMinutes,
     );
     await saveSettings(updatedSettings);
+  }
+
+  /// 获取营业时间配置
+  Future<StoreHoursConfig> fetchStoreHours() async {
+    final Box<String> cacheBox = await Hive.openBox<String>('store_hours_cache');
+    
+    // 1. 优先读取本地缓存并准备返回
+    StoreHoursConfig? cachedConfig;
+    final cachedData = cacheBox.get('config');
+    if (cachedData != null) {
+      try {
+        cachedConfig = StoreHoursConfig.fromJson(jsonDecode(cachedData));
+      } catch (e) {
+        _logger.e('Error decoding cached store hours: $e');
+      }
+    }
+
+    // 2. 异步触发网络更新（不阻塞本次读取）
+    _refreshStoreHoursInBackground(cacheBox);
+
+    // 3. 返回缓存，若无缓存则返回默认值（直到后台更新完成）
+    if (cachedConfig != null) {
+      _logger.d('Returning cached store hours');
+      return cachedConfig;
+    }
+
+    _logger.w('No cache found, using defaults until background refresh completes');
+    return StoreHoursConfig.defaults();
+  }
+
+  /// 后台刷新营业时间并更新缓存
+  Future<void> _refreshStoreHoursInBackground(Box<String> cacheBox) async {
+    try {
+      final response = await _apiService.get('system-setting/store-hours');
+      if (response.statusCode == 200 && response.data != null) {
+        final data = response.data;
+        final valueStr = data['value'];
+        if (valueStr != null) {
+          final dynamic valueJson = valueStr is String ? jsonDecode(valueStr) : valueStr;
+          await cacheBox.put('config', jsonEncode(valueJson));
+          _logger.i('Store hours cache updated from server');
+        }
+      }
+    } catch (e) {
+      _logger.w('Background store hours refresh failed: $e');
+    }
+  }
+
+  /// 更新营业时间配置
+  Future<void> updateStoreHours(StoreHoursConfig config) async {
+    try {
+      final configJson = config.toJson();
+      final data = {
+        'value': jsonEncode(configJson),
+        'description': 'Store hours configuration',
+        'type': 'json',
+      };
+      
+      // 更新本地缓存
+      final Box<String> cacheBox = await Hive.openBox<String>('store_hours_cache');
+      await cacheBox.put('config', jsonEncode(configJson));
+
+      final response = await _apiService.put('system-setting/store-hours', data: data);
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        throw Exception('Failed to update store hours: ${response.statusCode}');
+      }
+      _logger.i('Store hours updated successfully');
+    } catch (e) {
+      _logger.e('Error updating store hours: $e');
+      rethrow;
+    }
   }
 
   /// 重置为默认设置

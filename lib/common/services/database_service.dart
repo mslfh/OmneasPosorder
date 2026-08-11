@@ -37,7 +37,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -129,6 +129,7 @@ class DatabaseService {
         synced_at TEXT,
         created_at TEXT,
         updated_at TEXT,
+        order_time TEXT,
         items TEXT,
         additions TEXT
       )
@@ -138,6 +139,7 @@ class DatabaseService {
     await db.execute(
         'CREATE INDEX idx_orders_status ON orders(order_status, sync_status, print_status)');
     await db.execute('CREATE INDEX idx_orders_time ON orders(order_time)');
+    await db.execute('CREATE INDEX idx_orders_created_at ON orders(created_at)');
     await db.execute('CREATE INDEX idx_orders_no ON orders(order_no)');
     await db.execute('CREATE INDEX idx_logs_order_id ON logs(order_id)');
     // 注意：不再为 server_orders 创建 remote_order_id 索引
@@ -148,25 +150,19 @@ class DatabaseService {
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     _logger.i('数据库从版本 $oldVersion 升级到版本 $newVersion');
 
-    // 从版本 1 升级到版本 2：添加 sync_status 和 is_online_order 字段，并迁移旧状态
+    // 从版本 1 升级到版本 2
     if (oldVersion < 2) {
       try {
         await db.execute(
           'ALTER TABLE orders ADD COLUMN sync_status INTEGER NOT NULL DEFAULT 0',
         );
-        _logger.i('已为 orders 表添加 sync_status 字段');
-      } catch (e) {
-        _logger.w('添加 sync_status 字段时出错: $e');
-      }
+      } catch (_) {}
 
       try {
         await db.execute(
           'ALTER TABLE orders ADD COLUMN is_online_order INTEGER NOT NULL DEFAULT 0',
         );
-        _logger.i('已为 orders 表添加 is_online_order 字段');
-      } catch (e) {
-        _logger.w('添加 is_online_order 字段时出错: $e');
-      }
+      } catch (_) {}
 
       try {
         await db.rawUpdate('''
@@ -181,37 +177,31 @@ class DatabaseService {
             ELSE 0
           END
         ''');
-        await db.rawUpdate('''
-          UPDATE orders
-          SET order_status = CASE
-            WHEN order_status = 0 THEN 0
-            WHEN order_status = 1 THEN 2
-            WHEN order_status = 2 THEN 1
-            WHEN order_status = 3 THEN 2
-            WHEN order_status = 4 THEN 3
-            WHEN order_status = 5 THEN
-              CASE
-                WHEN is_online_order = 1
-                  OR remote_order_id IS NOT NULL
-                  OR remote_order_number IS NOT NULL
-                THEN 1
-                ELSE 2
-              END
-            ELSE order_status
-          END
-        ''');
-        _logger.i('已迁移旧订单状态字段');
+      } catch (_) {}
+    }
+
+    // 从版本 2 升级到版本 3：完善时间字段和 server_orders 表
+    if (oldVersion < 3) {
+      // 1. 确保 orders 表有 created_at 字段
+      try {
+        await db.execute('ALTER TABLE orders ADD COLUMN created_at TEXT');
+        // 将旧订单的 order_time 视为创建时间
+        await db.execute('UPDATE orders SET created_at = order_time WHERE created_at IS NULL');
       } catch (e) {
-        _logger.w('迁移旧订单状态时出错: $e');
+        _logger.w('Upgrade orders.created_at error: $e');
       }
 
+      // 2. 确保 server_orders 有 order_time 字段
       try {
-        await db.execute('DROP INDEX IF EXISTS idx_orders_status');
-        await db.execute(
-            'CREATE INDEX idx_orders_status ON orders(order_status, sync_status, print_status)');
+        await db.execute('ALTER TABLE server_orders ADD COLUMN order_time TEXT');
       } catch (e) {
-        _logger.w('重建订单状态索引时出错: $e');
+        _logger.w('Upgrade server_orders.order_time error: $e');
       }
+
+      // 3. 创建索引
+      try {
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)');
+      } catch (_) {}
     }
   }
 
@@ -283,7 +273,7 @@ class DatabaseService {
         'orders',
         where: 'sync_status IN (?, ?)',
         whereArgs: [SyncStatus.pending.index, SyncStatus.syncFailed.index],
-        orderBy: 'order_time ASC',
+        orderBy: 'created_at ASC',
       );
 
       return maps.map((map) => OrderModel.fromMap(map)).toList();
@@ -301,7 +291,7 @@ class DatabaseService {
         'orders',
         where: 'print_status IN (?, ?)',
         whereArgs: [PrintStatus.pending.index, PrintStatus.printFailed.index],
-        orderBy: 'order_time ASC',
+        orderBy: 'created_at ASC',
       );
 
       return maps.map((map) => OrderModel.fromMap(map)).toList();
@@ -346,7 +336,7 @@ class DatabaseService {
     try {
       final maps = await db.query(
         'orders',
-        orderBy: 'order_time DESC',
+        orderBy: 'created_at DESC',
         limit: limit,
         offset: offset,
       );
@@ -365,12 +355,12 @@ class DatabaseService {
     try {
       final maps = await db.query(
         'orders',
-        where: 'order_time >= ? AND order_time <= ?',
+        where: 'created_at >= ? AND created_at <= ?',
         whereArgs: [
           startDate.toIso8601String(),
           endDate.toIso8601String(),
         ],
-        orderBy: 'order_time DESC',
+        orderBy: 'created_at DESC',
       );
 
       return maps.map((map) => OrderModel.fromMap(map)).toList();
@@ -380,7 +370,7 @@ class DatabaseService {
     }
   }
 
-  /// 获取指定日期的所有订单
+  /// 获取指定日期的所有订单（基于创建时间）
   Future<List<OrderModel>> getOrdersByDate(DateTime date) async {
     final db = await database;
     final startDate =
@@ -391,9 +381,9 @@ class DatabaseService {
     try {
       final List<Map<String, dynamic>> results = await db.query(
         'orders',
-        where: 'order_time BETWEEN ? AND ?',
+        where: 'created_at BETWEEN ? AND ?',
         whereArgs: [startDate, endDate],
-        orderBy: 'order_time ASC',
+        orderBy: 'created_at ASC',
       );
 
       return results.map((map) => OrderModel.fromMap(map)).toList();
@@ -487,7 +477,7 @@ class DatabaseService {
           DateTime(base.year, base.month, base.day, 23, 59, 59, 999);
 
       final todayCount = Sqflite.firstIntValue(await db.rawQuery(
-            'SELECT COUNT(*) FROM orders WHERE order_time BETWEEN ? AND ?',
+            'SELECT COUNT(*) FROM orders WHERE created_at BETWEEN ? AND ?',
             [startOfDay.toIso8601String(), endOfDay.toIso8601String()],
           )) ??
           0;
@@ -554,6 +544,7 @@ class DatabaseService {
       'synced_at': serverOrder['synced_at'],
       'created_at': serverOrder['created_at'],
       'updated_at': serverOrder['updated_at'],
+      'order_time': serverOrder['order_time']?.toString(), // 新增
     };
 
     // items 字段处理

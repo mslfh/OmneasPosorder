@@ -144,4 +144,31 @@ class OnlineOrderMapper {
     if (value is int) return value.toDouble();
     return double.tryParse(value?.toString() ?? '');
   }
+
+  /// 订单排序逻辑
+  static List<OrderModel> sortOrders(
+    List<OrderModel> orders,
+    String criteria, {
+    bool ascending = true,
+  }) {
+    final sorted = List<OrderModel>.from(orders);
+    sorted.sort((a, b) {
+      int cmp;
+      switch (criteria) {
+        case 'orderTime':
+          cmp = a.orderTime.compareTo(b.orderTime);
+          break;
+        case 'createdAt':
+          cmp = a.createdAt.compareTo(b.createdAt);
+          break;
+        case 'orderNo':
+          cmp = a.orderNo.compareTo(b.orderNo);
+          break;
+        default:
+          cmp = 0;
+      }
+      return ascending ? cmp : -cmp;
+    });
+    return sorted;
+  }
 }
