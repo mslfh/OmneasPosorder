@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../common/services/database_service.dart';
 import '../../common/services/print_service.dart';
+import '../../common/services/language_service.dart';
 import '../../common/models/order_model.dart';
 import '../../common/models/report_models.dart';
 
 class ReportPage extends StatefulWidget {
+  const ReportPage({Key? key}) : super(key: key);
+
   @override
   _ReportPageState createState() => _ReportPageState();
 }
@@ -38,30 +41,22 @@ class _ReportPageState extends State<ReportPage> {
     try {
       final orders =
           await _databaseService.getOrdersByDateRange(_startDate, _endDate);
-      print(
-          'Found ${orders.length} orders for date range: ${_startDate} to ${_endDate}');
-
-      // 调试：打印订单信息
-      for (final order in orders) {
-        print(
-            'Order ${order.id}: ${order.totalAmount}, Cash: ${order.cashAmount}, POS: ${order.posAmount}, Status: ${order.orderStatus}');
-      }
-
       final stats = _calculateStats(orders);
 
+      if (!mounted) return;
       setState(() {
         _orders = orders;
         _stats = stats;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to load data: $e')),
       );
-      print('Error loading report data: $e');
     }
   }
 
@@ -155,10 +150,12 @@ class _ReportPageState extends State<ReportPage> {
 
     try {
       await _printService.printReport(_stats!, _startDate, _endDate);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('统计报告已发送到打印机')),
+        const SnackBar(content: Text('统计报告已发送到打印机')),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('打印失败: $e')),
       );
@@ -169,42 +166,42 @@ class _ReportPageState extends State<ReportPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Daily Sales Report'),
+        title: Text('report_title'.tr),
         actions: [
           IconButton(
-            icon: Icon(Icons.date_range),
+            icon: const Icon(Icons.date_range),
             onPressed: _selectDateRange,
-            tooltip: 'Select Date Range',
+            tooltip: 'edit'.tr,
           ),
           IconButton(
-            icon: Icon(Icons.print),
+            icon: const Icon(Icons.print),
             onPressed: _stats != null ? _printReport : null,
-            tooltip: 'Print Report',
+            tooltip: 'reprint'.tr,
           ),
           IconButton(
-            icon: Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh),
             onPressed: _loadReportData,
-            tooltip: 'Refresh Data',
+            tooltip: 'reset'.tr,
           ),
         ],
       ),
       body: _isLoading
-          ? Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator())
           : _stats == null
-              ? Center(child: Text('No Data Available'))
+              ? Center(child: Text('no_orders'.tr))
               : SingleChildScrollView(
-                  padding: EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildDateRangeCard(),
-                      SizedBox(height: 16),
+                      const SizedBox(height: 16),
                       _buildStatsOverview(),
-                      SizedBox(height: 16),
+                      const SizedBox(height: 16),
                       _buildPaymentBreakdown(),
-                      SizedBox(height: 16),
+                      const SizedBox(height: 16),
                       _buildTopSellingItems(),
-                      SizedBox(height: 16),
+                      const SizedBox(height: 16),
                       _buildRecentOrders(),
                     ],
                   ),

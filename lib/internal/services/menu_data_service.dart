@@ -12,6 +12,57 @@ import '../../common/services/cache_service.dart';
 class MenuDataService {
   final ApiService _apiService = ApiService();
 
+  /// 初始网络数据同步与缓存写入（供应用启动或强制全量同步时调用）
+  Future<void> fetchAndCacheInitialData() async {
+    try {
+      final results = await Future.wait([
+        _apiService.get('products/active'),
+        _apiService.get('categories/active'),
+        _apiService.get('options/group'),
+      ]);
+
+      final prodRes = results[0];
+      final catRes = results[1];
+      final optRes = results[2];
+
+      final prodDataRaw = prodRes.data['data'];
+      final catDataRaw = catRes.data['data'];
+      final optDataRaw = optRes.data['data'];
+
+      if (prodDataRaw is List && catDataRaw is List) {
+        final products = prodDataRaw
+            .whereType<Map<String, dynamic>>()
+            .map((e) => MenuItem.fromJson(e))
+            .toList();
+        final categories = catDataRaw
+            .whereType<Map<String, dynamic>>()
+            .map((e) => Category.fromJson(e))
+            .toList();
+
+        final sortedProducts = _sortProducts(products);
+        await _saveToCacheBoxes(sortedProducts, categories);
+      }
+
+      if (optDataRaw is Map<String, dynamic>) {
+        final optionGroups = optDataRaw.map((type, list) => MapEntry(
+          type,
+          (list as List).map((e) => MenuOption.fromJson(e)).toList(),
+        ));
+
+        Box<OptionGroupsAdapter> optionGroupsBox;
+        if (Hive.isBoxOpen('optionGroupsBox')) {
+          optionGroupsBox = Hive.box<OptionGroupsAdapter>('optionGroupsBox');
+        } else {
+          optionGroupsBox = await Hive.openBox<OptionGroupsAdapter>('optionGroupsBox');
+        }
+        await optionGroupsBox.put('groups', OptionGroupsAdapter(groups: optionGroups));
+      }
+    } catch (e) {
+      print('[ERROR] 初始数据同步失败: $e');
+      rethrow;
+    }
+  }
+
   /// 加载菜品和分类数据（优先使用本地缓存）
   Future<Map<String, dynamic>> loadMenuData() async {
     try {
@@ -61,8 +112,8 @@ class MenuDataService {
 
       final catData = catRes.data['data'] as List;
       final allProducts = prodData
-          .where((e) => e is Map<String, dynamic>)
-          .map((e) => MenuItem.fromJson(e as Map<String, dynamic>))
+          .whereType<Map<String, dynamic>>()
+          .map((e) => MenuItem.fromJson(e))
           .toList();
       final products = _sortProducts(List<MenuItem>.from(allProducts));
       final categories = catData.map((e) => Category.fromJson(e)).toList();

@@ -4,7 +4,6 @@ import '../../common/models/menu_item.dart';
 import '../../common/models/category.dart';
 import '../../common/models/menu_option.dart';
 import '../../common/models/order_model.dart';
-import '../../common/services/sync_service.dart';
 import '../keyboard_handlers/action_key_handler.dart';
 import '../utils/quick_input_manager.dart';
 import '../widgets/quick_input_overlay.dart';
@@ -60,7 +59,6 @@ class _OrderPageState extends State<OrderPage> {
   bool _isCardPressed = false;
   int? _pressedCardIndex;
   bool _isAdminMode = false;
-  bool _isAllCategoriesSelected = true;
 
   // 快捷输入
   final _quickInputManager = QuickInputManager();
@@ -262,26 +260,9 @@ class _OrderPageState extends State<OrderPage> {
         },
         removeQuickInputOverlay: _removeQuickInputOverlay,
         refreshUI: () => setState(() {}),
-        onOrder: () async {
-          // 动态检查是否有菜品，而不是在注册时检查
-          if (orderedProducts.isNotEmpty) {
-            final result = await Navigator.of(context).push<bool>(
-              MaterialPageRoute(
-                builder: (context) => CheckoutPage(
-                  orderedProducts: orderedProducts,
-                ),
-              ),
-            );
-            // 如果返回 true，表示订单成功，清空购物车
-            if (result == true) {
-              setState(() {
-                orderedProducts.clear();
-                selectedOrderedProduct = null;
-              });
-            }
-          }
-        },
-        hasOrderedProducts: () => orderedProducts.isNotEmpty,
+        onOrder: _openCheckoutPage,
+        hasOrderedProducts: () =>
+            orderedProducts.isNotEmpty || _hasSelectedOnlineOrder,
       ),
     );
 
@@ -295,8 +276,16 @@ class _OrderPageState extends State<OrderPage> {
         playClickSound: _playClickSound,
         setSelectedOrderedProduct: (product) => setState(() {
           selectedOrderedProduct = product;
+          if (orderedProducts.isEmpty) {
+            _clearOnlineOrderSelection();
+          }
         }),
-        refreshUI: () => setState(() {}),
+        refreshUI: () => setState(() {
+          if (orderedProducts.isEmpty) {
+            selectedOrderedProduct = null;
+            _clearOnlineOrderSelection();
+          }
+        }),
       ),
     );
 
@@ -724,24 +713,7 @@ class _OrderPageState extends State<OrderPage> {
     });
   }
 
-  // 拉单测试按钮回调
-  Future<void> _syncRemoteOrders() async {
-    try {
-      final syncService = SyncService();
-      await syncService.fetchAndSyncRemoteOrders();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('拉取并同步服务器订单完成')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('拉单失败: \${e.toString()}')),
-        );
-      }
-    }
-  }
+
 
   /// Show edit product dialog (Admin Mode)
   void _showEditProductDialog(MenuItem product) {
@@ -1249,179 +1221,7 @@ class _OrderPageState extends State<OrderPage> {
     await _orderMatchManager.performCheck(_onOrderMatchResultUpdated);
   }
 
-  bool _menuItemMatchesCategory(
-    MenuItem item,
-    Set<String> categoryTitles,
-    Map<int, Category> categoryById,
-  ) {
-    for (final categoryId in item.categoryIds) {
-      final visited = <int>{};
-      int? currentId = categoryId;
-      while (currentId != null && !visited.contains(currentId)) {
-        visited.add(currentId);
-        final category = categoryById[currentId];
-        if (category == null) break;
-        if (categoryTitles.contains(category.title.trim().toLowerCase())) {
-          return true;
-        }
-        currentId = category.parentId;
-      }
-    }
-    return false;
-  }
 
-  bool _menuItemIsFryRice(MenuItem item, Map<int, Category> categoryById) {
-    for (final categoryId in item.categoryIds) {
-      final visited = <int>{};
-      int? currentId = categoryId;
-      while (currentId != null && !visited.contains(currentId)) {
-        visited.add(currentId);
-        final category = categoryById[currentId];
-        if (category == null) break;
-        final normalized = category.title.trim().toLowerCase();
-        if (normalized == 'fry rice' ||
-            normalized == 'fried rice' ||
-            normalized.contains('fry rice') ||
-            normalized.contains('fried rice')) {
-          return true;
-        }
-        currentId = category.parentId;
-      }
-    }
-    return false;
-  }
-
-  List<MenuItem?> _arrangeMenuProductsByColumns(List<MenuItem> sourceProducts) {
-    if (sourceProducts.isEmpty) return <MenuItem?>[];
-
-    final sortedProducts = List<MenuItem>.from(sourceProducts)
-      ..sort((a, b) {
-        final sortCompare = a.sort.compareTo(b.sort);
-        if (sortCompare != 0) return sortCompare;
-        return a.code.compareTo(b.code);
-      });
-
-    final categoryById = <int, Category>{
-      for (final category in categories) category.id: category,
-    };
-
-    final mealProducts = <MenuItem>[];
-    final soupProducts = <MenuItem>[];
-    final drinkAndSnackProducts = <MenuItem>[];
-
-    for (final item in sortedProducts) {
-      final isSoup = _menuItemMatchesCategory(item, {'soup'}, categoryById);
-      final isDrinkOrSnack = _menuItemMatchesCategory(
-        item,
-        {'drink', 'snack'},
-        categoryById,
-      );
-      final isMeal = _menuItemMatchesCategory(
-        item,
-        {'meal', 'noodle', 'fry rice'},
-        categoryById,
-      );
-
-      if (isSoup) {
-        soupProducts.add(item);
-      } else if (isDrinkOrSnack) {
-        drinkAndSnackProducts.add(item);
-      } else if (isMeal) {
-        mealProducts.add(item);
-      } else {
-        mealProducts.add(item);
-      }
-    }
-
-    final fryRiceMeals = <MenuItem>[];
-    final otherMeals = <MenuItem>[];
-    for (final meal in mealProducts) {
-      if (_menuItemIsFryRice(meal, categoryById)) {
-        fryRiceMeals.add(meal);
-      } else {
-        otherMeals.add(meal);
-      }
-    }
-    final prioritizedMealProducts = <MenuItem>[
-      ...fryRiceMeals,
-      ...otherMeals,
-    ];
-
-    final mealColumn1 = <MenuItem>[];
-    final mealColumn2 = <MenuItem>[];
-    final soupOverflowMeals = <MenuItem>[];
-
-    for (final meal in prioritizedMealProducts) {
-      if (mealColumn1.length <= mealColumn2.length) {
-        mealColumn1.add(meal);
-      } else {
-        mealColumn2.add(meal);
-      }
-    }
-
-    while (mealColumn1.isNotEmpty || mealColumn2.isNotEmpty) {
-      final currentHeights = <int>[
-        mealColumn1.length,
-        mealColumn2.length,
-        soupProducts.length + soupOverflowMeals.length,
-      ];
-      final currentSpread = currentHeights.reduce((a, b) => a > b ? a : b) -
-          currentHeights.reduce((a, b) => a < b ? a : b);
-
-      var moveFromColumn1 = mealColumn1.length >= mealColumn2.length;
-      if ((moveFromColumn1 && mealColumn1.isEmpty) ||
-          (!moveFromColumn1 && mealColumn2.isEmpty)) {
-        moveFromColumn1 = !moveFromColumn1;
-      }
-      final sourceColumn = moveFromColumn1 ? mealColumn1 : mealColumn2;
-      if (sourceColumn.isEmpty) break;
-
-      final movedItem = sourceColumn.removeLast();
-      final nextMeal1Height = mealColumn1.length;
-      final nextMeal2Height = mealColumn2.length;
-      final nextSoupHeight = soupProducts.length + soupOverflowMeals.length + 1;
-      final nextHeights = <int>[
-        nextMeal1Height,
-        nextMeal2Height,
-        nextSoupHeight,
-      ];
-      final nextSpread = nextHeights.reduce((a, b) => a > b ? a : b) -
-          nextHeights.reduce((a, b) => a < b ? a : b);
-
-      if (nextSpread > currentSpread) {
-        sourceColumn.add(movedItem);
-        break;
-      }
-
-      soupOverflowMeals.add(movedItem);
-    }
-
-    final soupColumn = <MenuItem>[
-      ...soupProducts,
-      ...soupOverflowMeals,
-    ];
-
-    final columns = <List<MenuItem>>[
-      mealColumn1,
-      mealColumn2,
-      soupColumn,
-      drinkAndSnackProducts,
-    ];
-
-    final maxRows = columns.fold<int>(
-      0,
-      (maxRows, column) => column.length > maxRows ? column.length : maxRows,
-    );
-
-    final arranged = <MenuItem?>[];
-    for (var row = 0; row < maxRows; row++) {
-      for (final column in columns) {
-        arranged.add(row < column.length ? column[row] : null);
-      }
-    }
-
-    return arranged;
-  }
 
   // ...existing code...
 
@@ -1525,7 +1325,6 @@ class _OrderPageState extends State<OrderPage> {
                                     if (category == null) {
                                       // “全部”按钮，显示所有菜品
                                       setState(() {
-                                        _isAllCategoriesSelected = true;
                                         products =
                                             List<MenuItem>.from(allProducts);
                                         products.sort((a, b) {
@@ -1537,7 +1336,6 @@ class _OrderPageState extends State<OrderPage> {
                                     } else {
                                       final selectedCategoryId = category.id;
                                       setState(() {
-                                        _isAllCategoriesSelected = false;
                                         products = allProducts
                                             .where((item) => item.categoryIds
                                                 .contains(selectedCategoryId))
@@ -1615,51 +1413,37 @@ class _OrderPageState extends State<OrderPage> {
                               ),
                               // 菜品网格 - 使用所有剩余空间
                               Expanded(
-                                child: Builder(
-                                  builder: (_) {
-                                    final arrangedMenuProducts =
-                                        _isAllCategoriesSelected
-                                            ? _arrangeMenuProductsByColumns(
-                                                products)
-                                            : products
-                                                .map<MenuItem?>((item) => item)
-                                                .toList();
-                                    return MenuGridWidget(
-                                      products: arrangedMenuProducts,
-                                      categories: categories, // 新增
-                                      isLoading: isLoading,
-                                      error: error,
-                                      onTap: (item) async {
-                                        final index =
-                                            arrangedMenuProducts.indexOf(item);
+                                child: MenuGridWidget(
+                                  products: products,
+                                  categories: categories,
+                                  isLoading: isLoading,
+                                  error: error,
+                                  onTap: (item) async {
+                                    final index = products.indexOf(item);
+                                    setState(() {
+                                      _isCardPressed = true;
+                                      _pressedCardIndex = index;
+                                    });
+                                    Future.delayed(
+                                        const Duration(milliseconds: 150), () {
+                                      if (mounted) {
                                         setState(() {
-                                          _isCardPressed = true;
-                                          _pressedCardIndex = index;
+                                          _isCardPressed = false;
+                                          _pressedCardIndex = null;
                                         });
-                                        // 150ms后自动恢复动画
-                                        Future.delayed(
-                                            Duration(milliseconds: 150), () {
-                                          if (mounted) {
-                                            setState(() {
-                                              _isCardPressed = false;
-                                              _pressedCardIndex = null;
-                                            });
-                                          }
-                                        });
-                                        // 声音和添加菜品异步进行
-                                        _playClickSound();
-                                        _addProductIntelligently(item);
-                                      },
-                                      calculateTitleFontSize:
-                                          _calculateTitleFontSize,
-                                      isCardPressed: _isCardPressed,
-                                      pressedCardIndex: _pressedCardIndex,
-                                      isAdminMode: _isAdminMode,
-                                      onLongPress: _isAdminMode
-                                          ? _showEditProductDialog
-                                          : null,
-                                    );
+                                      }
+                                    });
+                                    _playClickSound();
+                                    _addProductIntelligently(item);
                                   },
+                                  calculateTitleFontSize:
+                                      _calculateTitleFontSize,
+                                  isCardPressed: _isCardPressed,
+                                  pressedCardIndex: _pressedCardIndex,
+                                  isAdminMode: _isAdminMode,
+                                  onLongPress: _isAdminMode
+                                      ? _showEditProductDialog
+                                      : null,
                                 ),
                               ),
                             ],
@@ -1677,7 +1461,6 @@ class _OrderPageState extends State<OrderPage> {
                     onOrder: _openCheckoutPage,
                     orderedCount: orderedProducts.length,
                     orderEnabled: true,
-                    onSyncRemoteOrders: _syncRemoteOrders, // 新增
                     showQuickSelectButton: true,
                     isQuickSearchActive: _searchInputFocusNode.hasFocus,
                     orderLabel:

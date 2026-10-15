@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:logger/logger.dart';
@@ -6,10 +7,19 @@ import '../utils/order_item_mapper.dart';
 import 'database_service.dart';
 import 'print_service.dart';
 
+enum FetchOrdersStatus { success, error }
+
+class FetchOrdersEvent {
+  final FetchOrdersStatus status;
+  final DateTime timestamp;
+  FetchOrdersEvent(this.status, this.timestamp);
+}
+
 class SyncService {
   static final Logger _logger = Logger();
   late Dio _dio;
   final DatabaseService _databaseService = DatabaseService();
+  final ValueNotifier<FetchOrdersEvent?> fetchOrdersEventNotifier = ValueNotifier<FetchOrdersEvent?>(null);
 
   // 单例模式
   static SyncService? _instance;
@@ -349,11 +359,16 @@ class SyncService {
     }
   }
 
+  void _notifyFetchStatus(FetchOrdersStatus status) {
+    fetchOrdersEventNotifier.value = FetchOrdersEvent(status, DateTime.now());
+  }
+
   /// 拉取服务器新订单并同步到本地数据库
   Future<void> fetchAndSyncRemoteOrders() async {
     try {
       if (!isBaseUrlConfigured) {
         _logger.w('未配置后端API地址，跳过拉取服务器订单任务');
+        _notifyFetchStatus(FetchOrdersStatus.error);
         return;
       }
 
@@ -439,6 +454,7 @@ class SyncService {
 
         if (orders.isEmpty) {
           _logger.i('没有新订单需要确认拉取');
+          _notifyFetchStatus(FetchOrdersStatus.success);
           return;
         } else {
           final resp = await _dio.post('/orders/confirm-pulled-order',
@@ -453,17 +469,21 @@ class SyncService {
               ));
           if (resp.statusCode == 200) {
             _logger.i('服务器订单已成功拉取并处理');
+            _notifyFetchStatus(FetchOrdersStatus.success);
           } else {
             _logger.w(
                 '确认拉取订单失败: ${response.data['message'] ?? response.statusMessage}');
+            _notifyFetchStatus(FetchOrdersStatus.error);
           }
         }
       } else {
         _logger.w(
             '拉取服务器订单失败: ${response.data['message'] ?? response.statusMessage}');
+        _notifyFetchStatus(FetchOrdersStatus.error);
       }
     } catch (e, stack) {
       _logger.e('同步服务器订单异常: $e\n$stack');
+      _notifyFetchStatus(FetchOrdersStatus.error);
     }
   }
 

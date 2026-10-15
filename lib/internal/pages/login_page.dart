@@ -4,6 +4,7 @@ import '../../common/services/api_service.dart';
 import '../../common/services/background_task_manager.dart';
 import '../../common/services/app_initialization_service.dart';
 import '../../common/services/settings_service.dart';
+import '../../common/services/language_service.dart';
 
 class LoginPage extends StatefulWidget {
   final VoidCallback onLoginSuccess;
@@ -41,36 +42,26 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _loadApiServerUrl() async {
-    final box = await Hive.openBox('authBox');
-    final url = box.get('apiServerUrl') as String?;
-    final defaultUrl = 'http://127.0.0.1:8000/api';
-    final serverUrl = url ?? defaultUrl;
+    final settingsService = SettingsService();
+    await settingsService.initialize();
+    final settings = settingsService.getSettings();
+    final serverUrl = settings.apiServerUrl.isNotEmpty
+        ? settings.apiServerUrl
+        : 'http://127.0.0.1:8000/api';
     _apiServerUrlController.text = serverUrl;
   }
 
-  String _cleanUrlFormat(String url) {
-    // 去除末尾的 / 
-    return url.endsWith('/') ? url.substring(0, url.length - 1) : url;
-  }
-
   Future<void> _persistServerUrl(String serverUrl, {bool clearAuthToken = false}) async {
-    final api = ApiService();
-    api.updateBaseUrl(serverUrl);
+    final normalizedUrl = SettingsService.cleanUrlFormat(serverUrl);
+    final settingsService = SettingsService();
+    await settingsService.initialize();
+    await settingsService.updateApiServerUrl(normalizedUrl);
 
-    final box = await Hive.openBox('authBox');
-    await box.put('apiServerUrl', serverUrl);
+    final api = ApiService();
     if (clearAuthToken) {
+      final box = await Hive.openBox('authBox');
       await box.delete('authToken');
       api.clearAuthToken();
-    }
-
-    final settingsService = SettingsService();
-    try {
-      await settingsService.initialize();
-      await settingsService.updateApiServerUrl(serverUrl);
-      print('[LOGIN] Settings synchronized successfully');
-    } catch (e) {
-      print('[LOGIN] Warning: Could not sync to settings: $e');
     }
   }
 
@@ -86,25 +77,27 @@ class _LoginPageState extends State<LoginPage> {
       _error = null;
     });
     try {
-      final url = _cleanUrlFormat(_apiServerUrlController.text.trim());
+      final url = SettingsService.cleanUrlFormat(_apiServerUrlController.text);
       if (url.isEmpty) {
         setState(() => _error = '请输入服务器地址');
         return;
       }
 
       final api = ApiService();
-      api.updateBaseUrl(url);
+      await api.updateBaseUrl(url);
 
       // 尝试连接服务器健康检查接口
       try {
-        final response = await api.get('/health').timeout(Duration(seconds: 10));
+        final response = await api.get('/health').timeout(const Duration(seconds: 10));
         if (response.statusCode != null && response.statusCode! >= 200 && response.statusCode! < 300) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('连接成功'),
-              backgroundColor: Colors.green,
-            ),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('连接成功'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
         } else {
           setState(() => _error = '连接失败: ${response.statusCode}');
         }
@@ -114,7 +107,9 @@ class _LoginPageState extends State<LoginPage> {
     } catch (e) {
       setState(() => _error = '测试失败: $e');
     } finally {
-      setState(() => _isTestingConnection = false);
+      if (mounted) {
+        setState(() => _isTestingConnection = false);
+      }
     }
   }
 
@@ -124,7 +119,7 @@ class _LoginPageState extends State<LoginPage> {
       _error = null;
     });
     print('[LOGIN] Start login');
-    final serverUrl = _cleanUrlFormat(_apiServerUrlController.text.trim());
+    final serverUrl = SettingsService.cleanUrlFormat(_apiServerUrlController.text);
     print('[LOGIN] Server URL: ' + serverUrl);
     print('[LOGIN] Username: ' + _usernameController.text.trim());
     try {
@@ -134,7 +129,7 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       final api = ApiService();
-      api.updateBaseUrl(serverUrl);
+      await api.updateBaseUrl(serverUrl);
       print('[LOGIN] ApiService baseUrl set to: ' + serverUrl);
 
       const loginData = {
@@ -197,7 +192,7 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      final serverUrl = _cleanUrlFormat(_apiServerUrlController.text.trim());
+      final serverUrl = SettingsService.cleanUrlFormat(_apiServerUrlController.text);
       if (serverUrl.isEmpty) {
         setState(() => _error = '请输入服务器地址');
         return;
@@ -226,7 +221,7 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('登录'),
+        title: Text('login_title'.tr),
       ),
       body: Center(
         child: Padding(
@@ -239,46 +234,46 @@ class _LoginPageState extends State<LoginPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('登录', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                    SizedBox(height: 24),
+                    Text('login_title'.tr, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 24),
                     // API Server URL Configuration
                     TextField(
                       controller: _apiServerUrlController,
                       decoration: InputDecoration(
-                        labelText: '服务器地址',
-                        hintText: 'http://127.0.0.1:8000/api',
-                        prefixIcon: Icon(Icons.cloud),
-                        border: OutlineInputBorder(),
+                        labelText: 'api_url_label'.tr,
+                        hintText: 'api_url_hint'.tr,
+                        prefixIcon: const Icon(Icons.cloud),
+                        border: const OutlineInputBorder(),
                       ),
                       keyboardType: TextInputType.url,
                     ),
-                    SizedBox(height: 12),
+                    const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
                         onPressed: _isTestingConnection ? null : _testConnection,
                         icon: _isTestingConnection
-                            ? SizedBox(
+                            ? const SizedBox(
                                 width: 20,
                                 height: 20,
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : Icon(Icons.wifi_find),
-                        label: Text(_isTestingConnection ? '测试中...' : '测试连接'),
+                            : const Icon(Icons.wifi_find),
+                        label: Text(_isTestingConnection ? 'testing'.tr : 'test_connection'.tr),
                       ),
                     ),
-                    SizedBox(height: 24),
+                    const SizedBox(height: 24),
                     TextField(
                       controller: _usernameController,
-                      decoration: InputDecoration(labelText: '账号'),
+                      decoration: InputDecoration(labelText: 'username'.tr),
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
                     TextField(
                       controller: _passwordController,
-                      decoration: InputDecoration(labelText: '密码'),
+                      decoration: InputDecoration(labelText: 'password'.tr),
                       obscureText: true,
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
                     Row(
                       children: [
                         Checkbox(
@@ -289,16 +284,16 @@ class _LoginPageState extends State<LoginPage> {
                             });
                           },
                         ),
-                        Text('记住账号和密码'),
+                        Text('remember_me'.tr),
                       ],
                     ),
-                    SizedBox(height: 24),
+                    const SizedBox(height: 24),
                     if (_error != null)
                       Padding(
-                        padding: EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.only(bottom: 12),
                         child: Text(
                           _error!,
-                          style: TextStyle(color: Colors.red),
+                          style: const TextStyle(color: Colors.red),
                           textAlign: TextAlign.center,
                         ),
                       ),
@@ -306,15 +301,7 @@ class _LoginPageState extends State<LoginPage> {
                       width: double.infinity,
                       child: ElevatedButton(
                         onPressed: _isLoading ? null : _login,
-                        child: _isLoading ? CircularProgressIndicator() : Text('登录'),
-                      ),
-                    ),
-                    SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton(
-                        onPressed: _isLoading ? null : _skipLogin,
-                        child: Text('跳过登录'),
+                        child: _isLoading ? const CircularProgressIndicator() : Text('login_btn'.tr),
                       ),
                     ),
                   ],

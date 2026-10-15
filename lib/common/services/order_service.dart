@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
 import '../models/order_model.dart';
 import '../models/server_order_model.dart';
@@ -147,7 +148,11 @@ class OrderService {
   /// 异步推送同步到后端
   Future<void> _syncToBackendWithPrintStatus(OrderModel order) async {
     try {
-      // 调用同步服务，传递printStatus
+      //首先将order的sync状态初始化为pending
+      await _databaseService.updateOrder(
+        order.copyWith(syncStatus: SyncStatus.pending),
+      );
+      // 调用同步服务
       await _syncService.syncOrder(order.id, printStatus: order.printStatus);
     } catch (e) {
       _logger.e('同步到后端失败: ${order.id}, 错误: $e');
@@ -162,7 +167,6 @@ class OrderService {
           lastRetryTime: DateTime.now(),
         ));
       }
-
       // 记录日志
       await _databaseService.insertLog(LogModel(
         orderId: order.id,
@@ -177,11 +181,9 @@ class OrderService {
   /// 添加到打印队列
   Future<void> _addToPrintQueue(OrderModel order) async {
     try {
-      final settingsService = SettingsService();
-      await settingsService.initialize();
-      final settings = settingsService.getSettings();
+      final isAutoPrint = await _printService.isAutoPrintEnabled();
 
-      if (!settings.enableAutoPrint) {
+      if (!isAutoPrint) {
         if (order.printStatus != PrintStatus.skipped) {
           await _databaseService.updateOrder(
             order.copyWith(
@@ -340,10 +342,21 @@ class OrderService {
     return await _databaseService.getPendingOnlineOrders(date: date);
   }
 
-  /// 获取订单列表，支持按日期过滤（如果传入 date 则返回该日期的所有订单）
-  Future<List<OrderModel>> getOrders(
-      {int limit = 50, int offset = 0, DateTime? date}) async {
-    if (date != null) {
+  /// 获取订单列表，支持按单日期/日期范围/全部过滤
+  Future<List<OrderModel>> getOrders({
+    int limit = 50,
+    int offset = 0,
+    DateTime? date,
+    DateTimeRange? dateRange,
+  }) async {
+    if (dateRange != null) {
+      return await _databaseService.getOrdersByDateRange(
+        dateRange.start,
+        dateRange.end,
+        limit: limit,
+        offset: offset,
+      );
+    } else if (date != null) {
       return await _databaseService.getOrdersByDate(date);
     }
     return await _databaseService.getAllOrders(limit: limit, offset: offset);
@@ -354,23 +367,16 @@ class OrderService {
     return await _databaseService.getOrder(orderId);
   }
 
-  /// 获取订单统计，支持按日期统计（如果传入 date，则 todayCount 基于该日期）
-  Future<Map<String, int>> getOrderStats({DateTime? date}) async {
+  /// 获取订单统计，支持按日期/日期范围统计
+  Future<Map<String, int>> getOrderStats({
+    DateTime? date,
+    DateTimeRange? dateRange,
+  }) async {
     // call via dynamic to avoid potential static analysis mismatch in some toolchains
-    return await (_databaseService as dynamic).getOrderStats(date: date);
-  }
-
-  /// 清空指定日期的订单（测试用）
-  Future<void> clearOrdersByDate(DateTime date) async {
-    final orders = await _databaseService.getOrdersByDate(date);
-    for (final order in orders) {
-      await _databaseService.deleteOrder(order.id);
-    }
-  }
-
-  /// 清空所有订单（测试用）
-  Future<void> clearAllOrders() async {
-    await _databaseService.deleteAllOrders();
+    return await (_databaseService as dynamic).getOrderStats(
+      date: date,
+      dateRange: dateRange,
+    );
   }
 
   /// 获取订单日志
@@ -585,10 +591,21 @@ class OrderService {
   }
 
   /// 从服务器获取订单
-  Future<List<ServerOrderModel>> getServerOrders({DateTime? date}) async {
+  Future<List<ServerOrderModel>> getServerOrders({
+    DateTime? date,
+    DateTimeRange? dateRange,
+  })
+  async {
     try {
       final params = <String, dynamic>{};
-      if (date != null) {
+      if (dateRange != null) {
+        final start = dateRange.start;
+        final end = dateRange.end;
+        params['start_date'] =
+            '${start.year}-${start.month.toString().padLeft(2, '0')}-${start.day.toString().padLeft(2, '0')}';
+        params['end_date'] =
+            '${end.year}-${end.month.toString().padLeft(2, '0')}-${end.day.toString().padLeft(2, '0')}';
+      } else if (date != null) {
         params['date'] =
             '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
       }
@@ -637,8 +654,8 @@ class OrderService {
     }
   }
 
-  /// 拉取服务器订单到本地数据库
-  Future<String> pullServerOrderToLocal(ServerOrderModel serverOrder) async {
+  /// 落地服务器订单到本地数据库
+  Future<String> putServerOrderToLocal(ServerOrderModel serverOrder) async {
     try {
       final alreadyExistsById =
           await _databaseService.existsOrderByRemoteId(serverOrder.id);
@@ -647,14 +664,16 @@ class OrderService {
               .existsOrderByRemoteNumber(serverOrder.orderNumber)
           : false;
 
+      //该服务器订单已在本地落单
       if (alreadyExistsById || alreadyExistsByNumber) {
-        throw Exception('该服务器订单已在本地落单，无需重复拉取');
+        return '';
       }
 
-      final DateTime orderTime = serverOrder.orderTime ?? DateTime.now();
-      final DateTime createdAt = serverOrder.createdAt != null
-          ? DateTime.parse(serverOrder.createdAt!)
-          : DateTime.now();
+      final DateTime orderTime = serverOrder.orderTime ??
+          (serverOrder.createdAt != null
+              ? DateTime.tryParse(serverOrder.createdAt!) ?? DateTime.now()
+              : DateTime.now());
+      final DateTime createdAt = orderTime;
 
       final String orderId =
           '${serverOrder.orderNo}-${createdAt.month.toString().padLeft(2, '0')}${createdAt.day.toString().padLeft(2, '0')}${createdAt.hour.toString().padLeft(2, '0')}${createdAt.minute.toString().padLeft(2, '0')}${createdAt.second.toString().padLeft(2, '0')}';
@@ -679,28 +698,16 @@ class OrderService {
         type: serverOrder.type,
         remoteOrderId: serverOrder.id,
         remoteOrderNumber: serverOrder.orderNumber,
+        isOnlineOrder: serverOrder.placeIn == 'online',
       );
 
-      // 保存到本地数据库
+      // 保存到本地数据库 (orders 表和 server_orders 表)
       await _databaseService.insertOrder(order);
-      _logger.i('服务器订单拉取成功: ${serverOrder.orderNumber} -> $orderId');
+      await _databaseService.insertServerOrder(serverOrder.toMap());
+      _logger.i('服务器订单落地成功: ${serverOrder.orderNumber} -> $orderId');
 
       // 添加到打印队列
       await _addToPrintQueue(order);
-
-      // 获取最新的订单
-      final printedOrder = await _databaseService.getOrder(orderId);
-      if (printedOrder != null) {
-        // 异步同步到后端
-        final settingsService = SettingsService();
-        await settingsService.initialize();
-        final settings = settingsService.getSettings();
-        if (settings.enableAutoSync) {
-          _syncToBackendWithPrintStatus(printedOrder);
-        } else {
-          _logger.i('在线订单已落地并完成打印，跳过额外同步');
-        }
-      }
 
       return orderId;
     } catch (e) {
@@ -708,6 +715,8 @@ class OrderService {
       rethrow;
     }
   }
+
+
 
   /// 重新打印服务器订单（不能跳过）
   Future<void> reprintServerOrder(ServerOrderModel serverOrder) async {
@@ -739,6 +748,79 @@ class OrderService {
       _logger.i('服务器订单打印完成: ${serverOrder.orderNumber}');
     } catch (e) {
       _logger.e('打印服务器订单失败: $e');
+      rethrow;
+    }
+  }
+
+  /// 批量拉取服务器订单到本地数据库（用于重装 App 或补充本地历史订单）
+  Future<int> pullAllServerOrdersToLocal({DateTime? date}) async {
+    try {
+      final serverOrders = await getServerOrders(date: date);
+      if (serverOrders.isEmpty) {
+        return 0;
+      }
+
+      int count = 0;
+      for (final serverOrder in serverOrders) {
+        final alreadyExistsById =
+            await _databaseService.existsOrderByRemoteId(serverOrder.id);
+        final alreadyExistsByNumber = serverOrder.orderNumber.isNotEmpty
+            ? await _databaseService
+                .existsOrderByRemoteNumber(serverOrder.orderNumber)
+            : false;
+
+        if (alreadyExistsById || alreadyExistsByNumber) {
+          continue; // 本地已存在则跳过，避免重复
+        }
+
+        final DateTime orderTime = serverOrder.orderTime ?? DateTime.now();
+        final DateTime createdAt = serverOrder.createdAt != null
+            ? DateTime.parse(serverOrder.createdAt!)
+            : DateTime.now();
+
+        final String orderId =
+            '${serverOrder.orderNo}-${createdAt.month.toString().padLeft(2, '0')}${createdAt.day.toString().padLeft(2, '0')}${createdAt.hour.toString().padLeft(2, '0')}${createdAt.minute.toString().padLeft(2, '0')}${createdAt.second.toString().padLeft(2, '0')}';
+
+        // 订单状态解析
+        OrderStatus orderStatus = OrderStatus.completed;
+        if (serverOrder.status == 'pending') {
+          orderStatus = OrderStatus.pending;
+        } else if (serverOrder.status == 'cancelled') {
+          orderStatus = OrderStatus.cancelled;
+        }
+
+        final order = OrderModel(
+          id: orderId,
+          orderNo: serverOrder.orderNo,
+          orderTime: orderTime,
+          createdAt: createdAt,
+          items: jsonEncode(serverOrder.items),
+          totalAmount: double.tryParse(serverOrder.finalAmount) ?? 0.0,
+          discountAmount: double.tryParse(serverOrder.discountAmount) ?? 0.0,
+          taxRate: double.tryParse(serverOrder.taxRate) ?? 10.0,
+          serviceFee: 0.0,
+          cashAmount: 0.0,
+          posAmount: 0.0,
+          orderStatus: orderStatus,
+          syncStatus: SyncStatus.synced,
+          printStatus: PrintStatus.skipped, // 批量拉取历史订单默认跳过打印
+          note: serverOrder.note,
+          type: serverOrder.type,
+          remoteOrderId: serverOrder.id,
+          remoteOrderNumber: serverOrder.orderNumber,
+          isOnlineOrder: serverOrder.placeIn == 'online',
+        );
+
+        // 保存到本地 orders 表与 server_orders 表
+        await _databaseService.insertOrder(order);
+        await _databaseService.insertServerOrder(serverOrder.toMap());
+        count++;
+      }
+
+      _logger.i('批量拉取服务器订单完成，成功同步恢复 $count 个订单到本地数据库');
+      return count;
+    } catch (e) {
+      _logger.e('批量拉取服务器订单失败: $e');
       rethrow;
     }
   }

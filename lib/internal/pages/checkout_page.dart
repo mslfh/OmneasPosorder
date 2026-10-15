@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../common/services/language_service.dart';
 import '../../common/models/order_model.dart';
 import '../../common/services/order_service.dart';
+import '../../common/services/print_service.dart';
 import '../../common/services/settings_service.dart';
 import 'order_list_page.dart';
 import '../utils/order_selected.dart';
@@ -183,7 +185,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
       canPop: false, // disable system back navigation
       child: Scaffold(
         appBar: AppBar(
-          title: Text('Checkout'),
+          title: Text('checkout'.tr),
           leading: IconButton(
             icon: Icon(Icons.arrow_back),
             onPressed: () => Navigator.of(context).pop(),
@@ -678,25 +680,27 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                 ],
                               ),
                               SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  Icon(Icons.print,
-                                      color: settings.enableAutoPrint
-                                          ? Colors.blue
-                                          : Colors.grey,
-                                      size: 16),
-                                  SizedBox(width: 4),
-                                  Text(
-                                    settings.enableAutoPrint
-                                        ? 'Sending to printer'
-                                        : 'Printing skipped',
-                                    style: TextStyle(
-                                        color: settings.enableAutoPrint
-                                            ? Colors.blue
-                                            : Colors.grey,
-                                        fontSize: 12),
-                                  ),
-                                ],
+                              FutureBuilder<bool>(
+                                future: PrintService().isAutoPrintEnabled(),
+                                builder: (context, snapshot) {
+                                  final isPrinting = snapshot.data ?? settings.enableAutoPrint;
+                                  return Row(
+                                    children: [
+                                      Icon(Icons.print,
+                                          color: isPrinting ? Colors.blue : Colors.grey,
+                                          size: 16),
+                                      SizedBox(width: 4),
+                                      Text(
+                                        isPrinting
+                                            ? 'Sending to printer'
+                                            : 'Printing skipped',
+                                        style: TextStyle(
+                                            color: isPrinting ? Colors.blue : Colors.grey,
+                                            fontSize: 12),
+                                      ),
+                                    ],
+                                  );
+                                },
                               ),
                             ],
                           );

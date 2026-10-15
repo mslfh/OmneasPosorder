@@ -1,30 +1,62 @@
 import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
+import 'package:hive/hive.dart';
 import 'database_service.dart';
 import 'background_task_manager.dart';
 import 'settings_service.dart';
-import 'sync_service.dart';
-import 'print_service.dart';
-import 'dart:io';
+import 'api_service.dart';
+import '../../internal/services/menu_data_service.dart';
 
 class AppInitializationService {
   static final Logger _logger = Logger();
   static bool _isInitialized = false;
 
-  /// 初始化应用（只做本地初始化，不启动后台任务和监听）
-  static Future<void> initialize() async {
+  /// 初始化应用（包含数据库、设置服务、Auth Token恢复、初始数据同步及后台任务）
+  static Future<void> initialize({void Function(String status)? onStatusUpdate}) async {
     if (_isInitialized) return;
     try {
       _logger.i('开始初始化应用...');
 
-      // 1. 初始化数据库
+      // 1. 初始化数据库及设置服务
+      onStatusUpdate?.call('正在初始化数据库及设置...');
       await _initializeDatabase();
-      // 不再自动初始化后台任务和网络监听
+
+      // 2. 恢复 Auth Token 到 ApiService
+      try {
+        final box = await Hive.openBox('authBox');
+        final token = box.get('authToken');
+        if (token != null && token is String && token.isNotEmpty) {
+          ApiService().setAuthToken(token);
+        }
+      } catch (e) {
+        _logger.w('恢复 Auth Token 失败: $e');
+      }
+
+      // 3. 应用启动时同步获取最新菜单数据
+      onStatusUpdate?.call('正在获取最新数据...');
+      await _fetchInitialData();
+
+      // 4. 初始化后台任务管理器
+      onStatusUpdate?.call('正在初始化后台服务...');
+      await _initializeBackgroundTasks();
+
       _isInitialized = true;
       _logger.i('应用初始化完成');
     } catch (e) {
       _logger.e('应用初始化失败: $e');
       rethrow;
+    }
+  }
+
+  /// 启动网络拉取等初始数据
+  static Future<void> _fetchInitialData() async {
+    try {
+      _logger.i('🚀 应用启动，开始获取最新数据...');
+      await MenuDataService().fetchAndCacheInitialData();
+      _logger.i('✅ 应用启动数据获取完成');
+    } catch (e) {
+      _logger.w('❌ 应用启动数据获取失败: $e');
+      _logger.i('将使用本地缓存数据（如果有的话）');
     }
   }
 
@@ -46,7 +78,6 @@ class AppInitializationService {
     }
   }
 
-
   /// 初始化数据库
   static Future<void> _initializeDatabase() async {
     try {
@@ -59,27 +90,11 @@ class AppInitializationService {
       // 执行数据库维护任务
       await databaseService.cleanOldLogs();
 
-      // 初始化设置服务
+      // 初始化设置服务（内部会自动将配置应用到 SyncService, PrintService, ApiService）
       final settingsService = SettingsService();
       await settingsService.initialize();
 
-      // 加载设置并应用到服务
-      final settings = settingsService.getSettings();
-      final syncService = SyncService();
-      final printService = PrintService();
-
-      // 应用API服务器设置
-      syncService.configureBaseUrl(settings.apiServerUrl);
-      _logger.i('Applied API server URL: ${settings.apiServerUrl}');
-
-      // 应用打印机设置
-      printService.configurePrinter(
-        printerIP: settings.printerAddress,
-        printerPort: settings.printerPort,
-      );
-      _logger.i('Applied printer config: ${settings.printerAddress}:${settings.printerPort}');
-
-      _logger.i('数据库初始化完成');
+      _logger.i('数据库及设置初始化完成');
     } catch (e) {
       _logger.e('数据库初始化失败: $e');
       rethrow;
@@ -91,15 +106,9 @@ class AppInitializationService {
     try {
       _logger.i('初始化后台任务管理器...');
 
-      // 检查是否是移动平台（workmanager只在移动平台支持）
-      if (Platform.isAndroid || Platform.isIOS) {
-        final taskManager = BackgroundTaskManager();
-        await taskManager.initialize();
-        _logger.i('后台任务管理器初始化完成');
-      } else {
-        _logger.i('桌面平台跳过后台任务管理器初始化');
-      }
-
+      final taskManager = BackgroundTaskManager();
+      await taskManager.initialize();
+      _logger.i('后台任务管理器初始化完成');
     } catch (e) {
       _logger.e('后台任务管理器初始化失败: $e');
       // 后台任务失败不应该阻止应用启动
@@ -140,10 +149,10 @@ class AppInitializationService {
 class AppInitializationPage extends StatefulWidget {
   final Widget child;
 
-  const AppInitializationPage({Key? key, required this.child}) : super(key: key);
+  const AppInitializationPage({super.key, required this.child});
 
   @override
-  _AppInitializationPageState createState() => _AppInitializationPageState();
+  State<AppInitializationPage> createState() => _AppInitializationPageState();
 }
 
 class _AppInitializationPageState extends State<AppInitializationPage> {
@@ -160,35 +169,35 @@ class _AppInitializationPageState extends State<AppInitializationPage> {
   Future<void> _initializeApp() async {
     try {
       setState(() {
-        _initializationStatus = '正在初始化数据库...';
+        _initializationStatus = '正在初始化系统设置...';
       });
 
-      await Future.delayed(Duration(milliseconds: 500)); // 让用户看到状态
-
-      setState(() {
-        _initializationStatus = '正在设置后台任务...';
-      });
-
-      // 给初始化设置一个超时，避免在新设备或权限/插件异常时无限等待。
-      // 如果初始化过程需要更长时间，可根据设备情况调整 timeoutSeconds。
-      const int timeoutSeconds = 20;
-
-      await AppInitializationService.initialize().timeout(
-        Duration(seconds: timeoutSeconds),
-        onTimeout: () => throw Exception('应用初始化超时（> $timeoutSeconds 秒）。请检查设备网络、存储权限或日志'),
+      await AppInitializationService.initialize(
+        onStatusUpdate: (status) {
+          if (mounted) {
+            setState(() {
+              _initializationStatus = status;
+            });
+          }
+        },
+      ).timeout(
+        const Duration(seconds: 25),
+        onTimeout: () => throw Exception('应用初始化超时（> 25 秒）。请检查设备网络、存储权限或日志'),
       );
 
-      setState(() {
-        _initializationStatus = '初始化完成';
-        _isInitializing = false;
-      });
-
+      if (mounted) {
+        setState(() {
+          _initializationStatus = '初始化完成';
+          _isInitializing = false;
+        });
+      }
     } catch (e) {
-      setState(() {
-        // 保留简短错误，帮助用户重试或查看日志
-        _errorMessage = e.toString();
-        _isInitializing = false;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isInitializing = false;
+        });
+      }
     }
   }
 
@@ -201,10 +210,10 @@ class _AppInitializationPageState extends State<AppInitializationPage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                CircularProgressIndicator(
+                const CircularProgressIndicator(
                   valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
                 ),
-                SizedBox(height: 24),
+                const SizedBox(height: 24),
                 Text(
                   _initializationStatus,
                   style: TextStyle(
@@ -224,17 +233,17 @@ class _AppInitializationPageState extends State<AppInitializationPage> {
         home: Scaffold(
           body: Center(
             child: Padding(
-              padding: EdgeInsets.all(24),
+              padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.error_outline,
                     size: 64,
                     color: Colors.red,
                   ),
-                  SizedBox(height: 24),
-                  Text(
+                  const SizedBox(height: 24),
+                  const Text(
                     '初始化失败',
                     style: TextStyle(
                       fontSize: 20,
@@ -242,7 +251,7 @@ class _AppInitializationPageState extends State<AppInitializationPage> {
                       color: Colors.red,
                     ),
                   ),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   Text(
                     _errorMessage!,
                     textAlign: TextAlign.center,
@@ -251,7 +260,7 @@ class _AppInitializationPageState extends State<AppInitializationPage> {
                       color: Colors.grey[600],
                     ),
                   ),
-                  SizedBox(height: 24),
+                  const SizedBox(height: 24),
                   ElevatedButton(
                     onPressed: () {
                       setState(() {
@@ -261,7 +270,7 @@ class _AppInitializationPageState extends State<AppInitializationPage> {
                       });
                       _initializeApp();
                     },
-                    child: Text('重试'),
+                    child: const Text('重试'),
                   ),
                 ],
               ),

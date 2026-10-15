@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:logger/logger.dart';
 import '../models/order_model.dart';
+import '../models/printer_station_model.dart';
 import 'dart:convert';
 
 // 添加平台检测导入
@@ -37,7 +38,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 3,
+      version: 5,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -135,6 +136,31 @@ class DatabaseService {
       )
     ''');
 
+    // 创建设置表
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+
+    // 创建打印位表
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS printer_stations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        connection_type TEXT NOT NULL,
+        ip TEXT,
+        port INTEGER NOT NULL DEFAULT 9100,
+        device_address TEXT,
+        enable_auto_print INTEGER NOT NULL DEFAULT 1,
+        is_enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL
+      )
+    ''');
+
     // 创建索引
     await db.execute(
         'CREATE INDEX idx_orders_status ON orders(order_status, sync_status, print_status)');
@@ -202,6 +228,118 @@ class DatabaseService {
       try {
         await db.execute('CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)');
       } catch (_) {}
+    }
+
+    // 从版本 3 升级到版本 4：添加 settings 表
+    if (oldVersion < 4) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+          )
+        ''');
+      } catch (e) {
+        _logger.w('Upgrade settings table error: $e');
+      }
+    }
+
+    // 从版本 4 升级到版本 5：添加 printer_stations 表
+    if (oldVersion < 5) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS printer_stations (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content_type TEXT NOT NULL,
+            connection_type TEXT NOT NULL,
+            ip TEXT,
+            port INTEGER NOT NULL DEFAULT 9100,
+            device_address TEXT,
+            enable_auto_print INTEGER NOT NULL DEFAULT 1,
+            is_enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+          )
+        ''');
+      } catch (e) {
+        _logger.w('Create printer_stations table error: $e');
+      }
+    }
+  }
+
+  // ========== 设置项操作 ==========
+
+  /// 获取单个设置项
+  Future<String?> getSetting(String key) async {
+    final db = await database;
+    try {
+      final maps = await db.query(
+        'settings',
+        where: 'key = ?',
+        whereArgs: [key],
+      );
+      if (maps.isNotEmpty) {
+        return maps.first['value'] as String?;
+      }
+      return null;
+    } catch (e) {
+      _logger.e('获取设置项失败 ($key): $e');
+      return null;
+    }
+  }
+
+  /// 获取所有设置项
+  Future<Map<String, String>> getAllSettings() async {
+    final db = await database;
+    try {
+      final maps = await db.query('settings');
+      final result = <String, String>{};
+      for (final map in maps) {
+        final k = map['key'] as String?;
+        final v = map['value'] as String?;
+        if (k != null && v != null) {
+          result[k] = v;
+        }
+      }
+      return result;
+    } catch (e) {
+      _logger.e('获取所有设置项失败: $e');
+      return {};
+    }
+  }
+
+  /// 保存单个设置项
+  Future<void> saveSetting(String key, String value) async {
+    final db = await database;
+    try {
+      await db.insert(
+        'settings',
+        {'key': key, 'value': value},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (e) {
+      _logger.e('保存设置项失败 ($key): $e');
+      rethrow;
+    }
+  }
+
+  /// 批量保存设置项
+  Future<void> saveSettingsMap(Map<String, String> settingsMap) async {
+    final db = await database;
+    try {
+      final batch = db.batch();
+      settingsMap.forEach((key, value) {
+        batch.insert(
+          'settings',
+          {'key': key, 'value': value},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      });
+      await batch.commit(noResult: true);
+    } catch (e) {
+      _logger.e('批量保存设置项失败: $e');
+      rethrow;
     }
   }
 
@@ -350,17 +488,24 @@ class DatabaseService {
 
   // 获取日期范围内的订单
   Future<List<OrderModel>> getOrdersByDateRange(
-      DateTime startDate, DateTime endDate) async {
+      DateTime startDate, DateTime endDate,
+      {int? limit, int? offset}) async {
     final db = await database;
     try {
+      final startIso =
+          DateTime(startDate.year, startDate.month, startDate.day)
+              .toIso8601String();
+      final endIso = DateTime(
+              endDate.year, endDate.month, endDate.day, 23, 59, 59, 999)
+          .toIso8601String();
+
       final maps = await db.query(
         'orders',
-        where: 'created_at >= ? AND created_at <= ?',
-        whereArgs: [
-          startDate.toIso8601String(),
-          endDate.toIso8601String(),
-        ],
+        where: '(created_at >= ? AND created_at <= ?) OR (order_time >= ? AND order_time <= ?)',
+        whereArgs: [startIso, endIso, startIso, endIso],
         orderBy: 'created_at DESC',
+        limit: limit,
+        offset: offset,
       );
 
       return maps.map((map) => OrderModel.fromMap(map)).toList();
@@ -370,7 +515,7 @@ class DatabaseService {
     }
   }
 
-  /// 获取指定日期的所有订单（基于创建时间）
+  /// 获取指定日期的所有订单（基于创建时间或订单时间）
   Future<List<OrderModel>> getOrdersByDate(DateTime date) async {
     final db = await database;
     final startDate =
@@ -381,8 +526,8 @@ class DatabaseService {
     try {
       final List<Map<String, dynamic>> results = await db.query(
         'orders',
-        where: 'created_at BETWEEN ? AND ?',
-        whereArgs: [startDate, endDate],
+        where: '(created_at BETWEEN ? AND ?) OR (order_time BETWEEN ? AND ?)',
+        whereArgs: [startDate, endDate, startDate, endDate],
         orderBy: 'created_at ASC',
       );
 
@@ -410,10 +555,12 @@ class DatabaseService {
     final db = await database;
     try {
       await db.delete('orders');
-      _logger.i('所有订单已删除');
+      await db.delete('logs');
+      await db.delete('server_orders');
+      _logger.i('所有本地订单、服务器订单缓存及日志已清空');
     } catch (e) {
       _logger.e('删除所有订单失败: $e');
-      throw e;
+      rethrow;
     }
   }
 
@@ -466,21 +613,39 @@ class DatabaseService {
 
   // ========== 统计查询 ==========
 
-  // 获取订单统计，支持按日期统计（如果传入 date，则 todayCount 基于该日期）
-  Future<Map<String, int>> getOrderStats({DateTime? date}) async {
+  // 获取订单统计，支持按日期/日期范围统计（如果传入 date/dateRange，则 todayCount 基于该范围，否则全库）
+  Future<Map<String, int>> getOrderStats(
+      {DateTime? date, dynamic dateRange}) async {
     final db = await database;
     try {
-      // 目标日期（默认今天）
-      final base = date ?? DateTime.now();
-      final startOfDay = DateTime(base.year, base.month, base.day);
-      final endOfDay =
-          DateTime(base.year, base.month, base.day, 23, 59, 59, 999);
-
-      final todayCount = Sqflite.firstIntValue(await db.rawQuery(
-            'SELECT COUNT(*) FROM orders WHERE created_at BETWEEN ? AND ?',
-            [startOfDay.toIso8601String(), endOfDay.toIso8601String()],
-          )) ??
-          0;
+      int todayCount = 0;
+      if (dateRange != null) {
+        final startIso = DateTime(dateRange.start.year, dateRange.start.month,
+                dateRange.start.day)
+            .toIso8601String();
+        final endIso = DateTime(dateRange.end.year, dateRange.end.month,
+                dateRange.end.day, 23, 59, 59, 999)
+            .toIso8601String();
+        todayCount = Sqflite.firstIntValue(await db.rawQuery(
+              'SELECT COUNT(*) FROM orders WHERE created_at BETWEEN ? AND ?',
+              [startIso, endIso],
+            )) ??
+            0;
+      } else if (date != null) {
+        final startOfDay = DateTime(date.year, date.month, date.day);
+        final endOfDay =
+            DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
+        todayCount = Sqflite.firstIntValue(await db.rawQuery(
+              'SELECT COUNT(*) FROM orders WHERE created_at BETWEEN ? AND ?',
+              [startOfDay.toIso8601String(), endOfDay.toIso8601String()],
+            )) ??
+            0;
+      } else {
+        todayCount = Sqflite.firstIntValue(await db.rawQuery(
+              'SELECT COUNT(*) FROM orders',
+            )) ??
+            0;
+      }
 
       // 待同步订单数（全库）
       final pendingSyncCount = Sqflite.firstIntValue(await db.rawQuery(
@@ -588,6 +753,78 @@ class DatabaseService {
       whereArgs: [remoteOrderId],
     );
     return result.isNotEmpty;
+  }
+
+  /// 根据 remote_order_id 获取本地订单
+  Future<OrderModel?> getOrderByRemoteId(int remoteOrderId) async {
+    final db = await database;
+    final results = await db.query(
+      'orders',
+      where: 'remote_order_id = ?',
+      whereArgs: [remoteOrderId],
+      limit: 1,
+    );
+    if (results.isNotEmpty) {
+      return OrderModel.fromMap(results.first);
+    }
+    return null;
+  }
+
+  /// 根据 remote_order_number 获取本地订单
+  Future<OrderModel?> getOrderByRemoteNumber(String remoteOrderNumber) async {
+    final db = await database;
+    final results = await db.query(
+      'orders',
+      where: 'remote_order_number = ?',
+      whereArgs: [remoteOrderNumber],
+      limit: 1,
+    );
+    if (results.isNotEmpty) {
+      return OrderModel.fromMap(results.first);
+    }
+    return null;
+  }
+
+  // ========== 打印位 (PrinterStation) 操作 ==========
+
+  /// 插入打印位
+  Future<void> insertPrinterStation(PrinterStationModel station) async {
+    final db = await database;
+    await db.insert(
+      'printer_stations',
+      station.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// 更新打印位
+  Future<void> updatePrinterStation(PrinterStationModel station) async {
+    final db = await database;
+    await db.update(
+      'printer_stations',
+      station.toMap(),
+      where: 'id = ?',
+      whereArgs: [station.id],
+    );
+  }
+
+  /// 删除打印位
+  Future<void> deletePrinterStation(String id) async {
+    final db = await database;
+    await db.delete('printer_stations', where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// 获取所有打印位（为空则返回空列表，由用户手动创建）
+  Future<List<PrinterStationModel>> getPrinterStations() async {
+    final db = await database;
+    final maps = await db.query('printer_stations', orderBy: 'created_at ASC');
+    return maps.map((m) => PrinterStationModel.fromMap(m)).toList();
+  }
+
+  /// 获取已启用的打印位
+  Future<List<PrinterStationModel>> getEnabledPrinterStations() async {
+    final allStations = await getPrinterStations();
+    return allStations.where((s) => s.isEnabled).toList();
   }
 
   // 关闭数据库

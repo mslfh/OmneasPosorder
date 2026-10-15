@@ -1,4 +1,3 @@
-import 'dart:convert';
 
 class StoreHoursConfig {
   final WeeklySchedule weeklySchedule;

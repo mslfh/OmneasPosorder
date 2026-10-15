@@ -1,21 +1,23 @@
 import 'package:flutter/material.dart';
 
 import '../../common/services/order_match_service.dart';
-import '../services/order_match_manager.dart';
+import '../../common/services/language_service.dart';
+import 'order_match_ui_builder.dart';
 
 Future<void> showOrderMatchDetailsDialog({
   required BuildContext context,
   required OrderMatchResult result,
+  VoidCallback? onNavigateToOrderList,
   Future<void> Function()? onRefresh,
 }) async {
+  final color = OrderMatchUIBuilder.getSeverityColor(result.severity);
+
   await showDialog<void>(
     context: context,
     builder: (dialogContext) => AlertDialog(
       title: Text(
-        result.isMatched ? '✓ 订单匹配成功' : '✗ 订单不匹配',
-        style: TextStyle(
-          color: result.isMatched ? Colors.green : Colors.red,
-        ),
+        result.isMatched ? '✓ ${'matched'.tr}' : '✗ ${'mismatched'.tr}',
+        style: TextStyle(color: color, fontWeight: FontWeight.bold),
       ),
       content: SingleChildScrollView(
         child: Column(
@@ -24,26 +26,10 @@ Future<void> showOrderMatchDetailsDialog({
           children: [
             OrderMatchUIBuilder.buildDetailsHeader(result),
             const SizedBox(height: 12),
-            if (result.serverData != null) ...[
-              OrderMatchUIBuilder.buildDataCard(
-                title: '服务器数据',
-                data: result.serverData!,
-                accentColor: Colors.blue,
-              ),
-              const SizedBox(height: 12),
-            ],
-            if (result.localData != null) ...[
-              OrderMatchUIBuilder.buildDataCard(
-                title: '本地数据',
-                data: result.localData!,
-                accentColor: Colors.orange,
-              ),
-              const SizedBox(height: 12),
-            ],
             if (result.getMismatchedItems().isNotEmpty) ...[
-              const Text(
-                '不匹配项',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              Text(
+                'mismatched'.tr,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               ),
               const SizedBox(height: 8),
               ...result.getMismatchedItems().map(
@@ -52,12 +38,12 @@ Future<void> showOrderMatchDetailsDialog({
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.error_outline, size: 16, color: Colors.red),
+                      Icon(Icons.error_outline, size: 16, color: color),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           item,
-                          style: TextStyle(fontSize: 12, color: Colors.red[700]),
+                          style: TextStyle(fontSize: 12, color: Colors.grey[800]),
                         ),
                       ),
                     ],
@@ -66,29 +52,28 @@ Future<void> showOrderMatchDetailsDialog({
               ),
             ] else ...[
               Text(
-                '所有字段均一致，无需修正。',
+                'matched'.tr,
                 style: TextStyle(fontSize: 12, color: Colors.green[700]),
               ),
             ],
           ],
         ),
       ),
-       actions: [
-         TextButton(
-           onPressed: () => Navigator.pop(dialogContext),
-           child: const Text('关闭'),
-         ),
-         if (onRefresh != null)
-           ElevatedButton.icon(
-             onPressed: () async {
-               Navigator.pop(dialogContext);
-               await onRefresh();
-             },
-             icon: const Icon(Icons.refresh),
-             label: const Text('刷新'),
-           ),
-       ],
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: Text('cancel'.tr),
+        ),
+        if (onNavigateToOrderList != null)
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              onNavigateToOrderList();
+            },
+            icon: const Icon(Icons.receipt_long, size: 16),
+            label: const Text('前往订单管理'),
+          ),
+      ],
     ),
   );
 }
-

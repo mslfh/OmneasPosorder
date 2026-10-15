@@ -27,13 +27,14 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       fetchRemoteOrdersIntervalSeconds: fields[7] as int,
       printRetryTaskIntervalMinutes: fields[8] as int,
       orderMatchCheckIntervalMinutes: fields[9] as int,
+      language: fields[10] as String,
     );
   }
 
   @override
   void write(BinaryWriter writer, AppSettings obj) {
     writer
-      ..writeByte(10)
+      ..writeByte(11)
       ..writeByte(0)
       ..write(obj.apiServerUrl)
       ..writeByte(1)
@@ -53,7 +54,9 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       ..writeByte(8)
       ..write(obj.printRetryTaskIntervalMinutes)
       ..writeByte(9)
-      ..write(obj.orderMatchCheckIntervalMinutes);
+      ..write(obj.orderMatchCheckIntervalMinutes)
+      ..writeByte(10)
+      ..write(obj.language);
   }
 
   @override

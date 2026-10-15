@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/order_selected.dart';
+import '../../common/services/language_service.dart';
 
 class OrderedProductListWidget extends StatelessWidget {
   final List<SelectedProduct> orderedProducts;
@@ -36,10 +37,10 @@ class OrderedProductListWidget extends StatelessWidget {
   }) : super(key: key);
 
   double _calculateTitleFontSize(String title, double containerWidth) {
-    final baseSize = 16.0;
-    final maxSize = 18.0;
-    final minSize = 10.0;
-    final estimatedCharWidth = baseSize * 0.6;
+    const baseSize = 16.0;
+    const maxSize = 18.0;
+    const minSize = 10.0;
+    const estimatedCharWidth = baseSize * 0.6;
     final availableWidth = containerWidth - 40;
     final maxCharsPerLine = (availableWidth / estimatedCharWidth).floor();
     if (title.length <= maxCharsPerLine) {
@@ -61,14 +62,14 @@ class OrderedProductListWidget extends StatelessWidget {
         child: orderedProducts.isEmpty
             ? Center(
                 child: Text(
-                  'No items ordered yet',
+                  'empty_cart_msg'.tr,
                   style: TextStyle(color: Colors.grey[600], fontSize: 14),
                 ),
               )
             : ListView(
                 physics: actualHeight >= maxHeight
-                    ? AlwaysScrollableScrollPhysics()
-                    : NeverScrollableScrollPhysics(),
+                    ? const AlwaysScrollableScrollPhysics()
+                    : const NeverScrollableScrollPhysics(),
                 children: [
                   Wrap(
                     spacing: 4,
@@ -129,7 +130,7 @@ class OrderedProductListWidget extends StatelessWidget {
                                                   child: Container(
                                                     width: 20,
                                                     height: 20,
-                                                    margin: EdgeInsets.only(left: 4),
+                                                    margin: const EdgeInsets.only(left: 4),
                                                     decoration: BoxDecoration(
                                                       color: Colors.red[100],
                                                       borderRadius: BorderRadius.circular(10),
@@ -175,7 +176,7 @@ class OrderedProductListWidget extends StatelessWidget {
                                             ),
                                           ],
                                         ),
-                                        SizedBox(height: 2),
+                                        const SizedBox(height: 2),
                                         Row(
                                           children: [
                                             Expanded(child: Container()),
@@ -201,7 +202,7 @@ class OrderedProductListWidget extends StatelessWidget {
                                                 if (opt.option.extraCost > 0)
                                                   Text(
                                                     '+\$ ${opt.option.extraCost.toStringAsFixed(2)}',
-                                                    style: TextStyle(fontSize: 8, color: Colors.red),
+                                                    style: const TextStyle(fontSize: 8, color: Colors.red),
                                                   ),
                                               ],
                                             ),
@@ -224,4 +225,3 @@ class OrderedProductListWidget extends StatelessWidget {
     );
   }
 }
-

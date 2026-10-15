@@ -9,7 +9,6 @@ import 'order_service.dart';
 import 'sync_service.dart';
 import 'print_service.dart';
 import 'settings_service.dart';
-import '../models/store_hours_config.dart';
 
 class ServiceStatusResult {
   final bool isPrinterConnected;

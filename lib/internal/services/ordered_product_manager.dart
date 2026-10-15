@@ -105,9 +105,9 @@ class OrderedProductManager {
 
   /// 导航已点菜品
   void navigateOrderedProducts(
-    orderedProducts,
-    selectedOrderedProduct,
-    key,
+    List<SelectedProduct> orderedProducts,
+    SelectedProduct? selectedOrderedProduct,
+    String key,
     Function(SelectedProduct?) onUpdate,
   ) {
     if (orderedProducts.isEmpty) return;

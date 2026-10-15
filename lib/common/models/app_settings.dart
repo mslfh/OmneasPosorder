@@ -34,6 +34,9 @@ class AppSettings {
   @HiveField(9)
   int orderMatchCheckIntervalMinutes;
 
+  @HiveField(10)
+  String language; // 'zh' or 'en'
+
   AppSettings({
     this.apiServerUrl = '',
     this.printerAddress = '',
@@ -45,6 +48,7 @@ class AppSettings {
     this.fetchRemoteOrdersIntervalSeconds = 5,
     this.printRetryTaskIntervalMinutes = 2,
     this.orderMatchCheckIntervalMinutes = 5,
+    this.language = 'en',
   });
 
   /// 修复缺失或无效的字段值（用于向后兼容）
@@ -60,6 +64,7 @@ class AppSettings {
       fetchRemoteOrdersIntervalSeconds: fetchRemoteOrdersIntervalSeconds > 0 ? fetchRemoteOrdersIntervalSeconds : 5,
       printRetryTaskIntervalMinutes: printRetryTaskIntervalMinutes > 0 ? printRetryTaskIntervalMinutes : 2,
       orderMatchCheckIntervalMinutes: orderMatchCheckIntervalMinutes > 0 ? orderMatchCheckIntervalMinutes : 5,
+      language: (language == 'en') ? 'en' : 'zh',
     );
   }
 
@@ -74,6 +79,7 @@ class AppSettings {
     int? fetchRemoteOrdersIntervalSeconds,
     int? printRetryTaskIntervalMinutes,
     int? orderMatchCheckIntervalMinutes,
+    String? language,
   }) {
     return AppSettings(
       apiServerUrl: apiServerUrl ?? this.apiServerUrl,
@@ -86,6 +92,7 @@ class AppSettings {
       fetchRemoteOrdersIntervalSeconds: fetchRemoteOrdersIntervalSeconds ?? this.fetchRemoteOrdersIntervalSeconds,
       printRetryTaskIntervalMinutes: printRetryTaskIntervalMinutes ?? this.printRetryTaskIntervalMinutes,
       orderMatchCheckIntervalMinutes: orderMatchCheckIntervalMinutes ?? this.orderMatchCheckIntervalMinutes,
+      language: language ?? this.language,
     );
   }
 
@@ -101,6 +108,7 @@ class AppSettings {
       'fetchRemoteOrdersIntervalSeconds': fetchRemoteOrdersIntervalSeconds,
       'printRetryTaskIntervalMinutes': printRetryTaskIntervalMinutes,
       'orderMatchCheckIntervalMinutes': orderMatchCheckIntervalMinutes,
+      'language': language,
     };
   }
 
@@ -116,6 +124,7 @@ class AppSettings {
       fetchRemoteOrdersIntervalSeconds: json['fetchRemoteOrdersIntervalSeconds'] ?? 5,
       printRetryTaskIntervalMinutes: json['printRetryTaskIntervalMinutes'] ?? 2,
       orderMatchCheckIntervalMinutes: json['orderMatchCheckIntervalMinutes'] ?? 5,
+      language: json['language'] ?? 'en',
     );
   }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../common/services/language_service.dart';
 
 class OrderActionBarWidget extends StatelessWidget {
   final VoidCallback onVoidOrder;
@@ -6,7 +7,6 @@ class OrderActionBarWidget extends StatelessWidget {
   final VoidCallback onShowQuantitySelector;
   final VoidCallback onCustomAction;
   final VoidCallback? onOrder;
-  final VoidCallback onSyncRemoteOrders;
   final VoidCallback? onSelectQuickInput;
   final bool showQuickSelectButton;
   final bool isQuickSearchActive;
@@ -25,7 +25,6 @@ class OrderActionBarWidget extends StatelessWidget {
     required this.onOrder,
     required this.orderedCount,
     required this.orderEnabled,
-    required this.onSyncRemoteOrders,
     this.orderLabel = 'ORDER',
     this.orderIcon = Icons.shopping_cart,
     this.orderColor = Colors.green,
@@ -44,7 +43,7 @@ class OrderActionBarWidget extends StatelessWidget {
           end: Alignment.bottomCenter,
           colors: [Colors.grey[200]!, Colors.grey[300]!],
         ),
-        boxShadow: [
+        boxShadow: const [
           BoxShadow(
             color: Colors.black12,
             blurRadius: 4,
@@ -55,22 +54,22 @@ class OrderActionBarWidget extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
       child: Row(
         children: [
-          // VOID按钮
+          // VOID / 删除按钮
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 3.0),
               child: ElevatedButton.icon(
                 onPressed: onVoidOrder,
-                icon: Icon(Icons.delete_outline, size: 16),
-                label: Text('VOID',
+                icon: const Icon(Icons.delete_outline, size: 16),
+                label: Text('delete'.tr.toUpperCase(),
                     style:
-                        TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                        const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.red[300],
                   foregroundColor: Colors.white,
                   elevation: 3,
                   shadowColor: Colors.red[200],
-                  padding: EdgeInsets.symmetric(vertical: 12),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -78,88 +77,22 @@ class OrderActionBarWidget extends StatelessWidget {
               ),
             ),
           ),
-          // CLEAR按钮
-          // Expanded(
-          //   child: Padding(
-          //     padding: const EdgeInsets.symmetric(horizontal: 3.0),
-          //     child: ElevatedButton.icon(
-          //       onPressed: onClearOrder,
-          //       icon: Icon(Icons.clear_all, size: 16),
-          //       label: Text('CLEAR', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-          //       style: ElevatedButton.styleFrom(
-          //         backgroundColor: Colors.orange[300],
-          //         foregroundColor: Colors.white,
-          //         elevation: 3,
-          //         shadowColor: Colors.orange[200],
-          //         padding: EdgeInsets.symmetric(vertical: 12),
-          //         shape: RoundedRectangleBorder(
-          //           borderRadius: BorderRadius.circular(8),
-          //         ),
-          //       ),
-          //     ),
-          //   ),
-          // ),
-          // X按钮 - 数量设置
+          // QTY 数量按钮
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 3.0),
               child: ElevatedButton.icon(
                 onPressed: onShowQuantitySelector,
-                icon: Icon(Icons.add_circle_outline, size: 16),
-                label: Text('QTY',
+                icon: const Icon(Icons.add_circle_outline, size: 16),
+                label: Text('quantity'.tr.toUpperCase(),
                     style:
-                        TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                        const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.purple[300],
                   foregroundColor: Colors.white,
                   elevation: 3,
                   shadowColor: Colors.purple[200],
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          // Custom按钮
-          // Expanded(
-          //   child: Padding(
-          //     padding: const EdgeInsets.symmetric(horizontal: 3.0),
-          //     child: ElevatedButton.icon(
-          //       onPressed: onCustomAction,
-          //       icon: Icon(Icons.settings, size: 16),
-          //       label: Text('CUSTOM', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600)),
-          //       style: ElevatedButton.styleFrom(
-          //         backgroundColor: Colors.blue[300],
-          //         foregroundColor: Colors.white,
-          //         elevation: 3,
-          //         shadowColor: Colors.blue[200],
-          //         padding: EdgeInsets.symmetric(vertical: 12),
-          //         shape: RoundedRectangleBorder(
-          //           borderRadius: BorderRadius.circular(8),
-          //         ),
-          //       ),
-          //     ),
-          //   ),
-          // ),
-
-          // 拉单按钮
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 3.0),
-              child: ElevatedButton.icon(
-                onPressed: onSyncRemoteOrders,
-                icon: Icon(Icons.cloud_download, size: 16),
-                label: Text('PULL',
-                    style:
-                        TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blueAccent,
-                  foregroundColor: Colors.white,
-                  elevation: 3,
-                  shadowColor: Colors.blue,
-                  padding: EdgeInsets.symmetric(vertical: 12),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -180,8 +113,8 @@ class OrderActionBarWidget extends StatelessWidget {
                     size: 16,
                   ),
                   label: Text(
-                    isQuickSearchActive ? 'SELECT' : 'SEARCH',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                    isQuickSearchActive ? 'confirm'.tr.toUpperCase() : 'quick_input'.tr.toUpperCase(),
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: isQuickSearchActive
@@ -192,7 +125,7 @@ class OrderActionBarWidget extends StatelessWidget {
                     shadowColor: isQuickSearchActive
                         ? Colors.teal[200]
                         : Colors.indigo[200],
-                    padding: EdgeInsets.symmetric(vertical: 12),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -200,7 +133,7 @@ class OrderActionBarWidget extends StatelessWidget {
                 ),
               ),
             ),
-          // Order按钮 - 突出显示
+          // Order按钮 - 结账/下单
           Expanded(
             flex: 2,
             child: Padding(
@@ -211,12 +144,12 @@ class OrderActionBarWidget extends StatelessWidget {
                 label: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(orderLabel,
-                        style: TextStyle(
+                    Text(orderLabel == 'ORDER' ? 'checkout'.tr.toUpperCase() : orderLabel,
+                        style: const TextStyle(
                             fontSize: 13, fontWeight: FontWeight.bold)),
                     if (orderedCount > 0)
-                      Text('$orderedCount items',
-                          style: TextStyle(fontSize: 9)),
+                      Text('$orderedCount ${'quantity'.tr}',
+                          style: const TextStyle(fontSize: 9)),
                   ],
                 ),
                 style: ElevatedButton.styleFrom(
@@ -226,11 +159,11 @@ class OrderActionBarWidget extends StatelessWidget {
                   shadowColor: orderEnabled
                       ? orderColor.withOpacity(0.35)
                       : Colors.grey[300],
-                  padding: EdgeInsets.symmetric(vertical: 12),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  animationDuration: Duration(milliseconds: 200),
+                  animationDuration: const Duration(milliseconds: 200),
                 ),
               ),
             ),

@@ -11,6 +11,7 @@ import '../../common/services/order_match_service.dart';
 import '../../common/services/settings_service.dart';
 import '../../common/services/sync_service.dart';
 import '../../common/services/print_service.dart';
+import '../../common/services/language_service.dart';
 import 'services/service_status_service.dart';
 import 'widgets/order_match_details_dialog.dart';
 import 'widgets/printer_config_dialog.dart';
@@ -18,8 +19,10 @@ import 'widgets/server_config_dialog.dart';
 import 'widgets/service_status_actions.dart';
 
 class InternalApp extends StatefulWidget {
+  const InternalApp({Key? key}) : super(key: key);
+
   @override
-  State<InternalApp> createState() => _InternalAppState();
+  _InternalAppState createState() => _InternalAppState();
 }
 
 class _InternalAppState extends State<InternalApp> {
@@ -91,7 +94,7 @@ class _InternalAppState extends State<InternalApp> {
   }
 
   String _cleanUrlFormat(String url) {
-    return url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+    return SettingsService.cleanUrlFormat(url);
   }
 
   Future<void> _refreshServiceStatus() async {
@@ -154,14 +157,10 @@ class _InternalAppState extends State<InternalApp> {
   }
 
   Future<void> _showOrderMatchDetailsDialog() async {
-    final result = _orderMatchResult;
-    if (result == null) return;
-
-    await showOrderMatchDetailsDialog(
-      context: context,
-      result: result,
-      onRefresh: _requestOrderMatchCheck,
-    );
+    // 点击直接跳转到订单管理 (OrderListPage)
+    setState(() {
+      _selectedIndex = 1;
+    });
   }
 
   /// Handle title tap for admin mode activation
@@ -193,17 +192,17 @@ class _InternalAppState extends State<InternalApp> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: Text('Admin Mode'),
+        title: Text('admin_mode'.tr),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('请输入管理员密码'),
-            SizedBox(height: 16),
+            Text('enter_admin_pwd'.tr),
+            const SizedBox(height: 16),
             TextField(
               controller: passwordController,
               decoration: InputDecoration(
-                labelText: '密码',
-                border: OutlineInputBorder(),
+                labelText: 'pwd_label'.tr,
+                border: const OutlineInputBorder(),
               ),
               obscureText: true,
             ),
@@ -212,32 +211,33 @@ class _InternalAppState extends State<InternalApp> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('取消'),
+            child: Text('cancel'.tr),
           ),
           ElevatedButton(
             onPressed: () async {
               final password = passwordController.text;
               final isValid = await AdminPasswordService.verifyPassword(password);
 
+              if (!mounted) return;
               if (isValid) {
                 Navigator.pop(context);
                 setState(() {
                   _isAdminMode = true;
                 });
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('已进入管理模式')),
+                  SnackBar(content: Text('admin_mode_activated'.tr)),
                 );
               } else {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('密码错误'),
+                    content: Text('invalid_pwd'.tr),
                     backgroundColor: Colors.red,
                   ),
                 );
               }
             },
-            child: Text('验证'),
+            child: Text('confirm'.tr),
           ),
         ],
       ),
@@ -408,24 +408,24 @@ class _InternalAppState extends State<InternalApp> {
       appBarActions.addAll([
         ElevatedButton.icon(
           onPressed: _showChangePasswordDialog,
-          icon: Icon(Icons.lock),
-          label: Text('Change Password'),
+          icon: const Icon(Icons.lock),
+          label: Text('change_pwd'.tr),
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.orange,
             foregroundColor: Colors.white,
           ),
         ),
-        SizedBox(width: 8),
+        const SizedBox(width: 8),
         ElevatedButton.icon(
           onPressed: _exitAdminMode,
-          icon: Icon(Icons.exit_to_app),
-          label: Text('Exit Admin'),
+          icon: const Icon(Icons.exit_to_app),
+          label: Text('exit_admin'.tr),
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.red,
             foregroundColor: Colors.white,
           ),
         ),
-        SizedBox(width: 8),
+        const SizedBox(width: 8),
       ]);
     }
 
@@ -445,22 +445,22 @@ class _InternalAppState extends State<InternalApp> {
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
         selectedItemColor: Colors.blue,
-        items: const [
+        items: [
           BottomNavigationBarItem(
-            icon: Icon(Icons.restaurant_menu),
-            label: 'Menu',
+            icon: const Icon(Icons.restaurant_menu),
+            label: 'nav_menu'.tr,
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.receipt_long),
-            label: 'Orders',
+            icon: const Icon(Icons.receipt_long),
+            label: 'nav_orders'.tr,
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.analytics),
-            label: 'Reports',
+            icon: const Icon(Icons.analytics),
+            label: 'nav_reports'.tr,
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.settings),
-            label: 'Settings',
+            icon: const Icon(Icons.settings),
+            label: 'nav_settings'.tr,
           ),
         ],
       ),
