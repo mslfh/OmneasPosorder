@@ -23,6 +23,12 @@ class MenuItemAdapter extends HiveObject {
   List<int> categoryIds; // 新增字段
   @HiveField(8)
   bool isPrintable; // 是否需要打印到后厨
+  @HiveField(9)
+  String? kitchenPrintName; // 后厨打印名称
+  @HiveField(10)
+  bool isSoldOut; // 是否沽清
+  @HiveField(11)
+  String? soldOutUntil; // 沽清截止时间
 
   MenuItemAdapter({
     required this.id,
@@ -34,6 +40,9 @@ class MenuItemAdapter extends HiveObject {
     required this.sort,
     required this.categoryIds, // 新增字段
     required this.isPrintable,
+    this.kitchenPrintName,
+    this.isSoldOut = false,
+    this.soldOutUntil,
   });
 
   factory MenuItemAdapter.fromMenuItem(MenuItem item) => MenuItemAdapter(
@@ -46,17 +55,23 @@ class MenuItemAdapter extends HiveObject {
     sort: item.sort,
     categoryIds: item.categoryIds, // 新增字段
     isPrintable: item.isPrintable,
+    kitchenPrintName: item.kitchenPrintName,
+    isSoldOut: item.isSoldOut,
+    soldOutUntil: item.soldOutUntil,
   );
 
   MenuItem toMenuItem() => MenuItem(
     id: id,
     code: code,
     title: title,
+    kitchenPrintName: kitchenPrintName,
     acronym: acronym, // 可空类型
     sellingPrice: sellingPrice,
     stock: stock,
     sort: sort,
     categoryIds: categoryIds, // 新增字段
     isPrintable: isPrintable,
+    isSoldOut: isSoldOut,
+    soldOutUntil: soldOutUntil,
   );
 }

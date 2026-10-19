@@ -26,6 +26,10 @@ class OrderService {
   }
 
   // 生成当天的订单编号（仅计算本地生成的订单）
+  Future<String> generateOrderNo() async {
+    return await _generateOrderNo();
+  }
+
   Future<String> _generateOrderNo() async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);

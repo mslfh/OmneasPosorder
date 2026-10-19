@@ -190,6 +190,9 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // 0. 堂食坐台单 Banner
+                      _buildTableOrderBanner(),
+
                       // 1. 数据核对状态 Banner
                       _buildHeaderMatchBanner(),
                       const SizedBox(height: 16),
@@ -215,6 +218,54 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                     ],
                   ),
                 ),
+    );
+  }
+
+  // 0. 堂食坐台单 Banner
+  Widget _buildTableOrderBanner() {
+    final local = _order!;
+    final tableName = local.tableName ?? (local.isTableOrder ? '堂食坐台' : null);
+    if (tableName == null) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.amber.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.amber.shade400, width: 1.2),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.table_restaurant, color: Colors.amber[900], size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '堂食坐台订单：$tableName',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 15,
+                color: Colors.amber[900],
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.amber[800],
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Text(
+              '坐台单',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -391,7 +442,9 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
             ),
             _buildComparisonRow(
               '订单类型',
-              local.type ?? 'dinein',
+              local.isTableOrder
+                  ? '堂食坐台 (${local.tableName ?? "坐台单"})'
+                  : (local.type ?? 'takeaway'),
               server?.type ?? '-',
             ),
             _buildComparisonRow(

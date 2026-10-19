@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../common/services/language_service.dart';
 import '../../common/models/menu_item.dart';
 import '../../common/models/category.dart';
 import '../../common/models/menu_option.dart';
@@ -27,6 +28,11 @@ import '../../common/services/api_service.dart';
 import '../services/menu_data_service.dart';
 import '../services/order_match_manager.dart';
 import '../widgets/online_order_selection_dialog.dart';
+import '../../common/models/dining_table.dart';
+import '../../common/services/dining_table_service.dart';
+import '../../common/services/print_service.dart';
+import '../utils/dining_table_mapper.dart';
+import '../widgets/dining_table_selection_dialog.dart';
 
 class OrderPage extends StatefulWidget {
   final bool isAdminMode;
@@ -59,6 +65,16 @@ class _OrderPageState extends State<OrderPage> {
   bool _isCardPressed = false;
   int? _pressedCardIndex;
   bool _isAdminMode = false;
+
+  // 桌台状态
+  DiningTable? _selectedTable;
+  bool _isTableOrderExisting = false;
+  Map<String, dynamic>? _selectedTableActiveOrder;
+  int? _selectedTableGuestCount;
+  int? _selectedReservationId;
+  List<SelectedProduct> _originalTableProducts = [];
+
+  bool get _hasSelectedTable => _selectedTable != null;
 
   // 快捷输入
   final _quickInputManager = QuickInputManager();
@@ -141,11 +157,278 @@ class _OrderPageState extends State<OrderPage> {
     _applyOnlineOrderToCart(selectedOrder);
   }
 
-  Future<void> _openCheckoutPage() async {
-    if (orderedProducts.isEmpty && !_hasSelectedOnlineOrder) {
+  void _clearTableSelection() {
+    _selectedTable = null;
+    _isTableOrderExisting = false;
+    _selectedTableActiveOrder = null;
+    _selectedTableGuestCount = null;
+    _selectedReservationId = null;
+    _originalTableProducts.clear();
+  }
+
+  Future<void> _showTablePicker() async {
+    final result = await DiningTableSelectionDialog.show(context);
+    if (result == null || !mounted) return;
+
+    setState(() {
+      _selectedTable = result.table;
+      _isTableOrderExisting = result.isExistingOrder;
+      _selectedTableActiveOrder = result.activeOrder;
+      _selectedTableGuestCount = result.guestCount;
+      _selectedReservationId = result.reservationId;
+
+      orderedProducts.clear();
+      if (result.rawItems != null && result.rawItems!.isNotEmpty) {
+        final tableProducts =
+            DiningTableMapper.buildSelectedProductsFromTableItems(
+          result.rawItems!,
+          allProducts,
+        );
+        orderedProducts.addAll(tableProducts);
+        if (orderedProducts.isNotEmpty) {
+          selectedOrderedProduct = orderedProducts.last;
+        }
+      }
+      _originalTableProducts =
+          OnlineOrderMapper.cloneSelectedProducts(orderedProducts);
+    });
+
+    if (result.action == DiningTableAction.checkout) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _openCheckoutPage();
+        }
+      });
+    }
+  }
+
+  Widget _buildSelectedTableBanner() {
+    final table = _selectedTable;
+    if (table == null) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.amber.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.amber.shade400, width: 1.2),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.table_restaurant, color: Colors.amber[900]),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '已关联桌台：${table.name}${table.area != null && table.area!.isNotEmpty ? ' (${table.area})' : ''}  ${_isTableOrderExisting ? "[堂食坐台单]" : "[开台点餐]"}',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+                color: Colors.amber[900],
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          OutlinedButton(
+            onPressed: _showTablePicker,
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('换桌', style: TextStyle(fontSize: 12)),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            color: Colors.amber[900],
+            onPressed: () {
+              setState(() {
+                _clearTableSelection();
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleOrderAction() async {
+    if (orderedProducts.isEmpty &&
+        !_hasSelectedOnlineOrder &&
+        !_hasSelectedTable) {
       await _showOnlineOrderPicker();
       return;
     }
+
+    if (_hasSelectedTable) {
+      if (orderedProducts.isEmpty) {
+        UIHelper.showSnackBar(context, '请先选择菜品再操作', backgroundColor: Colors.orange);
+        return;
+      }
+
+      showModalBottomSheet(
+        context: context,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        builder: (sheetCtx) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 20.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '桌台：${_selectedTable!.name} (${_selectedTable!.area ?? ""})',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 6),
+                Text('已选 ${orderedProducts.length} 个菜品',
+                    style: TextStyle(color: Colors.grey[700])),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.save),
+                    label: const Text('UPDATE / 更新暂存'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.amber[800],
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    onPressed: () async {
+                      Navigator.pop(sheetCtx);
+                      await _saveLocalTableOrder();
+                    },
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.shopping_cart),
+                    label: const Text('CHECKOUT / 结账'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green[700],
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    onPressed: () async {
+                      Navigator.pop(sheetCtx);
+                      await _openCheckoutPage();
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    await _openCheckoutPage();
+  }
+
+  /// 计算相比原始暂存菜品，新增/加数量的菜品列表
+  List<SelectedProduct> _calculateAddedProducts(
+    List<SelectedProduct> currentProducts,
+    List<SelectedProduct> originalProducts,
+  ) {
+    final List<SelectedProduct> added = [];
+
+    for (var current in currentProducts) {
+      final originalMatches = originalProducts.where((orig) {
+        if (orig.product.id != current.product.id) return false;
+        if (orig.options.length != current.options.length) return false;
+        for (int i = 0; i < current.options.length; i++) {
+          final cOpt = current.options[i];
+          final oOpt = orig.options[i];
+          if (cOpt.type != oOpt.type || cOpt.option.id != oOpt.option.id) {
+            return false;
+          }
+        }
+        return true;
+      }).toList();
+
+      if (originalMatches.isEmpty) {
+        added.add(current);
+      } else {
+        final originalQty =
+            originalMatches.fold<int>(0, (sum, item) => sum + item.quantity);
+        if (current.quantity > originalQty) {
+          final diffQty = current.quantity - originalQty;
+          added.add(SelectedProduct(
+            product: current.product,
+            options: current.options,
+            quantity: diffQty,
+          ));
+        }
+      }
+    }
+
+    return added;
+  }
+
+  Future<void> _saveLocalTableOrder() async {
+    if (_selectedTable == null || orderedProducts.isEmpty) return;
+
+    final tableName = _selectedTable!.name;
+    final apiItems = DiningTableMapper.toTableApiItems(orderedProducts);
+    final tableService = DiningTableService();
+
+    // 1. 追踪计算新增/加量的菜品
+    final addedProducts = _calculateAddedProducts(
+      orderedProducts,
+      _originalTableProducts,
+    );
+
+    // 2. 更新本地 SQLite 数据库中该桌台/预约单的暂存菜品
+    await tableService.saveLocalTableItems(
+      _selectedTable!.id,
+      apiItems,
+      reservationId: _selectedReservationId,
+    );
+
+    // 3. 将新增/加量的菜品发送到 PrintService 进行后厨打单
+    if (addedProducts.isNotEmpty) {
+      await PrintService().printKitchenTicketForAddedItems(
+        tableName: tableName,
+        addedProducts: addedProducts,
+      );
+    }
+
+    if (!mounted) return;
+
+    final addedCount = addedProducts.fold<int>(0, (s, p) => s + p.quantity);
+    final msg = addedCount > 0
+        ? '桌台 $tableName 菜品已更新，新增 $addedCount 项菜品已发送后厨打单！'
+        : '桌台 $tableName 暂存菜品已更新！';
+
+    UIHelper.showToast(
+      context,
+      msg,
+      backgroundColor: Colors.green,
+    );
+
+    setState(() {
+      orderedProducts.clear();
+      selectedOrderedProduct = null;
+      _clearTableSelection();
+    });
+  }
+
+  Future<void> _openCheckoutPage() async {
+    if (orderedProducts.isEmpty && !_hasSelectedOnlineOrder && !_hasSelectedTable) {
+      await _handleOrderAction();
+      return;
+    }
+
+    final tableToClear = _selectedTable;
+    final resIdToClear = _selectedReservationId;
 
     final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
@@ -153,15 +436,25 @@ class _OrderPageState extends State<OrderPage> {
           orderedProducts: orderedProducts,
           onlineOrder: _selectedOnlineOrder,
           originalOnlineOrderedProducts: _selectedOnlineOrderOriginalProducts,
+          diningTable: _selectedTable,
+          reservationId: _selectedReservationId,
         ),
       ),
     );
 
     if (result == true) {
+      if (tableToClear != null) {
+        await DiningTableService().clearLocalTableItems(
+          tableToClear.id,
+          reservationId: resIdToClear,
+        );
+      }
+
       setState(() {
         orderedProducts.clear();
         selectedOrderedProduct = null;
         _clearOnlineOrderSelection();
+        _clearTableSelection();
       });
     }
   }
@@ -360,6 +653,14 @@ class _OrderPageState extends State<OrderPage> {
 
   /// 智能添加菜品方法
   void _addProductIntelligently(MenuItem item) {
+    if (item.isSoldOut) {
+      UIHelper.showSnackBar(
+        context,
+        '${item.title} 已沽清 (Sold Out)',
+        backgroundColor: Colors.deepOrange,
+      );
+      return;
+    }
     setState(() {
       final existingProductIndex = orderedProducts.indexWhere(
         (product) => product.product.id == item.id && product.options.isEmpty,
@@ -423,15 +724,13 @@ class _OrderPageState extends State<OrderPage> {
     });
   }
 
-  void _clearOrder() async {
-    final confirmed = await DialogHelper.showClearOrderDialog(context);
-    if (confirmed) {
-      setState(() {
-        orderedProducts.clear();
-        selectedOrderedProduct = null;
-        _clearOnlineOrderSelection();
-      });
-    }
+  void _clearOrder() {
+    if (orderedProducts.isEmpty && !_hasSelectedOnlineOrder) return;
+    setState(() {
+      orderedProducts.clear();
+      selectedOrderedProduct = null;
+      _clearOnlineOrderSelection();
+    });
   }
 
   void _showQuantitySelector() async {
@@ -715,6 +1014,204 @@ class _OrderPageState extends State<OrderPage> {
 
 
 
+  /// 沽清设置 API 调用
+  Future<void> _setProductSoldOut(MenuItem product, String type) async {
+    try {
+      final api = ApiService();
+      await api.post('products/${product.id}/sold-out', data: {
+        'type': type,
+      });
+
+      // 刷新菜品数据
+      final menuData = await _menuDataService.loadMenuData();
+      if (mounted) {
+        setState(() {
+          allProducts = menuData['allProducts'] ?? [];
+          products = menuData['products'] ?? [];
+          categories = menuData['categories'] ?? [];
+        });
+      }
+
+      String msg;
+      switch (type) {
+        case 'available':
+          msg = '${product.title} 已恢复在售';
+          break;
+        case '4h':
+          msg = '${product.title} 已设置沽清 4 小时';
+          break;
+        case 'today':
+          msg = '${product.title} 已设置今日沽清';
+          break;
+        case 'this_week':
+          msg = '${product.title} 已设置本周沽清';
+          break;
+        case 'indefinite':
+          msg = '${product.title} 已设置永久沽清';
+          break;
+        default:
+          msg = '沽清状态已更新';
+      }
+
+      if (!mounted) return;
+      UIHelper.showSnackBar(context, msg, backgroundColor: Colors.green);
+    } catch (e) {
+      if (!mounted) return;
+      UIHelper.showSnackBar(context, '设置沽清失败: $e', backgroundColor: Colors.red);
+    }
+  }
+
+  /// 显示沽清设置对话框
+  void _showSoldOutDialog(MenuItem product) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.no_meals, color: Colors.orange[800]),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '${product.title} - 沽清设置',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: product.isSoldOut ? Colors.red[50] : Colors.green[50],
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: product.isSoldOut ? Colors.red[200]! : Colors.green[200]!,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    product.isSoldOut ? Icons.cancel : Icons.check_circle,
+                    color: product.isSoldOut ? Colors.red : Colors.green,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '当前状态：${product.isSoldOut ? "已沽清 (Sold Out)" : "正常在售"}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: product.isSoldOut ? Colors.red[800] : Colors.green[800],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('请选择沽清时长或恢复在售：',
+                style: TextStyle(fontSize: 14, color: Colors.black87)),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _buildSoldOutOptionTile(
+                  dialogContext,
+                  product,
+                  type: 'available',
+                  label: '恢复在售',
+                  icon: Icons.refresh,
+                  color: Colors.green,
+                ),
+                _buildSoldOutOptionTile(
+                  dialogContext,
+                  product,
+                  type: '4h',
+                  label: '沽清 4 小时',
+                  icon: Icons.timer,
+                  color: Colors.orange,
+                ),
+                _buildSoldOutOptionTile(
+                  dialogContext,
+                  product,
+                  type: 'today',
+                  label: '今日沽清',
+                  icon: Icons.today,
+                  color: Colors.deepOrange,
+                ),
+                _buildSoldOutOptionTile(
+                  dialogContext,
+                  product,
+                  type: 'this_week',
+                  label: '本周沽清',
+                  icon: Icons.date_range,
+                  color: Colors.brown,
+                ),
+                _buildSoldOutOptionTile(
+                  dialogContext,
+                  product,
+                  type: 'indefinite',
+                  label: '永久沽清',
+                  icon: Icons.block,
+                  color: Colors.red,
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSoldOutOptionTile(
+    BuildContext dialogContext,
+    MenuItem product, {
+    required String type,
+    required String label,
+    required IconData icon,
+    required Color color,
+  }) {
+    return InkWell(
+      onTap: () {
+        Navigator.pop(dialogContext);
+        _setProductSoldOut(product, type);
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          border: Border.all(color: color.withOpacity(0.4)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Show edit product dialog (Admin Mode)
   void _showEditProductDialog(MenuItem product) {
     final codeController = TextEditingController(text: product.code);
@@ -736,6 +1233,52 @@ class _OrderPageState extends State<OrderPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // 沽清快捷操作条
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: product.isSoldOut ? Colors.red[50] : Colors.amber[50],
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: product.isSoldOut ? Colors.red[200]! : Colors.amber[300]!,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      product.isSoldOut ? Icons.no_meals : Icons.check_circle,
+                      color: product.isSoldOut ? Colors.red : Colors.green[700],
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        product.isSoldOut ? '当前状态：已沽清 (Sold Out)' : '当前状态：正常在售',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: product.isSoldOut ? Colors.red[800] : Colors.green[800],
+                        ),
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _showSoldOutDialog(product);
+                      },
+                      icon: const Icon(Icons.edit_attributes, size: 16),
+                      label: const Text('设置沽清', style: TextStyle(fontSize: 12)),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
               TextField(
                 controller: codeController,
                 decoration: InputDecoration(
@@ -808,16 +1351,12 @@ class _OrderPageState extends State<OrderPage> {
               final newStock = int.tryParse(stockController.text);
 
               if (newPrice == null) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('价格格式错误')),
-                );
+                UIHelper.showSnackBar(context, '价格格式错误', backgroundColor: Colors.red);
                 return;
               }
 
               if (newStock == null) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('库存格式错误')),
-                );
+                UIHelper.showSnackBar(context, '库存格式错误', backgroundColor: Colors.red);
                 return;
               }
 
@@ -1125,19 +1664,9 @@ class _OrderPageState extends State<OrderPage> {
                   });
                 }
 
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('选项已删除'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
+                UIHelper.showSnackBar(context, '选项已删除', backgroundColor: Colors.green);
               } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('删除失败: $e'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
+                UIHelper.showSnackBar(context, '删除失败: $e', backgroundColor: Colors.red);
               }
             },
             child: Text('删除'),
@@ -1170,9 +1699,7 @@ class _OrderPageState extends State<OrderPage> {
           ElevatedButton(
             onPressed: () async {
               if (groupNameController.text.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('请输入选项组名称')),
-                );
+                UIHelper.showSnackBar(context, '请输入选项组名称', backgroundColor: Colors.orange);
                 return;
               }
 
@@ -1195,19 +1722,9 @@ class _OrderPageState extends State<OrderPage> {
                   });
                 }
 
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('选项组已创建'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
+                UIHelper.showSnackBar(context, '选项组已创建', backgroundColor: Colors.green);
               } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('创建失败: $e'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
+                UIHelper.showSnackBar(context, '创建失败: $e', backgroundColor: Colors.red);
               }
             },
             child: Text('创建'),
@@ -1279,17 +1796,10 @@ class _OrderPageState extends State<OrderPage> {
               final double actualHeight =
                   calculatedHeight.clamp(minHeight, maxHeight);
 
-              // 为Web环境优化布局计算
-              final screenHeight = constraints.maxHeight;
-              final topSectionHeight =
-                  actualHeight + (_selectedOnlineOrder != null ? 72.0 : 0.0);
-              final bottomButtonHeight = 60.0;
-              final availableHeight =
-                  screenHeight - topSectionHeight - bottomButtonHeight;
-
               return Column(
                 children: [
-                  // 已点菜品列表 - 动态高度
+                  // 桌台 & 在线订单提示 Banner
+                  _buildSelectedTableBanner(),
                   _buildSelectedOnlineOrderBanner(),
                   OrderedProductListWidget(
                     orderedProducts: orderedProducts,
@@ -1307,9 +1817,8 @@ class _OrderPageState extends State<OrderPage> {
                     actualHeight: actualHeight,
                     maxCardHeight: maxCardHeight,
                   ),
-                  // 主内容区域 - 使用计算出的固定高度
-                  SizedBox(
-                    height: availableHeight,
+                  // 主内容区域 - 自动填充所有剩余可用高度
+                  Expanded(
                     child: Row(
                       children: [
                         // 左侧：分类侧边栏 + 菜品选项区
@@ -1401,7 +1910,7 @@ class _OrderPageState extends State<OrderPage> {
                                               color: Colors.grey[600],
                                             ),
                                           ),
-                                          style: TextStyle(
+                                          style: const TextStyle(
                                             fontSize: 14,
                                             color: Colors.black,
                                           ),
@@ -1441,9 +1950,13 @@ class _OrderPageState extends State<OrderPage> {
                                   isCardPressed: _isCardPressed,
                                   pressedCardIndex: _pressedCardIndex,
                                   isAdminMode: _isAdminMode,
-                                  onLongPress: _isAdminMode
-                                      ? _showEditProductDialog
-                                      : null,
+                                  onLongPress: (item) {
+                                    if (_isAdminMode) {
+                                      _showEditProductDialog(item);
+                                    } else {
+                                      _showSoldOutDialog(item);
+                                    }
+                                  },
                                 ),
                               ),
                             ],
@@ -1458,23 +1971,28 @@ class _OrderPageState extends State<OrderPage> {
                     onClearOrder: _clearOrder,
                     onShowQuantitySelector: _showQuantitySelector,
                     onCustomAction: _customAction,
-                    onOrder: _openCheckoutPage,
+                    onOrder: _handleOrderAction,
+                    onSelectTable: _showTablePicker,
+                    selectedTableName: _selectedTable?.name,
                     orderedCount: orderedProducts.length,
                     orderEnabled: true,
                     showQuickSelectButton: true,
                     isQuickSearchActive: _searchInputFocusNode.hasFocus,
-                    orderLabel:
-                        orderedProducts.isEmpty && !_hasSelectedOnlineOrder
+                    orderLabel: _hasSelectedTable
+                        ? 'confirm'.tr.toUpperCase()
+                        : (orderedProducts.isEmpty && !_hasSelectedOnlineOrder
                             ? 'ADD ORDER'
-                            : 'ORDER',
-                    orderIcon:
-                        orderedProducts.isEmpty && !_hasSelectedOnlineOrder
+                            : 'ORDER'),
+                    orderIcon: _hasSelectedTable
+                        ? Icons.check_circle_outline
+                        : (orderedProducts.isEmpty && !_hasSelectedOnlineOrder
                             ? Icons.playlist_add
-                            : Icons.shopping_cart,
-                    orderColor:
-                        orderedProducts.isEmpty && !_hasSelectedOnlineOrder
+                            : Icons.shopping_cart),
+                    orderColor: _hasSelectedTable
+                        ? Colors.amber[800]!
+                        : (orderedProducts.isEmpty && !_hasSelectedOnlineOrder
                             ? Colors.blueGrey
-                            : Colors.green,
+                            : Colors.green),
                     onSelectQuickInput: () async {
                       if (_quickInputManager.hasInput) {
                         _keepSearchFocusOnNextBlur = true;

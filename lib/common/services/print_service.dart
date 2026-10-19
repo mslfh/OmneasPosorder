@@ -6,6 +6,8 @@ import '../models/order_model.dart';
 import '../models/printer_station_model.dart';
 import '../models/report_models.dart';
 import '../models/merchant_info.dart';
+import '../../internal/utils/order_selected.dart';
+import '../../internal/utils/online_order_mapper.dart';
 import 'database_service.dart';
 import 'settings_service.dart';
 
@@ -674,6 +676,82 @@ class PrintService {
     }
   }
 
+  /// 打印坐台加菜单 (仅打后厨单，用于桌台暂存更新时发送新增/加量菜品)
+  Future<void> printKitchenTicketForAddedItems({
+    required String tableName,
+    required List<SelectedProduct> addedProducts,
+    String? note,
+  }) async {
+    if (addedProducts.isEmpty) return;
+
+    final settingsService = SettingsService();
+    await settingsService.initialize();
+    final settings = settingsService.getSettings();
+    if (!settings.enableAutoPrint) {
+      _logger.i('自动打印已关闭，跳过坐台加菜单后厨打单');
+      return;
+    }
+
+    final now = DateTime.now();
+    final itemsList = OnlineOrderMapper.toCheckoutItems(addedProducts);
+
+    final tempOrder = OrderModel(
+      id: 'KITCHEN-${now.millisecondsSinceEpoch}',
+      orderNo: 'TABLE-$tableName',
+      orderTime: now,
+      createdAt: now,
+      items: jsonEncode(itemsList),
+      totalAmount: 0.0,
+      discountAmount: 0.0,
+      taxRate: 10.0,
+      serviceFee: 0.0,
+      cashAmount: 0.0,
+      posAmount: 0.0,
+      orderStatus: OrderStatus.completed,
+      syncStatus: SyncStatus.skipped,
+      printStatus: PrintStatus.pending,
+      note: '[桌台: $tableName] ${note ?? ""}'.trim(),
+      type: 'dinein',
+      cashChange: 0.0,
+      voucherAmount: 0.0,
+    );
+
+    await printKitchenTicketOnly(tempOrder);
+  }
+
+  /// 仅发送订单至后厨打印位打单
+  Future<void> printKitchenTicketOnly(OrderModel order) async {
+    try {
+      final activeStations = await _databaseService.getEnabledPrinterStations();
+      final kitchenStations = activeStations.where((s) =>
+        s.role == 'kitchen' || s.role == 'both' ||
+        s.contentType == 'kitchen_ticket' || s.contentType == 'both'
+      ).toList();
+
+      if (kitchenStations.isEmpty) {
+        _logger.i('未配置启用的后厨打印位，跳过后厨加菜打单');
+        return;
+      }
+
+      final kitchenContent = await _generateKitchenReceiptTemplate(order);
+      if (kitchenContent.trim().isEmpty) return;
+
+      final printBytes = await _generateKitchenESCPOSCommands(kitchenContent);
+
+      for (final station in kitchenStations) {
+        try {
+          final adapter = PrinterAdapterFactory.createAdapter(station);
+          await adapter.sendBytes(printBytes);
+          _logger.i('后厨加菜单已成功发送至打印位 [${station.name}]');
+        } catch (e) {
+          _logger.e('后厨加菜单发送至 [${station.name}] 失败: $e');
+        }
+      }
+    } catch (e) {
+      _logger.e('后厨加菜单打单失败: $e');
+    }
+  }
+
   /// 发送订单数据到指定打印位（严格依据打印位角色/内容类型生成对应的单据）
   Future<void> _printOrderToStation(OrderModel order, PrinterStationModel station) async {
     String customerContent = '';
@@ -1066,12 +1144,11 @@ class PrintService {
     return result;
   }
 
-  /// 打印销售报告（精准定向发送至配置有后厨用角色的打印位）
+  /// 打印销售与银收统计报告小票（优先精准定向发送至前台/收银打印位）
   Future<void> printReport(OrderStats stats, DateTime startDate, DateTime endDate) async {
     try {
-      _logger.i('开始打印销售报告');
-      final printContent = _generateReportContent(stats, startDate, endDate);
-      final printBytes = await _generateSingleESCPOSCommands(printContent);
+      _logger.i('开始打印销售与银收统计报告小票');
+      final printBytes = await _generateReportESCPOSCommands(stats, startDate, endDate);
 
       final allStations = await _databaseService.getEnabledPrinterStations();
       if (allStations.isEmpty) {
@@ -1079,22 +1156,32 @@ class PrintService {
         return;
       }
 
+      // 优先发送至前台/收银角色或打印客户小票的打印位
       List<PrinterStationModel> targetStations = allStations.where(
-        (s) => s.role == 'kitchen' || s.role == 'both' || s.contentType == 'kitchen_ticket' || s.contentType == 'both',
+        (s) => s.role == 'counter' || s.role == 'both' || s.contentType == 'customer_receipt' || s.contentType == 'both',
       ).toList();
 
       if (targetStations.isEmpty) {
         targetStations = allStations;
       }
 
+      int successCount = 0;
+      List<String> errors = [];
+
       for (final station in targetStations) {
         try {
           final adapter = PrinterAdapterFactory.createAdapter(station);
           await adapter.sendBytes(printBytes);
-          _logger.i('销售报告已发送至打印位 [${station.name}]');
+          successCount++;
+          _logger.i('销售与银收统计报告已成功发送至打印位 [${station.name}]');
         } catch (e) {
-          _logger.e('销售报告发送至 [${station.name}] 失败: $e');
+          _logger.e('销售与银收统计报告发送至 [${station.name}] 失败: $e');
+          errors.add('${station.name}: $e');
         }
+      }
+
+      if (successCount == 0 && errors.isNotEmpty) {
+        throw Exception(errors.join('; '));
       }
     } catch (e) {
       _logger.e('打印销售报告失败: $e');
@@ -1102,13 +1189,94 @@ class PrintService {
     }
   }
 
-  /// 生成报告打印内容
+  /// 生成基于 ESC/POS 格式的标准销售与银收统计小票指令字节流
+  Future<List<int>> _generateReportESCPOSCommands(
+      OrderStats stats, DateTime startDate, DateTime endDate) async {
+    final merchant = await getMerchantInfo();
+    final builder = EscPosBuilder()
+      ..init()
+      ..enableChineseMode();
+
+    // 1. 商家名称与报告大标题
+    if (merchant.name.isNotEmpty) {
+      builder.addCenter(merchant.name, bold: true);
+    }
+    builder.addTitle('SALES & CASHIER REPORT');
+    builder.addCenter('银收营业统计小票', bold: true);
+    builder.addDivider(char: '=', length: 48);
+
+    // 2. 统计周期与生成时间
+    builder.alignLeft();
+    builder.addLine('Report Period: ${_formatDate(startDate)} ~ ${_formatDate(endDate)}');
+    builder.addLine('Generated Time: ${_formatDateTime(DateTime.now())}');
+    builder.addDivider(char: '-', length: 48);
+
+    // 3. 营业概览 (Sales Overview)
+    builder.setBold(true);
+    builder.addLine('[SALES OVERVIEW / 营业概览]');
+    builder.setBold(false);
+    builder.addTwoColumns('Total Revenue (总营业额):', '\$${stats.totalRevenue.toStringAsFixed(2)}', isBold: true);
+    builder.addTwoColumns('Total Orders (总订单数):', '${stats.totalOrders}');
+    builder.addTwoColumns('Completed Orders (有效订单):', '${stats.completedOrders}');
+    builder.addTwoColumns('Cancelled Orders (已取消):', '${stats.cancelledOrders}');
+    builder.addTwoColumns('Average Order Value (客单价):', '\$${stats.averageOrderValue.toStringAsFixed(2)}');
+    builder.addDivider(char: '-', length: 48);
+
+    // 4. 银收与支付渠道明细 (Payment Method Breakdown)
+    builder.setBold(true);
+    builder.addLine('[PAYMENT BREAKDOWN / 银收明细]');
+    builder.setBold(false);
+    builder.addTwoColumns('Cash Revenue (现金收入):', '\$${stats.cashRevenue.toStringAsFixed(2)}');
+    builder.addTwoColumns('POS Revenue (刷卡/POS):', '\$${stats.posRevenue.toStringAsFixed(2)}');
+    if (stats.voucherRevenue > 0) {
+      builder.addTwoColumns('Voucher Amount (券抵扣):', '\$${stats.voucherRevenue.toStringAsFixed(2)}');
+    }
+    if (stats.totalDiscount > 0) {
+      builder.addTwoColumns('Total Discount (总折扣):', '-\$${stats.totalDiscount.toStringAsFixed(2)}');
+    }
+    builder.addDivider(char: '-', length: 48);
+
+    // 5. 用餐类型明细 (Order Type Breakdown)
+    builder.setBold(true);
+    builder.addLine('[ORDER TYPE BREAKDOWN / 用餐类型]');
+    builder.setBold(false);
+    builder.addTwoColumns(
+      'Dine In (堂食):',
+      '${stats.dineInOrders} 单 | \$${stats.dineInRevenue.toStringAsFixed(2)}',
+    );
+    builder.addTwoColumns(
+      'Takeaway (外卖/自提):',
+      '${stats.takeawayOrders} 单 | \$${stats.takeawayRevenue.toStringAsFixed(2)}',
+    );
+    builder.addDivider(char: '-', length: 48);
+
+    // 6. 热销菜品 (Top Selling Items)
+    if (stats.topSellingItems.isNotEmpty) {
+      builder.setBold(true);
+      builder.addLine('[TOP SELLING ITEMS / 热销菜品 TOP 5]');
+      builder.setBold(false);
+      for (int i = 0; i < stats.topSellingItems.length; i++) {
+        final item = stats.topSellingItems[i];
+        builder.addTwoColumns('${i + 1}. ${item.name}', '${item.quantity} 份');
+      }
+      builder.addDivider(char: '=', length: 48);
+    }
+
+    // 7. 底部落款与自动切纸
+    builder.addCenter('*** END OF REPORT ***');
+    builder.feedLines(1);
+    builder.cutPaper(feed: 4);
+
+    return await builder.buildBytes();
+  }
+
+  /// 生成报告打印内容（备用）
   String _generateReportContent(OrderStats stats, DateTime startDate, DateTime endDate) {
     final StringBuffer content = StringBuffer();
 
     content.writeln('[HEADER]');
     content.writeln('================================');
-    content.writeln('       SALES REPORT');
+    content.writeln('     SALES & CASHIER REPORT');
     content.writeln('================================');
     content.writeln();
 
@@ -1126,6 +1294,26 @@ class PrintService {
     content.writeln('Completed Orders:  ${stats.completedOrders}');
     content.writeln('Cancelled Orders:  ${stats.cancelledOrders}');
     content.writeln('Average Order:     \$${stats.averageOrderValue.toStringAsFixed(2)}');
+    content.writeln('--------------------------------------');
+    content.writeln();
+
+    content.writeln('PAYMENT BREAKDOWN:');
+    content.writeln('--------------------------------------');
+    content.writeln('Cash Revenue:      \$${stats.cashRevenue.toStringAsFixed(2)}');
+    content.writeln('POS Revenue:       \$${stats.posRevenue.toStringAsFixed(2)}');
+    if (stats.voucherRevenue > 0) {
+      content.writeln('Voucher Amount:    \$${stats.voucherRevenue.toStringAsFixed(2)}');
+    }
+    if (stats.totalDiscount > 0) {
+      content.writeln('Total Discount:    -\$${stats.totalDiscount.toStringAsFixed(2)}');
+    }
+    content.writeln('--------------------------------------');
+    content.writeln();
+
+    content.writeln('ORDER TYPES:');
+    content.writeln('--------------------------------------');
+    content.writeln('Dine In:           ${stats.dineInOrders} orders (\$${stats.dineInRevenue.toStringAsFixed(2)})');
+    content.writeln('Takeaway:          ${stats.takeawayOrders} orders (\$${stats.takeawayRevenue.toStringAsFixed(2)})');
     content.writeln('--------------------------------------');
     content.writeln();
 
@@ -1176,7 +1364,12 @@ class PrintService {
     for (var item in items) {
       bool printable = item['is_printable'] == true;
       if (!printable) continue;
-      final name = item['name'] ?? '';
+      final rawName = item['name'] ?? '';
+      final kitchenPrintName = item['kitchen_print_name']?.toString() ??
+          item['kitchenPrintName']?.toString();
+      final name = (kitchenPrintName != null && kitchenPrintName.trim().isNotEmpty)
+          ? kitchenPrintName.trim()
+          : rawName;
       final quantity = item['quantity'] ?? 1;
       List<String> lines = [];
       if (order.type == 'dinein') {

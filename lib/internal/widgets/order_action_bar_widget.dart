@@ -8,6 +8,8 @@ class OrderActionBarWidget extends StatelessWidget {
   final VoidCallback onCustomAction;
   final VoidCallback? onOrder;
   final VoidCallback? onSelectQuickInput;
+  final VoidCallback? onSelectTable;
+  final String? selectedTableName;
   final bool showQuickSelectButton;
   final bool isQuickSearchActive;
   final int orderedCount;
@@ -17,7 +19,7 @@ class OrderActionBarWidget extends StatelessWidget {
   final Color orderColor;
 
   const OrderActionBarWidget({
-    Key? key,
+    super.key,
     required this.onVoidOrder,
     required this.onClearOrder,
     required this.onShowQuantitySelector,
@@ -29,12 +31,17 @@ class OrderActionBarWidget extends StatelessWidget {
     this.orderIcon = Icons.shopping_cart,
     this.orderColor = Colors.green,
     this.onSelectQuickInput,
+    this.onSelectTable,
+    this.selectedTableName,
     this.showQuickSelectButton = false,
     this.isQuickSearchActive = false,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
+    final bool hasSelectedTable =
+        selectedTableName != null && selectedTableName!.isNotEmpty;
+
     return Container(
       height: 60.0,
       decoration: BoxDecoration(
@@ -60,6 +67,7 @@ class OrderActionBarWidget extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 3.0),
               child: ElevatedButton.icon(
                 onPressed: onVoidOrder,
+                onLongPress: onClearOrder,
                 icon: const Icon(Icons.delete_outline, size: 16),
                 label: Text('delete'.tr.toUpperCase(),
                     style:
@@ -100,6 +108,42 @@ class OrderActionBarWidget extends StatelessWidget {
               ),
             ),
           ),
+          // TABLE 桌台按钮
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3.0),
+              child: ElevatedButton.icon(
+                onPressed: onSelectTable,
+                icon: Icon(
+                  Icons.table_restaurant,
+                  size: 16,
+                  color: hasSelectedTable ? Colors.amber[100] : Colors.white,
+                ),
+                label: Text(
+                  hasSelectedTable
+                      ? selectedTableName!
+                      : 'dining_table'.tr.toUpperCase(),
+                  style: const TextStyle(
+                      fontSize: 11, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: hasSelectedTable
+                      ? Colors.amber[800]
+                      : Colors.blueGrey[600],
+                  foregroundColor: Colors.white,
+                  elevation: 3,
+                  shadowColor: hasSelectedTable
+                      ? Colors.amber[300]
+                      : Colors.blueGrey[200],
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+          ),
           if (showQuickSelectButton)
             Expanded(
               child: Padding(
@@ -113,8 +157,11 @@ class OrderActionBarWidget extends StatelessWidget {
                     size: 16,
                   ),
                   label: Text(
-                    isQuickSearchActive ? 'confirm'.tr.toUpperCase() : 'quick_input'.tr.toUpperCase(),
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                    isQuickSearchActive
+                        ? 'confirm'.tr.toUpperCase()
+                        : 'quick_input'.tr.toUpperCase(),
+                    style: const TextStyle(
+                        fontSize: 11, fontWeight: FontWeight.w600),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: isQuickSearchActive
@@ -144,7 +191,10 @@ class OrderActionBarWidget extends StatelessWidget {
                 label: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(orderLabel == 'ORDER' ? 'checkout'.tr.toUpperCase() : orderLabel,
+                    Text(
+                        orderLabel == 'ORDER'
+                            ? 'checkout'.tr.toUpperCase()
+                            : orderLabel,
                         style: const TextStyle(
                             fontSize: 13, fontWeight: FontWeight.bold)),
                     if (orderedCount > 0)

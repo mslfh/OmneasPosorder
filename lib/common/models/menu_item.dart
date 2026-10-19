@@ -2,23 +2,29 @@ class MenuItem {
   final int id;
   final String code;
   final String title;
+  final String? kitchenPrintName; // 后厨打印名称
   final String? acronym; // 改为可空类型
   final double sellingPrice;
   final int stock;
   final int sort;
   final List<int> categoryIds; // 新增字段
   final bool isPrintable; // 是否需要打印到后厨
+  final bool isSoldOut; // 是否沽清
+  final String? soldOutUntil; // 沽清截止时间
 
   MenuItem({
     required this.id,
     required this.code,
     required this.title,
+    this.kitchenPrintName,
     required this.acronym, // 可空类型
     required this.sellingPrice,
     required this.stock,
     required this.sort,
     required this.categoryIds, // 新增字段
     required this.isPrintable,
+    this.isSoldOut = false,
+    this.soldOutUntil,
   });
 
   factory MenuItem.fromJson(Map<String, dynamic> json) {
@@ -36,12 +42,15 @@ class MenuItem {
       id: json['id'],
       code: json['code'],
       title: json['title'],
+      kitchenPrintName: json['kitchen_print_name'] as String?,
       acronym: json['acronym'] as String?, // 兼容null
       sellingPrice: double.tryParse(json['selling_price'].toString()) ?? 0.0,
       stock: json['stock'],
       sort: json['sort'],
       categoryIds: categoryIds,
-      isPrintable: json['is_printable'],
+      isPrintable: json['is_printable'] ?? true,
+      isSoldOut: json['is_sold_out'] == true || json['is_sold_out'] == 1,
+      soldOutUntil: json['sold_out_until'] as String?,
     );
   }
 }

@@ -7,10 +7,10 @@ import '../../common/models/order_model.dart';
 import '../../common/models/report_models.dart';
 
 class ReportPage extends StatefulWidget {
-  const ReportPage({Key? key}) : super(key: key);
+  const ReportPage({super.key});
 
   @override
-  _ReportPageState createState() => _ReportPageState();
+  State<ReportPage> createState() => _ReportPageState();
 }
 
 class _ReportPageState extends State<ReportPage> {
@@ -64,15 +64,28 @@ class _ReportPageState extends State<ReportPage> {
     double totalRevenue = 0;
     double cashRevenue = 0;
     double posRevenue = 0;
+    double voucherRevenue = 0;
+    double totalDiscount = 0;
     int totalOrders = orders.length;
     int completedOrders = 0;
     int cancelledOrders = 0;
+    int dineInOrders = 0;
+    double dineInRevenue = 0.0;
+    int takeawayOrders = 0;
+    double takeawayRevenue = 0.0;
     Map<String, int> itemCounts = {};
 
     for (final order in orders) {
-      totalRevenue += order.totalAmount;
+      if (order.orderStatus == OrderStatus.cancelled) {
+        cancelledOrders++;
+        continue; // 已取消订单不计入总营业额与商品销售统计
+      }
 
-      // 如果cash_amount和pos_amount都为0，则假设全部为现金支付
+      completedOrders++;
+      totalRevenue += order.totalAmount;
+      totalDiscount += order.discountAmount;
+      voucherRevenue += order.voucherAmount;
+
       if (order.cashAmount == 0 && order.posAmount == 0) {
         cashRevenue += order.totalAmount;
       } else {
@@ -80,16 +93,15 @@ class _ReportPageState extends State<ReportPage> {
         posRevenue += order.posAmount;
       }
 
-      switch (order.orderStatus) {
-        case OrderStatus.confirmed:
-        case OrderStatus.completed:
-          completedOrders++;
-          break;
-        case OrderStatus.cancelled:
-          cancelledOrders++;
-          break;
-        default:
-          break;
+      // 订单用餐类型划分 (堂食 vs 外卖/自提)
+      final typeStr = order.type?.toLowerCase() ?? '';
+      bool isDineIn = typeStr.contains('dine') || typeStr.contains('table') || order.isTableOrder;
+      if (isDineIn) {
+        dineInOrders++;
+        dineInRevenue += order.totalAmount;
+      } else {
+        takeawayOrders++;
+        takeawayRevenue += order.totalAmount;
       }
 
       // 统计商品销量
@@ -101,21 +113,27 @@ class _ReportPageState extends State<ReportPage> {
           itemCounts[name] = (itemCounts[name] ?? 0) + quantity;
         }
       } catch (e) {
-        print('Error parsing items for order ${order.id}: $e');
+        debugPrint('Error parsing items for order ${order.id}: $e');
       }
     }
 
     print(
-        'Stats calculated - Total: $totalRevenue, Cash: $cashRevenue, POS: $posRevenue, Orders: $totalOrders, Completed: $completedOrders');
+        'Stats calculated - Total: $totalRevenue, Cash: $cashRevenue, POS: $posRevenue, Orders: $totalOrders, Completed: $completedOrders, Cancelled: $cancelledOrders');
 
     return OrderStats(
       totalRevenue: totalRevenue,
       cashRevenue: cashRevenue,
       posRevenue: posRevenue,
+      voucherRevenue: voucherRevenue,
+      totalDiscount: totalDiscount,
       totalOrders: totalOrders,
       completedOrders: completedOrders,
       cancelledOrders: cancelledOrders,
-      averageOrderValue: totalOrders > 0 ? totalRevenue / totalOrders : 0,
+      dineInOrders: dineInOrders,
+      dineInRevenue: dineInRevenue,
+      takeawayOrders: takeawayOrders,
+      takeawayRevenue: takeawayRevenue,
+      averageOrderValue: completedOrders > 0 ? totalRevenue / completedOrders : 0,
       topSellingItems: _getTopSellingItems(itemCounts),
     );
   }
@@ -126,6 +144,38 @@ class _ReportPageState extends State<ReportPage> {
         .toList();
     items.sort((a, b) => b.quantity.compareTo(a.quantity));
     return items.take(5).toList();
+  }
+
+  void _setDatePreset(String preset) {
+    final now = DateTime.now();
+    DateTime start;
+    DateTime end = now.copyWith(hour: 23, minute: 59, second: 59, microsecond: 999);
+
+    switch (preset) {
+      case 'today':
+        start = now.copyWith(hour: 0, minute: 0, second: 0, microsecond: 0);
+        break;
+      case 'yesterday':
+        final yesterday = now.subtract(const Duration(days: 1));
+        start = yesterday.copyWith(hour: 0, minute: 0, second: 0, microsecond: 0);
+        end = yesterday.copyWith(hour: 23, minute: 59, second: 59, microsecond: 999);
+        break;
+      case 'week':
+        final monday = now.subtract(Duration(days: now.weekday - 1));
+        start = monday.copyWith(hour: 0, minute: 0, second: 0, microsecond: 0);
+        break;
+      case 'month':
+        start = DateTime(now.year, now.month, 1);
+        break;
+      default:
+        start = now.copyWith(hour: 0, minute: 0, second: 0, microsecond: 0);
+    }
+
+    setState(() {
+      _startDate = start;
+      _endDate = end;
+    });
+    _loadReportData();
   }
 
   Future<void> _selectDateRange() async {
@@ -139,7 +189,7 @@ class _ReportPageState extends State<ReportPage> {
     if (picked != null) {
       setState(() {
         _startDate = picked.start;
-        _endDate = picked.end;
+        _endDate = picked.end.copyWith(hour: 23, minute: 59, second: 59, microsecond: 999);
       });
       _loadReportData();
     }
@@ -149,15 +199,27 @@ class _ReportPageState extends State<ReportPage> {
     if (_stats == null) return;
 
     try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('正在发送银收与营业统计小票至打印机...'),
+          duration: Duration(seconds: 1),
+        ),
+      );
       await _printService.printReport(_stats!, _startDate, _endDate);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('统计报告已发送到打印机')),
+        const SnackBar(
+          content: Text('统计和银收小票已成功发送到前台打印机'),
+          backgroundColor: Colors.green,
+        ),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('打印失败: $e')),
+        SnackBar(
+          content: Text('打印失败: $e'),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   }
@@ -200,6 +262,8 @@ class _ReportPageState extends State<ReportPage> {
                       const SizedBox(height: 16),
                       _buildPaymentBreakdown(),
                       const SizedBox(height: 16),
+                      _buildOrderTypeBreakdown(),
+                      const SizedBox(height: 16),
                       _buildTopSellingItems(),
                       const SizedBox(height: 16),
                       _buildRecentOrders(),
@@ -212,19 +276,48 @@ class _ReportPageState extends State<ReportPage> {
   Widget _buildDateRangeCard() {
     return Card(
       child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Row(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.calendar_today, color: Colors.blue),
-            SizedBox(width: 8),
-            Text(
-              'Report Period: ${DateFormat('yyyy-MM-dd').format(_startDate)} to ${DateFormat('yyyy-MM-dd').format(_endDate)}',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            Row(
+              children: [
+                const Icon(Icons.calendar_today, color: Colors.blue),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Report Period: ${DateFormat('yyyy-MM-dd').format(_startDate)} ~ ${DateFormat('yyyy-MM-dd').format(_endDate)}',
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                TextButton.icon(
+                  icon: const Icon(Icons.edit_calendar, size: 18),
+                  label: const Text('Custom'),
+                  onPressed: _selectDateRange,
+                ),
+              ],
             ),
-            Spacer(),
-            TextButton(
-              onPressed: _selectDateRange,
-              child: Text('Change'),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                ActionChip(
+                  label: const Text('Today'),
+                  onPressed: () => _setDatePreset('today'),
+                ),
+                ActionChip(
+                  label: const Text('Yesterday'),
+                  onPressed: () => _setDatePreset('yesterday'),
+                ),
+                ActionChip(
+                  label: const Text('This Week'),
+                  onPressed: () => _setDatePreset('week'),
+                ),
+                ActionChip(
+                  label: const Text('This Month'),
+                  onPressed: () => _setDatePreset('month'),
+                ),
+              ],
             ),
           ],
         ),
@@ -237,18 +330,18 @@ class _ReportPageState extends State<ReportPage> {
 
     return Card(
       child: Padding(
-        padding: EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            const Text(
               'Sales Overview',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             GridView.count(
               shrinkWrap: true,
-              physics: NeverScrollableScrollPhysics(),
+              physics: const NeverScrollableScrollPhysics(),
               crossAxisCount: 2,
               childAspectRatio: 2.5,
               crossAxisSpacing: 16,
@@ -261,22 +354,22 @@ class _ReportPageState extends State<ReportPage> {
                   color: Colors.green,
                 ),
                 _buildStatItem(
-                  title: 'Total Orders',
-                  value: '${stats.totalOrders}',
+                  title: 'Valid / Total Orders',
+                  value: '${stats.completedOrders} / ${stats.totalOrders}',
                   icon: Icons.receipt,
                   color: Colors.blue,
-                ),
-                _buildStatItem(
-                  title: 'Completed Orders',
-                  value: '${stats.completedOrders}',
-                  icon: Icons.check_circle,
-                  color: Colors.orange,
                 ),
                 _buildStatItem(
                   title: 'Average Order',
                   value: '\$${stats.averageOrderValue.toStringAsFixed(2)}',
                   icon: Icons.trending_up,
                   color: Colors.purple,
+                ),
+                _buildStatItem(
+                  title: 'Cancelled Orders',
+                  value: '${stats.cancelledOrders}',
+                  icon: Icons.cancel,
+                  color: Colors.red[400]!,
                 ),
               ],
             ),
@@ -291,32 +384,100 @@ class _ReportPageState extends State<ReportPage> {
 
     return Card(
       child: Padding(
-        padding: EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Payment Breakdown',
+            const Text(
+              'Payment & Cashier Breakdown (银收统计)',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             Row(
               children: [
                 Expanded(
                   child: _buildStatItem(
-                    title: 'Cash Sales',
+                    title: 'Cash Revenue',
                     value: '\$${stats.cashRevenue.toStringAsFixed(2)}',
                     icon: Icons.payments,
                     color: Colors.green[600]!,
                   ),
                 ),
-                SizedBox(width: 16),
+                const SizedBox(width: 16),
                 Expanded(
                   child: _buildStatItem(
                     title: 'POS Sales',
                     value: '\$${stats.posRevenue.toStringAsFixed(2)}',
                     icon: Icons.credit_card,
                     color: Colors.blue[600]!,
+                  ),
+                ),
+              ],
+            ),
+            if (stats.voucherRevenue > 0 || stats.totalDiscount > 0) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  if (stats.voucherRevenue > 0)
+                    Expanded(
+                      child: _buildStatItem(
+                        title: 'Vouchers',
+                        value: '\$${stats.voucherRevenue.toStringAsFixed(2)}',
+                        icon: Icons.card_giftcard,
+                        color: Colors.orange[700]!,
+                      ),
+                    ),
+                  if (stats.voucherRevenue > 0 && stats.totalDiscount > 0)
+                    const SizedBox(width: 16),
+                  if (stats.totalDiscount > 0)
+                    Expanded(
+                      child: _buildStatItem(
+                        title: 'Total Discount',
+                        value: '-\$${stats.totalDiscount.toStringAsFixed(2)}',
+                        icon: Icons.local_offer,
+                        color: Colors.deepOrange,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOrderTypeBreakdown() {
+    final stats = _stats!;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Order Type Breakdown (用餐类型)',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatItem(
+                    title: 'Dine In (堂食)',
+                    value: '${stats.dineInOrders} orders\n\$${stats.dineInRevenue.toStringAsFixed(2)}',
+                    icon: Icons.restaurant,
+                    color: Colors.indigo,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildStatItem(
+                    title: 'Takeaway (外卖)',
+                    value: '${stats.takeawayOrders} orders\n\$${stats.takeawayRevenue.toStringAsFixed(2)}',
+                    icon: Icons.takeout_dining,
+                    color: Colors.teal,
                   ),
                 ),
               ],
@@ -388,7 +549,7 @@ class _ReportPageState extends State<ReportPage> {
             ),
             SizedBox(height: 16),
             if (stats.topSellingItems.isEmpty)
-              Text('No data available')
+              const Text('No data available')
             else
               ...stats.topSellingItems.asMap().entries.map((entry) {
                 final index = entry.key;
@@ -398,17 +559,17 @@ class _ReportPageState extends State<ReportPage> {
                     backgroundColor: _getRankColor(index),
                     child: Text(
                       '${index + 1}',
-                      style: TextStyle(
+                      style: const TextStyle(
                           color: Colors.white, fontWeight: FontWeight.bold),
                     ),
                   ),
                   title: Text(item.name),
                   trailing: Text(
                     '${item.quantity} pcs',
-                    style: TextStyle(fontWeight: FontWeight.w500),
+                    style: const TextStyle(fontWeight: FontWeight.w500),
                   ),
                 );
-              }).toList(),
+              }),
           ],
         ),
       ),

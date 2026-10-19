@@ -4,6 +4,7 @@ import 'package:path/path.dart';
 import 'package:logger/logger.dart';
 import '../models/order_model.dart';
 import '../models/printer_station_model.dart';
+import '../models/dining_table.dart';
 import 'dart:convert';
 
 // 添加平台检测导入
@@ -38,7 +39,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -161,6 +162,28 @@ class DatabaseService {
       )
     ''');
 
+    // 创建桌台表
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS dining_tables (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        code TEXT,
+        area TEXT,
+        capacity INTEGER DEFAULT 0,
+        min_capacity INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'available',
+        is_active INTEGER DEFAULT 1,
+        is_reserved INTEGER DEFAULT 0,
+        reservations_count INTEGER DEFAULT 0,
+        sort_order INTEGER DEFAULT 0,
+        qr_code TEXT,
+        description TEXT,
+        reservations_json TEXT,
+        active_order_json TEXT,
+        updated_at TEXT
+      )
+    ''');
+
     // 创建索引
     await db.execute(
         'CREATE INDEX idx_orders_status ON orders(order_status, sync_status, print_status)');
@@ -264,6 +287,34 @@ class DatabaseService {
         ''');
       } catch (e) {
         _logger.w('Create printer_stations table error: $e');
+      }
+    }
+
+    // 从版本 5 升级到版本 6：添加 dining_tables 表
+    if (oldVersion < 6) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS dining_tables (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            code TEXT,
+            area TEXT,
+            capacity INTEGER DEFAULT 0,
+            min_capacity INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'available',
+            is_active INTEGER DEFAULT 1,
+            is_reserved INTEGER DEFAULT 0,
+            reservations_count INTEGER DEFAULT 0,
+            sort_order INTEGER DEFAULT 0,
+            qr_code TEXT,
+            description TEXT,
+            reservations_json TEXT,
+            active_order_json TEXT,
+            updated_at TEXT
+          )
+        ''');
+      } catch (e) {
+        _logger.w('Create dining_tables table error: $e');
       }
     }
   }
@@ -825,6 +876,154 @@ class DatabaseService {
   Future<List<PrinterStationModel>> getEnabledPrinterStations() async {
     final allStations = await getPrinterStations();
     return allStations.where((s) => s.isEnabled).toList();
+  }
+
+  // ========== 桌台 (DiningTable) 本地缓存操作 ==========
+
+  /// 清空本地所有桌台缓存（用于彻底清除历史不兼容数据并全量重新同步）
+  Future<void> clearAllDiningTablesCache() async {
+    final db = await database;
+    try {
+      await db.delete('dining_tables');
+      _logger.i('已清空本地所有桌台 SQLite 缓存');
+    } catch (e) {
+      _logger.e('清空桌台缓存失败: $e');
+    }
+  }
+
+  /// 清理 SQLite 本地桌台的所有暂存菜品数据与预约状态，将所有桌台恢复为空闲
+  Future<void> clearDiningTableItemsCache() async {
+    final db = await database;
+    try {
+      await db.update(
+        'dining_tables',
+        {
+          'status': 'available',
+          'is_reserved': 0,
+          'active_order_json': null,
+          'reservations_json': null,
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+      );
+      _logger.i('已彻底清理 SQLite 数据库中所有桌台暂存菜品数据与状态');
+    } catch (e) {
+      _logger.e('清理 SQLite 桌台菜品缓存失败: $e');
+    }
+  }
+
+  /// 批量保存桌台列表至本地数据库（事务更新，自动保护本地已保存的菜品项）
+  Future<void> saveDiningTables(List<DiningTable> tables) async {
+    final db = await database;
+    final existingMaps = await db.query('dining_tables');
+    final existingMapById = <int, Map<String, dynamic>>{};
+    for (var m in existingMaps) {
+      if (m['id'] is int) {
+        existingMapById[m['id'] as int] = m;
+      }
+    }
+
+    await db.transaction((txn) async {
+      for (final table in tables) {
+        var dbMap = table.toDbMap();
+        final localMap = existingMapById[table.id];
+
+        if (localMap != null &&
+            localMap['active_order_json'] != null &&
+            localMap['active_order_json'].toString().isNotEmpty) {
+          final serverActiveOrder = table.activeOrder;
+          final serverHasItems = serverActiveOrder != null &&
+              serverActiveOrder['items'] is List &&
+              (serverActiveOrder['items'] as List).isNotEmpty;
+
+          if (!serverHasItems && (table.isOccupied || localMap['status'] == 'occupied')) {
+            dbMap['active_order_json'] = localMap['active_order_json'];
+            dbMap['status'] = 'occupied';
+
+            // 同步保护 localMap 中已 seated 的预约项状态
+            if (localMap['reservations_json'] != null &&
+                dbMap['reservations_json'] != null) {
+              try {
+                final localAct = jsonDecode(localMap['active_order_json'].toString());
+                if (localAct is Map && localAct['active_orders'] is Map) {
+                  final activeOrders = localAct['active_orders'] as Map;
+                  final serverResList = jsonDecode(dbMap['reservations_json'].toString());
+                  if (serverResList is List) {
+                    final updatedResList = serverResList.map((r) {
+                      if (r is Map) {
+                        final rMap = Map<String, dynamic>.from(r);
+                        final rId = rMap['id']?.toString();
+                        if (rId != null && activeOrders[rId] != null) {
+                          rMap['status'] = 'seated';
+                        }
+                        return rMap;
+                      }
+                      return r;
+                    }).toList();
+                    dbMap['reservations_json'] = jsonEncode(updatedResList);
+                  }
+                }
+              } catch (_) {}
+            }
+          }
+        }
+
+        await txn.insert(
+          'dining_tables',
+          dbMap,
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+    });
+  }
+
+  /// 获取本地缓存的所有桌台列表（按 sort_order 排序）
+  Future<List<DiningTable>> getDiningTables() async {
+    final db = await database;
+    try {
+      final maps = await db.query(
+        'dining_tables',
+        where: 'is_active = 1',
+        orderBy: 'sort_order ASC, name ASC',
+      );
+      return maps.map((m) => DiningTable.fromDbMap(m)).toList();
+    } catch (e) {
+      _logger.e('获取本地桌台数据失败: $e');
+      return [];
+    }
+  }
+
+  /// 更新指定桌台状态
+  Future<void> updateDiningTableStatus(
+    int tableId,
+    String status, {
+    bool? isReserved,
+    String? activeOrderJson,
+    String? reservationsJson,
+  }) async {
+    final db = await database;
+    try {
+      final map = <String, dynamic>{
+        'status': status,
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      if (isReserved != null) {
+        map['is_reserved'] = isReserved ? 1 : 0;
+      }
+      if (activeOrderJson != null) {
+        map['active_order_json'] = activeOrderJson;
+      }
+      if (reservationsJson != null) {
+        map['reservations_json'] = reservationsJson;
+      }
+      await db.update(
+        'dining_tables',
+        map,
+        where: 'id = ?',
+        whereArgs: [tableId],
+      );
+    } catch (e) {
+      _logger.e('更新桌台状态失败: $e');
+    }
   }
 
   // 关闭数据库

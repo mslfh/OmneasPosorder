@@ -4,6 +4,7 @@ import '../../common/models/category.dart';
 import '../../common/models/menu_option.dart';
 import '../../common/services/api_service.dart';
 import '../../common/services/cache_service.dart';
+import '../utils/ui_helper.dart';
 
 /// 管理员相关对话框和菜品编辑管理
 class AdminDialogManager {
@@ -392,12 +393,7 @@ class AdminDialogManager {
   }
 
   void _showSnackBar(String message, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: color,
-      ),
-    );
+    UIHelper.showSnackBar(context, message, backgroundColor: color);
   }
 }
 

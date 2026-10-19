@@ -219,6 +219,23 @@ class OrderModel {
     );
   }
 
+  /// 是否为堂食坐台单
+  bool get isTableOrder =>
+      (type != null && (type == 'table' || type == 'dinein_table' || type == 'dinein')) &&
+      (note?.contains('桌台') == true || note?.contains('Table') == true);
+
+  /// 提取关联的桌台名称
+  String? get tableName {
+    if (note != null) {
+      final reg = RegExp(r'\[(?:桌台|Table):\s*([^\]]+)\]');
+      final match = reg.firstMatch(note!);
+      if (match != null && match.groupCount >= 1) {
+        return match.group(1);
+      }
+    }
+    return null;
+  }
+
   // 转换到数据库
   Map<String, dynamic> toMap() {
     return {

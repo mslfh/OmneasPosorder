@@ -530,11 +530,16 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                                   _selectedEditingItemId = item.id;
                                 });
                               },
+                              onLongPress: () {
+                                if (widget.onLongPress != null) {
+                                  widget.onLongPress!(item);
+                                }
+                              },
                               child: baseCardWidget,
                             ),
                           );
                         } else {
-                          // 常规模式点击与长按进入编辑
+                          // 常规模式长按：进入网格编辑模式
                           finalCardWidget = GestureDetector(
                             onTap: () => widget.onTap(item),
                             onLongPress: () {
@@ -542,9 +547,6 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                                 _isEditMode = true;
                                 _selectedEditingItemId = item.id;
                               });
-                              if (widget.onLongPress != null) {
-                                widget.onLongPress!(item);
-                              }
                             },
                             child: baseCardWidget,
                           );
@@ -569,7 +571,7 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                             ),
                           ),
                         );
-                      }).toList(),
+                      }),
                     ],
                   ),
                 ),
@@ -691,49 +693,26 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                   ),
                 ),
 
-              // 菜品名称与简称（按尺寸动态缩放字体）
-              Center(
+              // 菜品名称平铺展示（平铺适应，彻底杜绝 RenderFlex 溢出）
+              Positioned.fill(
                 child: Padding(
-                  padding: EdgeInsets.all(4.0 * scale),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Text(
-                        item.title,
-                        style: TextStyle(
-                          fontSize: dynamicTitleFontSize,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
-                          height: 1.15,
-                        ),
-                        textAlign: TextAlign.center,
-                        maxLines: height > 90 ? 3 : 2,
-                        overflow: TextOverflow.ellipsis,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 6.0 * scale,
+                    vertical: 4.0 * scale,
+                  ),
+                  child: Center(
+                    child: Text(
+                      item.title,
+                      style: TextStyle(
+                        fontSize: dynamicTitleFontSize,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                        height: 1.15,
                       ),
-                      if (item.acronym != null && item.acronym!.isNotEmpty && height > 50)
-                        Container(
-                          margin: EdgeInsets.only(top: 2.0 * scale),
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 4 * scale,
-                            vertical: 1 * scale,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.blue[100],
-                            borderRadius: BorderRadius.circular(3),
-                            border: Border.all(color: Colors.blue[300]!, width: 0.5),
-                          ),
-                          child: Text(
-                            item.acronym!,
-                            style: TextStyle(
-                              fontSize: dynamicAcronymFontSize,
-                              color: Colors.blue[800],
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                    ],
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
               ),
@@ -751,6 +730,45 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                   ),
                 ),
               ),
+
+              // 沽清 (Sold Out) 遮罩 & 徽章标识
+              if (item.isSoldOut)
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.35),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: (8.0 * scale).clamp(6.0, 16.0),
+                          vertical: (3.0 * scale).clamp(2.0, 8.0),
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.red[700],
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.white, width: 1.2),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black38,
+                              blurRadius: 4,
+                            )
+                          ],
+                        ),
+                        child: Text(
+                          'SOLD OUT',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: (11.0 * scale).clamp(10.0, 22.0),
+                            letterSpacing: 1.0,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
 
               // 编辑模式下的占用单元格角标
               if (_isEditMode)

@@ -87,6 +87,10 @@ class OrderItemMapper {
       return {
         'id': item['product_id'],
         'name': item['product_title'],
+        'kitchen_print_name': item['kitchen_print_name'] ??
+            item['kitchenPrintName'] ??
+            item['product']?['kitchen_print_name'] ??
+            item['product']?['kitchenPrintName'],
         'price':
             double.tryParse(item['final_amount']?.toString() ?? '0') ?? 0.0,
         'quantity': item['quantity'] ?? 1,

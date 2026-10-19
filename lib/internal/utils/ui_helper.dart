@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
+import '../widgets/top_toast_widget.dart';
 
 /// UI工具类
 class UIHelper {
   static final UIHelper _instance = UIHelper._internal();
+  static OverlayEntry? _activeToastEntry;
 
   late AudioPlayer _audioPlayer;
 
@@ -50,20 +52,55 @@ class UIHelper {
     return result ?? false;
   }
 
-  /// 显示提示消息
+  /// 显示提示消息（顶部悬浮 Toast 风格，不遮挡底部操作区域，支持即时轻触消除）
   static void showSnackBar(
     BuildContext context,
     String message, {
     Color backgroundColor = const Color.fromARGB(255, 32, 32, 32),
     int durationMillis = 2000,
+    IconData? icon,
   }) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
+    showToast(
+      context,
+      message,
+      backgroundColor: backgroundColor,
+      durationMillis: durationMillis,
+      icon: icon,
+    );
+  }
+
+  /// 显示顶部悬浮 Toast 消息
+  static void showToast(
+    BuildContext context,
+    String message, {
+    Color backgroundColor = const Color.fromARGB(255, 32, 32, 32),
+    int durationMillis = 2000,
+    IconData? icon,
+  }) {
+    _activeToastEntry?.remove();
+    _activeToastEntry = null;
+
+    final overlayState = Overlay.maybeOf(context);
+    if (overlayState == null) return;
+
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (context) => TopToastWidget(
+        message: message,
         backgroundColor: backgroundColor,
+        icon: icon,
         duration: Duration(milliseconds: durationMillis),
+        onDismiss: () {
+          if (_activeToastEntry == entry) {
+            entry.remove();
+            _activeToastEntry = null;
+          }
+        },
       ),
     );
+
+    _activeToastEntry = entry;
+    overlayState.insert(entry);
   }
 
   /// 动态计算标题字体大小

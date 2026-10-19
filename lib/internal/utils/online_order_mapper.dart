@@ -53,6 +53,7 @@ class OnlineOrderMapper {
       return {
         'id': p.product.id,
         'name': p.product.title,
+        'kitchen_print_name': p.product.kitchenPrintName,
         'price': p.product.sellingPrice,
         'quantity': p.quantity,
         'options': options,
@@ -74,6 +75,8 @@ class OnlineOrderMapper {
             id: itemId,
             code: item['code']?.toString() ?? 'ONLINE-$itemId',
             title: item['name']?.toString() ?? 'Unknown',
+            kitchenPrintName: item['kitchen_print_name']?.toString() ??
+                item['kitchenPrintName']?.toString(),
             acronym: null,
             sellingPrice: _toDouble(item['price']) ?? 0.0,
             stock: 0,
