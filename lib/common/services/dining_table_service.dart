@@ -14,7 +14,7 @@ class DiningTableService {
   factory DiningTableService() => _instance;
   DiningTableService._internal();
 
-  /// 获取所有桌台状态信息（本地优先，forceRefresh 为 true 时同步 API）
+  /// 获取所有桌台状态信息（优先调 API GET /api/dining-tables/active）
   Future<List<DiningTable>> getTables({
     bool forceRefresh = false,
     String? date,
@@ -28,25 +28,25 @@ class DiningTableService {
       }
     }
 
-    // 2. 调 API 获取最新桌台数据
+    // 2. 调 API 获取最新桌台数据 (轻量纯净桌态看板 API)
     try {
       final queryDate = date ??
           DateTime.now().toIso8601String().split('T').first; // yyyy-MM-dd
-      
+
       Response response;
       try {
-        response = await _apiService.get(
-          'dining-tables/terminal-tables',
-          params: {'date': queryDate},
-        );
+        response = await _apiService.get('dining-tables/active');
       } catch (_) {
         try {
+          response = await _apiService.get(
+            'dining-tables/terminal-tables',
+            params: {'date': queryDate},
+          );
+        } catch (_) {
           response = await _apiService.get(
             'terminal/dining-tables',
             params: {'date': queryDate},
           );
-        } catch (_) {
-          response = await _apiService.get('dining-tables/active');
         }
       }
 
@@ -85,6 +85,100 @@ class DiningTableService {
 
     // 发生异常且需要刷新时，退回读取本地数据
     return await _databaseService.getDiningTables();
+  }
+
+  /// 获取接待/预约列表 (优先 GET /api/table-reservations/terminal)
+  Future<TodayReservationsData?> getTodayReservations({String? date}) async {
+    try {
+      Response response;
+      final queryParams = <String, dynamic>{};
+      if (date != null && date.isNotEmpty) {
+        queryParams['date'] = date;
+      }
+
+      try {
+        response = await _apiService.get(
+          'table-reservations/terminal',
+          params: queryParams,
+        );
+      } catch (_) {
+        try {
+          response = await _apiService.get(
+            'table-reservations/today',
+            params: queryParams,
+          );
+        } catch (_) {
+          response = await _apiService.get(
+            'table-reservations',
+            params: {'date': date ?? 'today', 'status': 'confirmed'},
+          );
+        }
+      }
+
+      if (response.data != null && response.data is Map) {
+        final resMap = Map<String, dynamic>.from(response.data);
+        final dataObj = resMap['data'] ?? resMap;
+        if (dataObj is Map<String, dynamic>) {
+          return TodayReservationsData.fromJson(dataObj);
+        } else if (dataObj is Map) {
+          return TodayReservationsData.fromJson(
+            Map<String, dynamic>.from(dataObj),
+          );
+        }
+      }
+    } catch (e) {
+      _logger.e('获取预约数据失败 ($date): $e');
+    }
+    return null;
+  }
+
+  /// 顾客到店一键入座指定桌台
+  /// 接口: POST /api/table-reservations/{reservation_id}/seat  Body: {"table_id": 1}
+  /// 降级: POST /api/dining-tables/{table_id}/seat  Body: {"reservation_id": 101}
+  Future<bool> seatReservation({
+    required int reservationId,
+    required int tableId,
+    String? notes,
+  }) async {
+    try {
+      final payload = <String, dynamic>{
+        'table_id': tableId,
+        'reservation_id': reservationId,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+      };
+
+      Response response;
+      try {
+        response = await _apiService.post(
+          'table-reservations/$reservationId/seat',
+          data: {'table_id': tableId},
+        );
+      } catch (_) {
+        try {
+          response = await _apiService.post(
+            'dining-tables/$tableId/seat',
+            data: {'reservation_id': reservationId},
+          );
+        } catch (_) {
+          response = await _apiService.post(
+            'dining-tables/$tableId/occupy',
+            data: payload,
+          );
+        }
+      }
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        _logger.i('预约 $reservationId 成功入座桌台 $tableId');
+        await _databaseService.updateDiningTableStatus(tableId, 'occupied');
+        return true;
+      }
+    } catch (e) {
+      _logger.e('预约入座 API 失败 ($reservationId -> $tableId): $e');
+    }
+
+    // 即使 API 无法连接，依然更新本地 DB 为 occupied 保证流畅体验
+    await _databaseService.updateDiningTableStatus(tableId, 'occupied');
+    return false;
   }
 
   /// 获取桌台预约信息与预选菜品

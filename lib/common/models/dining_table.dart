@@ -372,25 +372,80 @@ class DiningTable {
   }
 }
 
+/// 今日预约接待数据模型
+class TodayReservationsData {
+  final String? date;
+  final int totalCount;
+  final int waitingCount;
+  final int seatedCount;
+  final List<DiningTableReservation> waitingReservations;
+  final List<DiningTableReservation> seatedReservations;
+
+  TodayReservationsData({
+    this.date,
+    this.totalCount = 0,
+    this.waitingCount = 0,
+    this.seatedCount = 0,
+    this.waitingReservations = const [],
+    this.seatedReservations = const [],
+  });
+
+  factory TodayReservationsData.fromJson(Map<String, dynamic> json) {
+    List<DiningTableReservation> parseList(dynamic raw) {
+      if (raw is List) {
+        return raw
+            .map((e) => DiningTableReservation.fromJson(
+                  e is Map<String, dynamic>
+                      ? e
+                      : Map<String, dynamic>.from(e as Map),
+                ))
+            .toList();
+      }
+      return [];
+    }
+
+    return TodayReservationsData(
+      date: json['date']?.toString(),
+      totalCount: json['total_count'] is int
+          ? json['total_count']
+          : int.tryParse(json['total_count']?.toString() ?? '0') ?? 0,
+      waitingCount: json['waiting_count'] is int
+          ? json['waiting_count']
+          : int.tryParse(json['waiting_count']?.toString() ?? '0') ?? 0,
+      seatedCount: json['seated_count'] is int
+          ? json['seated_count']
+          : int.tryParse(json['seated_count']?.toString() ?? '0') ?? 0,
+      waitingReservations: parseList(json['waiting_reservations']),
+      seatedReservations: parseList(json['seated_reservations']),
+    );
+  }
+}
+
 /// 桌台预约模型
 class DiningTableReservation {
   final int id;
+  final int? tableId;
   final String? customerName;
   final String? customerPhone;
   final String? reservationTime;
+  final String? reservationDate;
   final int? guestCount;
   final String? status; // confirmed | seated | completed | cancelled
   final bool hasPreOrder;
+  final String? itemsOrderedSummary;
   final DiningTablePreorder? preorder;
 
   DiningTableReservation({
     required this.id,
+    this.tableId,
     this.customerName,
     this.customerPhone,
     this.reservationTime,
+    this.reservationDate,
     this.guestCount,
     this.status,
     this.hasPreOrder = false,
+    this.itemsOrderedSummary,
     this.preorder,
   });
 
@@ -407,20 +462,34 @@ class DiningTableReservation {
         json['has_preorder'] == true ||
         pre != null;
 
+    final int? tId = json['table_id'] is int
+        ? json['table_id']
+        : int.tryParse(json['table_id']?.toString() ?? '');
+
     return DiningTableReservation(
       id: json['id'] is int
           ? json['id']
           : int.tryParse(json['id']?.toString() ?? '0') ?? 0,
-      customerName: json['customer_name']?.toString() ?? json['name']?.toString(),
-      customerPhone: json['customer_phone']?.toString() ?? json['phone']?.toString(),
-      reservationTime: json['reservation_time']?.toString() ?? json['time']?.toString(),
+      tableId: tId,
+      customerName:
+          json['customer_name']?.toString() ?? json['name']?.toString(),
+      customerPhone:
+          json['customer_phone']?.toString() ?? json['phone']?.toString(),
+      reservationTime:
+          json['reservation_time']?.toString() ?? json['time']?.toString(),
+      reservationDate:
+          json['reservation_date']?.toString() ?? json['date']?.toString(),
       guestCount: json['guests_count'] is int
           ? json['guests_count']
           : (json['guest_count'] is int
               ? json['guest_count']
-              : int.tryParse(json['guests_count']?.toString() ?? json['guest_count']?.toString() ?? '')),
+              : int.tryParse(json['guests_count']?.toString() ??
+                  json['guest_count']?.toString() ??
+                  '')),
       status: json['status']?.toString(),
       hasPreOrder: hasPreBool,
+      itemsOrderedSummary: json['items_ordered_summary']?.toString() ??
+          json['summary']?.toString(),
       preorder: pre,
     );
   }
@@ -428,12 +497,15 @@ class DiningTableReservation {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
+      'table_id': tableId,
       'customer_name': customerName,
       'customer_phone': customerPhone,
       'reservation_time': reservationTime,
+      'reservation_date': reservationDate,
       'guests_count': guestCount,
       'status': status,
       'has_pre_order': hasPreOrder,
+      'items_ordered_summary': itemsOrderedSummary,
       'pre_order': preorder?.toJson(),
     };
   }
@@ -455,7 +527,9 @@ class DiningTablePreorder {
     List<Map<String, dynamic>> itemList = [];
     if (json['items'] != null && json['items'] is List) {
       itemList = (json['items'] as List).map((i) {
-        final map = i is Map<String, dynamic> ? i : Map<String, dynamic>.from(i as Map);
+        final map = i is Map<String, dynamic>
+            ? i
+            : Map<String, dynamic>.from(i as Map);
         return {
           'product_id': map['product_id'] ?? map['id'],
           'name': map['product_title'] ?? map['name'] ?? map['title'],
@@ -467,7 +541,8 @@ class DiningTablePreorder {
     }
 
     return DiningTablePreorder(
-      orderNumber: json['order_number']?.toString() ?? json['order_no']?.toString(),
+      orderNumber:
+          json['order_number']?.toString() ?? json['order_no']?.toString(),
       finalAmount: json['final_amount'] is num
           ? (json['final_amount'] as num).toDouble()
           : double.tryParse(json['final_amount']?.toString() ?? ''),
