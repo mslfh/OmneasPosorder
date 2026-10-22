@@ -13,7 +13,6 @@ import '../../common/services/sync_service.dart';
 import '../../common/services/print_service.dart';
 import '../../common/services/language_service.dart';
 import 'services/service_status_service.dart';
-import 'widgets/order_match_details_dialog.dart';
 import 'widgets/printer_config_dialog.dart';
 import 'widgets/server_config_dialog.dart';
 import 'widgets/service_status_actions.dart';
@@ -166,7 +165,6 @@ class _InternalAppState extends State<InternalApp> {
   /// Handle title tap for admin mode activation
   void _onTitleTap() {
     final now = DateTime.now();
-
     // Reset count if more than 5 seconds have passed
     if (_lastTitleTapTime != null &&
         now.difference(_lastTitleTapTime!).inSeconds > 5) {

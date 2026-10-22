@@ -58,9 +58,6 @@ class MenuGridWidget extends StatefulWidget {
 }
 
 class _MenuGridWidgetState extends State<MenuGridWidget> {
-  // 12 列单元格标准网格
-  static const int _crossAxisCount = 12;
-
   // 网格容器 Key，用于获取全局像素坐标
   final GlobalKey _gridKey = GlobalKey();
 
@@ -93,31 +90,48 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
     }
   }
 
+  /// 依据容器宽度响应式计算排数/列数，确保动态铺满单元网格
+  int _calculateCrossAxisCount(double containerWidth) {
+    int cardsPerRow;
+    if (containerWidth < 650) {
+      cardsPerRow = 4; // 竖屏 / 窄屏：每行 4 列
+    } else if (containerWidth < 950) {
+      cardsPerRow = 6; // 中等横屏（如 iPad 横屏/小屏电脑）：每行 6 列
+    } else if (containerWidth < 1300) {
+      cardsPerRow = 8; // 电脑屏幕：每行 8 列
+    } else if (containerWidth < 1650) {
+      cardsPerRow = 10; // 宽屏电脑：每行 10 列
+    } else {
+      cardsPerRow = 12; // Full HD 1920px+ 显示器：每行 12 列
+    }
+    return cardsPerRow * 3; // 基础单元格 3 单位 = 1 标准卡片宽
+  }
+
   /// 依据拖拽释放时的全局屏幕坐标，精准计算目标的单元格 (col, row)
-  void _handleDragEnd(MenuItem item, Offset globalOffset, int spanX, int spanY) {
+  void _handleDragEnd(MenuItem item, Offset globalOffset, int spanX, int spanY, int crossAxisCount) {
     final RenderBox? renderBox =
         _gridKey.currentContext?.findRenderObject() as RenderBox?;
     if (renderBox == null) return;
 
     final localOffset = renderBox.globalToLocal(globalOffset);
-    final cellWidth = renderBox.size.width / _crossAxisCount;
-    final cellHeight = cellWidth * 0.85;
+    final cellWidth = renderBox.size.width / crossAxisCount;
+    final cellHeight = cellWidth * 0.95;
 
     // 四舍五入计算最靠近的目标行列，并防止越界
     int targetCol =
-        (localOffset.dx / cellWidth).round().clamp(0, _crossAxisCount - spanX);
+        (localOffset.dx / cellWidth).round().clamp(0, crossAxisCount - spanX);
     int targetRow = (localOffset.dy / cellHeight).round().clamp(0, 200);
 
-    _updateItemConfig(item.id, col: targetCol, row: targetRow);
+    _updateItemConfig(item.id, crossAxisCount: crossAxisCount, col: targetCol, row: targetRow);
   }
 
-  /// 布局计算引擎：后续菜品按序顺序填补空位，消除中间脱节与空洞，保持前期菜品相对位置稳定
-  List<PlacedGridItem> _calculatePlacedItems(List<MenuItem> validProducts) {
+  /// 布局计算引擎：根据当前总列数响应式摆放菜品
+  List<PlacedGridItem> _calculatePlacedItems(List<MenuItem> validProducts, int crossAxisCount) {
     final Map<String, bool> occupied = {};
     final List<PlacedGridItem> result = [];
 
     bool isOccupied(int r, int c, int sx, int sy) {
-      if (c + sx > _crossAxisCount) return true;
+      if (c + sx > crossAxisCount) return true;
       for (int row = r; row < r + sy; row++) {
         for (int col = c; col < c + sx; col++) {
           if (occupied['$row,$col'] == true) return true;
@@ -139,7 +153,7 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
       int r = startRow < 0 ? 0 : startRow;
       int c = startCol < 0 ? 0 : startCol;
       while (true) {
-        if (c + sx > _crossAxisCount) {
+        if (c + sx > crossAxisCount) {
           c = 0;
           r++;
         }
@@ -163,13 +177,13 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
     // 1. 优先放置当前正在主动移动/放置的菜品
     if (activeEditingItem != null && _layoutConfigs.containsKey(activeEditingItem.id)) {
       final config = _layoutConfigs[activeEditingItem.id]!;
-      int spanX = config.spanX.clamp(2, _crossAxisCount);
+      int spanX = config.spanX.clamp(2, crossAxisCount);
       int spanY = config.spanY.clamp(2, 20);
       if (spanX * spanY < 4) {
         spanX = 2;
         spanY = 2;
       }
-      int col = config.col.clamp(0, _crossAxisCount - spanX);
+      int col = config.col.clamp(0, crossAxisCount - spanX);
       int row = config.row < 0 ? 0 : config.row;
 
       if (isOccupied(row, col, spanX, spanY)) {
@@ -189,7 +203,7 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
       ));
     }
 
-    // 2. 将所有其他菜品按照其原有的相对顺序排序 (已有布局配置的按行、列，没有的按 categoryId)
+    // 2. 将所有其他菜品按照其原有的相对顺序排序
     final List<MenuItem> remainingProducts = validProducts
         .where((item) => item.id != activeEditingItem?.id)
         .toList();
@@ -227,7 +241,7 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
 
     for (final item in remainingProducts) {
       final config = _layoutConfigs[item.id];
-      int spanX = (config?.spanX ?? 3).clamp(2, _crossAxisCount);
+      int spanX = (config?.spanX ?? 3).clamp(2, crossAxisCount);
       int spanY = (config?.spanY ?? 2).clamp(2, 20);
       if (spanX * spanY < 4) {
         spanX = 2;
@@ -238,22 +252,19 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
       int targetRow;
 
       if (config != null) {
-        int reqCol = config.col.clamp(0, _crossAxisCount - spanX);
+        int reqCol = config.col.clamp(0, crossAxisCount - spanX);
         int reqRow = config.row < 0 ? 0 : config.row;
 
-        // 如果原有位置没有被占用，并且在此之前的网格没有出现断层空洞，则保持原位
         if (!isOccupied(reqRow, reqCol, spanX, spanY) &&
             (reqRow < scanRow || (reqRow == scanRow && reqCol <= scanCol))) {
           targetCol = reqCol;
           targetRow = reqRow;
         } else {
-          // 否则，从当前顺序推进点 (scanRow, scanCol) 自动顺延补位
           final free = findNextFreeSlot(scanRow, scanCol, spanX, spanY);
           targetCol = free.x;
           targetRow = free.y;
         }
       } else {
-        // 未单独配置的菜品，自动顺序补位
         final free = findNextFreeSlot(scanRow, scanCol, spanX, spanY);
         targetCol = free.x;
         targetRow = free.y;
@@ -269,10 +280,9 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
         isCustomPlaced: config != null,
       ));
 
-      // 更新顺序扫描指针为当前放置位置之后
       scanCol = targetCol + spanX;
       scanRow = targetRow;
-      if (scanCol >= _crossAxisCount) {
+      if (scanCol >= crossAxisCount) {
         scanCol = 0;
         scanRow++;
       }
@@ -281,9 +291,13 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
     return result;
   }
 
-  /// 保存并更新菜品的网格位置与尺寸（自动持久化并同步补位后的位置）
+  /// 保存并更新菜品的网格位置与尺寸
   Future<void> _updateItemConfig(int itemId,
-      {int? col, int? row, int? spanX, int? spanY}) async {
+      {required int crossAxisCount,
+      int? col,
+      int? row,
+      int? spanX,
+      int? spanY}) async {
     final current = _layoutConfigs[itemId];
     final defaultSpanX = current?.spanX ?? 3;
     final defaultSpanY = current?.spanY ?? 2;
@@ -293,7 +307,6 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
     int newSpanX = spanX ?? defaultSpanX;
     int newSpanY = spanY ?? defaultSpanY;
 
-    // 确保最低 4 个单元格
     if (newSpanX * newSpanY < 4) {
       if (newSpanX < 2) newSpanX = 2;
       if (newSpanY < 2) newSpanY = 2;
@@ -301,7 +314,7 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
 
     final newConfig = MenuItemLayoutConfig(
       menuItemId: itemId,
-      col: (col ?? defaultCol).clamp(0, _crossAxisCount - newSpanX),
+      col: (col ?? defaultCol).clamp(0, crossAxisCount - newSpanX),
       row: (row ?? defaultRow) < 0 ? 0 : (row ?? defaultRow),
       spanX: newSpanX,
       spanY: newSpanY,
@@ -310,9 +323,8 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
     _lastMovedItemId = itemId;
     _layoutConfigs[itemId] = newConfig;
 
-    // 计算放置后更新所有变动菜品的配置，确保补位重排后的位置同步持久化
     final validProducts = widget.products.whereType<MenuItem>().toList();
-    final placed = _calculatePlacedItems(validProducts);
+    final placed = _calculatePlacedItems(validProducts, crossAxisCount);
 
     for (final p in placed) {
       _layoutConfigs[p.item.id] = MenuItemLayoutConfig(
@@ -375,17 +387,6 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
       );
     }
 
-    final placedItems = _calculatePlacedItems(validProducts);
-
-    // 计算网格总行数
-    int maxRows = 6;
-    for (final p in placedItems) {
-      if (p.row + p.spanY > maxRows) {
-        maxRows = p.row + p.spanY;
-      }
-    }
-    maxRows += 4;
-
     return Column(
       children: [
         // 编辑模式顶部提示与控制条
@@ -442,8 +443,20 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final containerWidth = constraints.maxWidth;
-              final cellWidth = containerWidth / _crossAxisCount;
-              final cellHeight = cellWidth * 0.85;
+              final crossAxisCount = _calculateCrossAxisCount(containerWidth);
+              final cellWidth = containerWidth / crossAxisCount;
+              final cellHeight = cellWidth * 0.95;
+
+              final placedItems = _calculatePlacedItems(validProducts, crossAxisCount);
+
+              // 计算网格总行数
+              int maxRows = 6;
+              for (final p in placedItems) {
+                if (p.row + p.spanY > maxRows) {
+                  maxRows = p.row + p.spanY;
+                }
+              }
+              maxRows += 4;
               final totalGridHeight = maxRows * cellHeight;
 
               return SingleChildScrollView(
@@ -459,7 +472,7 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                         Positioned.fill(
                           child: CustomPaint(
                             painter: GridUnitsPainter(
-                              crossAxisCount: _crossAxisCount,
+                              crossAxisCount: crossAxisCount,
                               rows: maxRows,
                               cellWidth: cellWidth,
                               cellHeight: cellHeight,
@@ -496,7 +509,7 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                             data: item,
                             onDragEnd: (details) {
                               _handleDragEnd(
-                                  item, details.offset, placed.spanX, placed.spanY);
+                                  item, details.offset, placed.spanX, placed.spanY, crossAxisCount);
                             },
                             feedback: Material(
                               color: Colors.transparent,
@@ -566,7 +579,7 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                                 // 在编辑模式下选中时，显示调整大小控制面板
                                 if (isSelectedInEdit)
                                   _buildResizeControls(
-                                      item, placed.spanX, placed.spanY),
+                                      item, placed.spanX, placed.spanY, crossAxisCount),
                               ],
                             ),
                           ),
@@ -652,7 +665,7 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                   child: Draggable<MenuItem>(
                     data: item,
                     onDragEnd: (details) {
-                      _handleDragEnd(item, details.offset, spanX, spanY);
+                      _handleDragEnd(item, details.offset, spanX, spanY, 12);
                     },
                     feedback: Material(
                       color: Colors.transparent,
@@ -693,7 +706,7 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                   ),
                 ),
 
-              // 菜品名称平铺展示（平铺适应，彻底杜绝 RenderFlex 溢出）
+              // 菜品名称与快捷键(acronym)展示
               Positioned.fill(
                 child: Padding(
                   padding: EdgeInsets.symmetric(
@@ -701,17 +714,38 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                     vertical: 4.0 * scale,
                   ),
                   child: Center(
-                    child: Text(
-                      item.title,
-                      style: TextStyle(
-                        fontSize: dynamicTitleFontSize,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                        height: 1.15,
-                      ),
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          item.title,
+                          style: TextStyle(
+                            fontSize: dynamicTitleFontSize,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                            height: 1.15,
+                          ),
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (item.acronym != null && item.acronym!.trim().isNotEmpty) ...[
+                          SizedBox(height: 2.0 * scale),
+                          Text(
+                            item.acronym!.trim(),
+                            style: TextStyle(
+                              fontSize: dynamicAcronymFontSize,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.grey[700],
+                              height: 1.1,
+                            ),
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ),
@@ -799,7 +833,7 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
   }
 
   /// 构建在编辑模式下调整卡片占用单元格数量的按钮面板
-  Widget _buildResizeControls(MenuItem item, int spanX, int spanY) {
+  Widget _buildResizeControls(MenuItem item, int spanX, int spanY, int crossAxisCount) {
     return Positioned(
       bottom: 2,
       right: 2,
@@ -818,7 +852,7 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                 tooltip: '减少宽度',
                 onPressed: () {
                   if (spanX > 2 && (spanX - 1) * spanY >= 4) {
-                    _updateItemConfig(item.id, spanX: spanX - 1, spanY: spanY);
+                    _updateItemConfig(item.id, crossAxisCount: crossAxisCount, spanX: spanX - 1, spanY: spanY);
                   }
                 },
               ),
@@ -832,8 +866,8 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                 icon: Icons.add,
                 tooltip: '增加宽度',
                 onPressed: () {
-                  if (spanX < _crossAxisCount) {
-                    _updateItemConfig(item.id, spanX: spanX + 1, spanY: spanY);
+                  if (spanX < crossAxisCount) {
+                    _updateItemConfig(item.id, crossAxisCount: crossAxisCount, spanX: spanX + 1, spanY: spanY);
                   }
                 },
               ),
@@ -844,7 +878,7 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                 tooltip: '减少高度',
                 onPressed: () {
                   if (spanY > 2 && spanX * (spanY - 1) >= 4) {
-                    _updateItemConfig(item.id, spanX: spanX, spanY: spanY - 1);
+                    _updateItemConfig(item.id, crossAxisCount: crossAxisCount, spanX: spanX, spanY: spanY - 1);
                   }
                 },
               ),
@@ -859,7 +893,7 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                 tooltip: '增加高度',
                 onPressed: () {
                   if (spanY < 12) {
-                    _updateItemConfig(item.id, spanX: spanX, spanY: spanY + 1);
+                    _updateItemConfig(item.id, crossAxisCount: crossAxisCount, spanX: spanX, spanY: spanY + 1);
                   }
                 },
               ),

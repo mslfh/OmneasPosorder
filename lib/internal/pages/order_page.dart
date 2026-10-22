@@ -24,7 +24,6 @@ import '../keyboard_handlers/enter_key_handler.dart';
 import '../keyboard_handlers/quick_input_handler.dart';
 import '../keyboard_handlers/duplicate_key_handler.dart';
 import '../../common/services/order_match_service.dart';
-import '../../common/services/api_service.dart';
 import '../services/menu_data_service.dart';
 import '../services/order_match_manager.dart';
 import '../widgets/online_order_selection_dialog.dart';
@@ -33,6 +32,11 @@ import '../../common/services/dining_table_service.dart';
 import '../../common/services/print_service.dart';
 import '../utils/dining_table_mapper.dart';
 import '../widgets/dining_table_selection_dialog.dart';
+import '../widgets/edit_product_dialog.dart';
+import '../widgets/sold_out_dialog.dart';
+import '../widgets/manage_options_dialog.dart';
+import '../widgets/option_selection_dialog.dart';
+import '../widgets/selected_order_banners_widget.dart';
 
 class OrderPage extends StatefulWidget {
   final bool isAdminMode;
@@ -203,55 +207,15 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   Widget _buildSelectedTableBanner() {
-    final table = _selectedTable;
-    if (table == null) return const SizedBox.shrink();
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.amber.shade50,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.amber.shade400, width: 1.2),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.table_restaurant, color: Colors.amber[900]),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              '已关联桌台：${table.name}${table.area != null && table.area!.isNotEmpty ? ' (${table.area})' : ''}  ${_isTableOrderExisting ? "[堂食坐台单]" : "[开台点餐]"}',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-                color: Colors.amber[900],
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          OutlinedButton(
-            onPressed: _showTablePicker,
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            child: const Text('换桌', style: TextStyle(fontSize: 12)),
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.close, size: 18),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-            color: Colors.amber[900],
-            onPressed: () {
-              setState(() {
-                _clearTableSelection();
-              });
-            },
-          ),
-        ],
-      ),
+    return SelectedTableBannerWidget(
+      table: _selectedTable,
+      isTableOrderExisting: _isTableOrderExisting,
+      onChangeTable: _showTablePicker,
+      onClearTable: () {
+        setState(() {
+          _clearTableSelection();
+        });
+      },
     );
   }
 
@@ -460,33 +424,9 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   Widget _buildSelectedOnlineOrderBanner() {
-    final order = _selectedOnlineOrder;
-    if (order == null) return const SizedBox.shrink();
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.orange.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.orange.withOpacity(0.35)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.cloud_done, color: Colors.orange[700]),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              '已添加在线订单：${order.orderNo}${order.remoteOrderNumber != null ? ' / ${order.remoteOrderNumber}' : ''}',
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-          Text(
-            '${_selectedOnlineOrderOriginalProducts.length} items',
-            style: TextStyle(color: Colors.orange[800]),
-          ),
-        ],
-      ),
+    return SelectedOnlineOrderBannerWidget(
+      order: _selectedOnlineOrder,
+      originalProducts: _selectedOnlineOrderOriginalProducts,
     );
   }
 
@@ -544,7 +484,13 @@ class _OrderPageState extends State<OrderPage> {
     _keyboardEventHandler.addHandler(
       enterKeyHandler(
         quickInputManager: _quickInputManager,
-        addProductIntelligently: _addProductIntelligently,
+        addProductIntelligently: (item) {
+          if (_isAdminMode) {
+            _showEditProductDialog(item);
+          } else {
+            _addProductIntelligently(item);
+          }
+        },
         addOptionToLastProduct: _addOptionToLastProduct,
         playClickSound: _playClickSound,
         clearQuickInput: () {
@@ -749,75 +695,16 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   void _showOptionDialog(String type) {
-    if (orderedProducts.isEmpty) {
-      return;
-    }
+    if (orderedProducts.isEmpty) return;
+    final options = optionGroups[type] ?? [];
+    if (options.isEmpty) return;
 
-    showDialog(
+    OptionSelectionDialog.show(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('选择 $type', style: TextStyle(fontSize: 16)),
-          contentPadding: EdgeInsets.all(16),
-          content: Container(
-            width: double.maxFinite,
-            child: GridView.builder(
-              shrinkWrap: true,
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 5,
-                crossAxisSpacing: 6,
-                mainAxisSpacing: 6,
-                childAspectRatio: 1.8,
-              ),
-              itemCount: optionGroups[type]?.length ?? 0,
-              itemBuilder: (context, index) {
-                final option = optionGroups[type]![index];
-                return Card(
-                  margin: EdgeInsets.zero,
-                  child: InkWell(
-                    onTap: () {
-                      _addOptionToLastProduct(type, option);
-                      Navigator.pop(context);
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.all(4.0),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            option.name,
-                            style: TextStyle(
-                                fontSize: 13, fontWeight: FontWeight.bold),
-                            textAlign: TextAlign.center,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          if (option.extraCost > 0)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 2.0),
-                              child: Text(
-                                '+\$${option.extraCost.toStringAsFixed(2)}',
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.red,
-                                    fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('取消'),
-            ),
-          ],
-        );
+      type: type,
+      options: options,
+      onOptionSelected: (option) {
+        _addOptionToLastProduct(type, option);
       },
     );
   }
@@ -848,7 +735,11 @@ class _OrderPageState extends State<OrderPage> {
     if (selectedItem == null) return;
 
     if (selectedItem is MenuItem) {
-      _addProductIntelligently(selectedItem);
+      if (_isAdminMode) {
+        _showEditProductDialog(selectedItem);
+      } else {
+        _addProductIntelligently(selectedItem);
+      }
       await _playClickSound();
     } else if (selectedItem is MenuOption && orderedProducts.isNotEmpty) {
       _addOptionToLastProduct(selectedItem.type, selectedItem);
@@ -929,11 +820,15 @@ class _OrderPageState extends State<OrderPage> {
           _removeQuickInputOverlay();
         },
         onItemTap: (item) {
-          _addProductIntelligently(item);
           _playClickSound();
           _quickInputManager.clear();
           _syncSearchInputController();
           _removeQuickInputOverlay();
+          if (_isAdminMode) {
+            _showEditProductDialog(item);
+          } else {
+            _addProductIntelligently(item);
+          }
         },
         onOptionTap: (option) {
           if (orderedProducts.isNotEmpty) {
@@ -1014,723 +909,52 @@ class _OrderPageState extends State<OrderPage> {
 
 
 
-  /// 沽清设置 API 调用
-  Future<void> _setProductSoldOut(MenuItem product, String type) async {
-    try {
-      final api = ApiService();
-      await api.post('products/${product.id}/sold-out', data: {
-        'type': type,
+  Future<void> _refreshMenuData() async {
+    final menuData = await _menuDataService.loadMenuData();
+    if (mounted) {
+      setState(() {
+        allProducts = menuData['allProducts'] ?? [];
+        products = menuData['products'] ?? [];
+        categories = menuData['categories'] ?? [];
       });
+    }
+  }
 
-      // 刷新菜品数据
-      final menuData = await _menuDataService.loadMenuData();
-      if (mounted) {
-        setState(() {
-          allProducts = menuData['allProducts'] ?? [];
-          products = menuData['products'] ?? [];
-          categories = menuData['categories'] ?? [];
-        });
-      }
-
-      String msg;
-      switch (type) {
-        case 'available':
-          msg = '${product.title} 已恢复在售';
-          break;
-        case '4h':
-          msg = '${product.title} 已设置沽清 4 小时';
-          break;
-        case 'today':
-          msg = '${product.title} 已设置今日沽清';
-          break;
-        case 'this_week':
-          msg = '${product.title} 已设置本周沽清';
-          break;
-        case 'indefinite':
-          msg = '${product.title} 已设置永久沽清';
-          break;
-        default:
-          msg = '沽清状态已更新';
-      }
-
-      if (!mounted) return;
-      UIHelper.showSnackBar(context, msg, backgroundColor: Colors.green);
-    } catch (e) {
-      if (!mounted) return;
-      UIHelper.showSnackBar(context, '设置沽清失败: $e', backgroundColor: Colors.red);
+  Future<void> _refreshOptionsData() async {
+    final options = await _menuDataService.loadOptions();
+    if (mounted) {
+      setState(() {
+        optionGroups = options;
+      });
     }
   }
 
   /// 显示沽清设置对话框
   void _showSoldOutDialog(MenuItem product) {
-    showDialog(
+    SoldOutDialog.show(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.no_meals, color: Colors.orange[800]),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                '${product.title} - 沽清设置',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: product.isSoldOut ? Colors.red[50] : Colors.green[50],
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: product.isSoldOut ? Colors.red[200]! : Colors.green[200]!,
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    product.isSoldOut ? Icons.cancel : Icons.check_circle,
-                    color: product.isSoldOut ? Colors.red : Colors.green,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '当前状态：${product.isSoldOut ? "已沽清 (Sold Out)" : "正常在售"}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: product.isSoldOut ? Colors.red[800] : Colors.green[800],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text('请选择沽清时长或恢复在售：',
-                style: TextStyle(fontSize: 14, color: Colors.black87)),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _buildSoldOutOptionTile(
-                  dialogContext,
-                  product,
-                  type: 'available',
-                  label: '恢复在售',
-                  icon: Icons.refresh,
-                  color: Colors.green,
-                ),
-                _buildSoldOutOptionTile(
-                  dialogContext,
-                  product,
-                  type: '4h',
-                  label: '沽清 4 小时',
-                  icon: Icons.timer,
-                  color: Colors.orange,
-                ),
-                _buildSoldOutOptionTile(
-                  dialogContext,
-                  product,
-                  type: 'today',
-                  label: '今日沽清',
-                  icon: Icons.today,
-                  color: Colors.deepOrange,
-                ),
-                _buildSoldOutOptionTile(
-                  dialogContext,
-                  product,
-                  type: 'this_week',
-                  label: '本周沽清',
-                  icon: Icons.date_range,
-                  color: Colors.brown,
-                ),
-                _buildSoldOutOptionTile(
-                  dialogContext,
-                  product,
-                  type: 'indefinite',
-                  label: '永久沽清',
-                  icon: Icons.block,
-                  color: Colors.red,
-                ),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('取消'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSoldOutOptionTile(
-    BuildContext dialogContext,
-    MenuItem product, {
-    required String type,
-    required String label,
-    required IconData icon,
-    required Color color,
-  }) {
-    return InkWell(
-      onTap: () {
-        Navigator.pop(dialogContext);
-        _setProductSoldOut(product, type);
-      },
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          border: Border.all(color: color.withOpacity(0.4)),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18, color: color),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ),
-      ),
+      product: product,
+      onProductUpdated: _refreshMenuData,
     );
   }
 
   /// Show edit product dialog (Admin Mode)
   void _showEditProductDialog(MenuItem product) {
-    final codeController = TextEditingController(text: product.code);
-    final titleController = TextEditingController(text: product.title);
-    final acronymController = TextEditingController(text: product.acronym);
-    final priceController =
-        TextEditingController(text: product.sellingPrice.toString());
-    final stockController =
-        TextEditingController(text: product.stock.toString());
-    String? selectedCategoryId = product.categoryIds.isNotEmpty
-        ? product.categoryIds.first.toString()
-        : null;
-
-    showDialog(
+    EditProductDialog.show(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('编辑菜品'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // 沽清快捷操作条
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: product.isSoldOut ? Colors.red[50] : Colors.amber[50],
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(
-                    color: product.isSoldOut ? Colors.red[200]! : Colors.amber[300]!,
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      product.isSoldOut ? Icons.no_meals : Icons.check_circle,
-                      color: product.isSoldOut ? Colors.red : Colors.green[700],
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        product.isSoldOut ? '当前状态：已沽清 (Sold Out)' : '当前状态：正常在售',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: product.isSoldOut ? Colors.red[800] : Colors.green[800],
-                        ),
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _showSoldOutDialog(product);
-                      },
-                      icon: const Icon(Icons.edit_attributes, size: 16),
-                      label: const Text('设置沽清', style: TextStyle(fontSize: 12)),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: codeController,
-                decoration: InputDecoration(
-                  labelText: '菜品代码',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              SizedBox(height: 12),
-              TextField(
-                controller: titleController,
-                decoration: InputDecoration(
-                  labelText: '菜品名称',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              SizedBox(height: 12),
-              TextField(
-                controller: acronymController,
-                decoration: InputDecoration(
-                  labelText: '快捷键',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              SizedBox(height: 12),
-              TextField(
-                controller: priceController,
-                decoration: InputDecoration(
-                  labelText: '售价',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
-              ),
-              SizedBox(height: 12),
-              TextField(
-                controller: stockController,
-                decoration: InputDecoration(
-                  labelText: '库存',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.number,
-              ),
-              SizedBox(height: 12),
-              DropdownButton<String>(
-                value: selectedCategoryId,
-                isExpanded: true,
-                hint: Text('选择分类'),
-                items: categories.map((cat) {
-                  return DropdownMenuItem(
-                    value: cat.id.toString(),
-                    child: Text(cat.title),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    selectedCategoryId = value;
-                  });
-                },
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final newPrice = double.tryParse(priceController.text);
-              final newStock = int.tryParse(stockController.text);
-
-              if (newPrice == null) {
-                UIHelper.showSnackBar(context, '价格格式错误', backgroundColor: Colors.red);
-                return;
-              }
-
-              if (newStock == null) {
-                UIHelper.showSnackBar(context, '库存格式错误', backgroundColor: Colors.red);
-                return;
-              }
-
-              try {
-                final List<int> categoryIds = [];
-                if (selectedCategoryId != null &&
-                    selectedCategoryId!.isNotEmpty) {
-                  final catId = int.tryParse(selectedCategoryId!);
-                  if (catId != null) {
-                    categoryIds.add(catId);
-                  }
-                } else {
-                  categoryIds.addAll(product.categoryIds);
-                }
-
-                final updateData = {
-                  'code': codeController.text,
-                  'title': titleController.text,
-                  'acronym': acronymController.text.isEmpty
-                      ? null
-                      : acronymController.text,
-                  'sellingPrice': newPrice,
-                  'stock': newStock,
-                  'categoryIds': categoryIds,
-                };
-
-                final api = ApiService();
-                await api.put('products/${product.id.toString()}',
-                    data: updateData);
-
-                Navigator.pop(context);
-
-                // 刷新菜品数据
-                final menuData = await _menuDataService.loadMenuData();
-                if (mounted) {
-                  setState(() {
-                    allProducts = menuData['allProducts'] ?? [];
-                    products = menuData['products'] ?? [];
-                    categories = menuData['categories'] ?? [];
-                  });
-                }
-
-                UIHelper.showSnackBar(context, '菜品已更新',
-                    backgroundColor: Colors.green);
-              } catch (e) {
-                UIHelper.showSnackBar(context, '更新失败: $e',
-                    backgroundColor: Colors.red);
-              }
-            },
-            child: Text('保存'),
-          ),
-        ],
-      ),
+      product: product,
+      categories: categories,
+      onProductUpdated: _refreshMenuData,
+      onShowSoldOut: _showSoldOutDialog,
     );
   }
 
   /// Show manage menu options dialog (Admin Mode)
   void _showManageOptionsDialog() {
-    showDialog(
+    ManageOptionsDialog.show(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('管理菜品选项'),
-        content: SingleChildScrollView(
-          child: SizedBox(
-            width: 400,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ...optionGroups.entries.map((entry) {
-                  final groupType = entry.key;
-                  final options = entry.value;
-                  return ExpansionTile(
-                    title: Text(groupType),
-                    children: [
-                      ...options
-                          .map((option) => ListTile(
-                                title: Text(option.name),
-                                subtitle: Text(
-                                    '额外费用: \$${option.extraCost.toStringAsFixed(2)}'),
-                                trailing: PopupMenuButton(
-                                  itemBuilder: (context) => [
-                                    PopupMenuItem(
-                                      child: Text('编辑'),
-                                      onTap: () {
-                                        Future.delayed(
-                                            Duration(milliseconds: 100), () {
-                                          _showEditOptionDialog(
-                                              option, groupType);
-                                        });
-                                      },
-                                    ),
-                                    PopupMenuItem(
-                                      child: Text('删除'),
-                                      onTap: () {
-                                        Future.delayed(
-                                            Duration(milliseconds: 100), () {
-                                          _showDeleteOptionDialog(
-                                              option, groupType);
-                                        });
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ))
-                          .toList(),
-                      ListTile(
-                        leading: Icon(Icons.add),
-                        title: Text('添加选项'),
-                        onTap: () {
-                          Navigator.pop(context);
-                          _showAddOptionDialog(groupType);
-                        },
-                      ),
-                    ],
-                  );
-                }).toList(),
-                SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _showAddOptionGroupDialog();
-                  },
-                  icon: Icon(Icons.add),
-                  label: Text('新增选项组'),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('关闭'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Show add menu option dialog (Admin Mode)
-  void _showAddOptionDialog(String groupType) {
-    final nameController = TextEditingController();
-    final costController = TextEditingController(text: '0');
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('添加选项 - $groupType'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              decoration: InputDecoration(
-                labelText: '选项名称',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            SizedBox(height: 12),
-            TextField(
-              controller: costController,
-              decoration: InputDecoration(
-                labelText: '额外费用',
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.numberWithOptions(decimal: true),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final cost = double.tryParse(costController.text) ?? 0;
-              try {
-                final api = ApiService();
-                await api.post('attributes', data: {
-                  'type': groupType,
-                  'name': nameController.text,
-                  'extra_cost': cost,
-                });
-
-                Navigator.pop(context);
-
-                // 刷新选项数据
-                final options = await _menuDataService.loadOptions();
-                if (mounted) {
-                  setState(() {
-                    optionGroups = options;
-                  });
-                }
-
-                UIHelper.showSnackBar(context, '选项已添加',
-                    backgroundColor: Colors.green);
-              } catch (e) {
-                UIHelper.showSnackBar(context, '添加失败: $e',
-                    backgroundColor: Colors.red);
-              }
-            },
-            child: Text('添加'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Show edit menu option dialog (Admin Mode)
-  void _showEditOptionDialog(MenuOption option, String groupType) {
-    final nameController = TextEditingController(text: option.name);
-    final costController =
-        TextEditingController(text: option.extraCost.toString());
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('编辑选项'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              decoration: InputDecoration(
-                labelText: '选项名称',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            SizedBox(height: 12),
-            TextField(
-              controller: costController,
-              decoration: InputDecoration(
-                labelText: '额外费用',
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.numberWithOptions(decimal: true),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final cost = double.tryParse(costController.text) ?? 0;
-              try {
-                final api = ApiService();
-                await api.put('attributes/${option.id}', data: {
-                  'name': nameController.text,
-                  'extra_cost': cost,
-                });
-
-                Navigator.pop(context);
-
-                // 刷新选项数据
-                final options = await _menuDataService.loadOptions();
-                if (mounted) {
-                  setState(() {
-                    optionGroups = options;
-                  });
-                }
-
-                UIHelper.showSnackBar(context, '选项已更新',
-                    backgroundColor: Colors.green);
-              } catch (e) {
-                UIHelper.showSnackBar(context, '更新失败: $e',
-                    backgroundColor: Colors.red);
-              }
-            },
-            child: Text('保存'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Show delete menu option dialog (Admin Mode)
-  void _showDeleteOptionDialog(MenuOption option, String groupType) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('删除选项'),
-        content: Text('确认要删除选项 "${option.name}" 吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              try {
-                final api = ApiService();
-                await api.delete('attributes/${option.id}');
-
-                Navigator.pop(context);
-
-                // 刷新选项数据
-                final options = await _menuDataService.loadOptions();
-                if (mounted) {
-                  setState(() {
-                    optionGroups = options;
-                  });
-                }
-
-                UIHelper.showSnackBar(context, '选项已删除', backgroundColor: Colors.green);
-              } catch (e) {
-                UIHelper.showSnackBar(context, '删除失败: $e', backgroundColor: Colors.red);
-              }
-            },
-            child: Text('删除'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Show add option group dialog (Admin Mode)
-  void _showAddOptionGroupDialog() {
-    final groupNameController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('新增选项组'),
-        content: TextField(
-          controller: groupNameController,
-          decoration: InputDecoration(
-            labelText: '选项组名称',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (groupNameController.text.isEmpty) {
-                UIHelper.showSnackBar(context, '请输入选项组名称', backgroundColor: Colors.orange);
-                return;
-              }
-
-              try {
-                // 选项组通过添加第一个选项来创建
-                final api = ApiService();
-                await api.post('attributes', data: {
-                  'type': groupNameController.text,
-                  'name': '新选项',
-                  'extra_cost': 0,
-                });
-
-                Navigator.pop(context);
-
-                // 刷新选项数据
-                final options = await _menuDataService.loadOptions();
-                if (mounted) {
-                  setState(() {
-                    optionGroups = options;
-                  });
-                }
-
-                UIHelper.showSnackBar(context, '选项组已创建', backgroundColor: Colors.green);
-              } catch (e) {
-                UIHelper.showSnackBar(context, '创建失败: $e', backgroundColor: Colors.red);
-              }
-            },
-            child: Text('创建'),
-          ),
-        ],
-      ),
+      optionGroups: optionGroups,
+      onOptionsUpdated: _refreshOptionsData,
     );
   }
 
@@ -1772,33 +996,29 @@ class _OrderPageState extends State<OrderPage> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final double searchBarHeight = 40.0;
-              // 动态计算已点菜品区域高度 - 优化选项累加处理
-              final double minHeight = 120.0; // 增加最小高度以容纳更多选项
-              final double maxHeight = 280.0; // 增加最大高度以容纳更多选项
-              final double baseItemHeight = 32.0; // 基础菜品信息高度
-              final double optionHeight = 14.0; // 增加每个选项的高度以提供更好的可读性
-              final int crossAxisCount = 3; // 3列显示
+              final double minHeight = 120.0;
+              final double maxHeight = 280.0;
+              final double baseItemHeight = 32.0;
+              final double optionHeight = 14.0;
+              final int crossAxisCount = 3;
 
-              // 计算实际需要的高度 - 考虑选项数量和累加效果
               double maxCardHeight = baseItemHeight;
               for (var product in orderedProducts) {
-                // 为每个菜品计算高度，包括基础高度、选项高度和内边距
                 double cardHeight = baseItemHeight +
                     (product.options.length * optionHeight) +
-                    16; // 增加padding
+                    16;
                 if (cardHeight > maxCardHeight) maxCardHeight = cardHeight;
               }
 
               final int rowCount =
                   (orderedProducts.length / crossAxisCount).ceil();
               final double calculatedHeight =
-                  (rowCount * maxCardHeight) + 32; // 增加容器padding
+                  (rowCount * maxCardHeight) + 32;
               final double actualHeight =
                   calculatedHeight.clamp(minHeight, maxHeight);
 
               return Column(
                 children: [
-                  // 桌台 & 在线订单提示 Banner
                   _buildSelectedTableBanner(),
                   _buildSelectedOnlineOrderBanner(),
                   OrderedProductListWidget(
@@ -1817,7 +1037,6 @@ class _OrderPageState extends State<OrderPage> {
                     actualHeight: actualHeight,
                     maxCardHeight: maxCardHeight,
                   ),
-                  // 主内容区域 - 自动填充所有剩余可用高度
                   Expanded(
                     child: Row(
                       children: [
@@ -1832,7 +1051,6 @@ class _OrderPageState extends State<OrderPage> {
                                   categories: categories,
                                   onCategoryTap: (category) {
                                     if (category == null) {
-                                      // “全部”按钮，显示所有菜品
                                       setState(() {
                                         products =
                                             List<MenuItem>.from(allProducts);
@@ -1874,11 +1092,11 @@ class _OrderPageState extends State<OrderPage> {
                             ],
                           ),
                         ),
+                        // 右侧：搜索区 + 菜品网格
                         Expanded(
                           flex: 8,
                           child: Column(
                             children: [
-                              // 搜索区
                               Container(
                                 height: searchBarHeight,
                                 color: Colors.grey[100],
@@ -1887,8 +1105,8 @@ class _OrderPageState extends State<OrderPage> {
                                       horizontal: 16.0),
                                   child: Row(
                                     children: [
-                                      Icon(Icons.search, size: 20),
-                                      SizedBox(width: 8),
+                                      const Icon(Icons.search, size: 20),
+                                      const SizedBox(width: 8),
                                       Expanded(
                                         child: TextField(
                                           focusNode: _searchInputFocusNode,
@@ -1920,7 +1138,6 @@ class _OrderPageState extends State<OrderPage> {
                                   ),
                                 ),
                               ),
-                              // 菜品网格 - 使用所有剩余空间
                               Expanded(
                                 child: MenuGridWidget(
                                   products: products,
@@ -1943,7 +1160,11 @@ class _OrderPageState extends State<OrderPage> {
                                       }
                                     });
                                     _playClickSound();
-                                    _addProductIntelligently(item);
+                                    if (_isAdminMode) {
+                                      _showEditProductDialog(item);
+                                    } else {
+                                      _addProductIntelligently(item);
+                                    }
                                   },
                                   calculateTitleFontSize:
                                       _calculateTitleFontSize,
@@ -1965,7 +1186,6 @@ class _OrderPageState extends State<OrderPage> {
                       ],
                     ),
                   ),
-                  // 操作区域 - 优化显示效果
                   OrderActionBarWidget(
                     onVoidOrder: _voidOrder,
                     onClearOrder: _clearOrder,

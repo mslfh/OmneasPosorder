@@ -15,7 +15,7 @@ class OrderedProductListWidget extends StatelessWidget {
   final double optionHeight;
   final int crossAxisCount;
   final double containerWidth;
-  final double actualHeight;
+  final double? actualHeight;
   final double maxCardHeight;
 
   const OrderedProductListWidget({
@@ -32,7 +32,7 @@ class OrderedProductListWidget extends StatelessWidget {
     required this.optionHeight,
     required this.crossAxisCount,
     required this.containerWidth,
-    required this.actualHeight,
+    this.actualHeight,
     required this.maxCardHeight,
   }) : super(key: key);
 
@@ -54,6 +54,8 @@ class OrderedProductListWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isScrollable = actualHeight == null || actualHeight! >= maxHeight;
+
     return Container(
       height: actualHeight,
       color: Colors.blue[50],
@@ -67,7 +69,7 @@ class OrderedProductListWidget extends StatelessWidget {
                 ),
               )
             : ListView(
-                physics: actualHeight >= maxHeight
+                physics: isScrollable
                     ? const AlwaysScrollableScrollPhysics()
                     : const NeverScrollableScrollPhysics(),
                 children: [
