@@ -85,10 +85,12 @@ class ServerOrderModel {
 
   static DateTime? _asDateTime(dynamic value) {
     if (value == null) return null;
-    final text = value.toString();
+    final text = value.toString().trim();
     if (text.isEmpty) return null;
     try {
-      return DateTime.parse(text);
+      final normalized = text.contains('T') ? text : text.replaceFirst(' ', 'T');
+      final parsed = DateTime.parse(normalized);
+      return parsed.isUtc ? parsed.toLocal() : parsed;
     } catch (_) {
       return null;
     }

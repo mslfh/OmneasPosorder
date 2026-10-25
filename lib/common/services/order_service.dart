@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
 import '../models/order_model.dart';
 import '../models/server_order_model.dart';
+import '../utils/order_item_mapper.dart';
 import 'database_service.dart';
 import 'sync_service.dart';
 import 'print_service.dart';
@@ -61,7 +62,8 @@ class OrderService {
     double cashChange = 0.0, // 新增找零参数
     double voucherAmount = 0.0, // 新增券金额参数
     DateTime? expectedTime, // 可选的预计时间
-  }) async {
+  })
+  async {
     final DateTime now = DateTime.now();
     final DateTime createdAt = now;
     final DateTime orderTime = expectedTime ?? now;
@@ -352,7 +354,8 @@ class OrderService {
     int offset = 0,
     DateTime? date,
     DateTimeRange? dateRange,
-  }) async {
+  })
+  async {
     if (dateRange != null) {
       return await _databaseService.getOrdersByDateRange(
         dateRange.start,
@@ -375,7 +378,8 @@ class OrderService {
   Future<Map<String, int>> getOrderStats({
     DateTime? date,
     DateTimeRange? dateRange,
-  }) async {
+  })
+  async {
     // call via dynamic to avoid potential static analysis mismatch in some toolchains
     return await (_databaseService as dynamic).getOrderStats(
       date: date,
@@ -414,7 +418,8 @@ class OrderService {
   Future<void> _updateOrderByTerminal(
     OrderModel order,
     List<Map<String, dynamic>> items,
-  ) async {
+  )
+  async {
     if (order.remoteOrderId == null &&
         (order.remoteOrderNumber?.isEmpty ?? true)) {
       throw Exception('在线订单缺少远程标识，无法更新服务器订单');
@@ -484,7 +489,8 @@ class OrderService {
     required double cashChange,
     required double voucherAmount,
     required bool itemsChanged,
-  }) async {
+  })
+  async {
     final updatedOrder = order.copyWith(
       items: jsonEncode(items),
       totalAmount: totalAmount,
@@ -543,7 +549,8 @@ class OrderService {
 
   /// 更新订单状态
   Future<void> updateStatus(String orderId,
-      {OrderStatus? orderStatus, PrintStatus? printStatus}) async {
+      {OrderStatus? orderStatus, PrintStatus? printStatus})
+  async {
     final order = await _databaseService.getOrder(orderId);
     if (order != null) {
       final updatedOrder = order.copyWith(
@@ -658,8 +665,34 @@ class OrderService {
     }
   }
 
-  /// 落地服务器订单到本地数据库
-  Future<String> putServerOrderToLocal(ServerOrderModel serverOrder) async {
+  /// 回调告知服务器订单已成功拉取并处理
+  Future<bool> confirmPulledOrders(List<dynamic> ids) async {
+    if (ids.isEmpty) return true;
+    try {
+      _logger.i('开始确认拉取后的订单： $ids');
+      final response = await _apiService.post(
+        '/orders/confirm-pulled-order',
+        data: {'ids': ids},
+      );
+      if (response.statusCode == 200) {
+        _logger.i('服务器订单已成功确认拉取: $ids');
+        return true;
+      } else {
+        _logger.w('确认拉取订单失败，状态码: ${response.statusCode}');
+        return false;
+      }
+    } catch (e) {
+      _logger.e('确认拉取订单回调异常 ($ids): $e');
+      return false;
+    }
+  }
+
+  /// 手动落地服务器订单到本地数据库
+  Future<String> putServerOrderToLocal(
+    ServerOrderModel serverOrder, {
+    bool autoPrint = true,
+    bool confirmPulled = true,
+  }) async {
     try {
       final alreadyExistsById =
           await _databaseService.existsOrderByRemoteId(serverOrder.id);
@@ -668,8 +701,9 @@ class OrderService {
               .existsOrderByRemoteNumber(serverOrder.orderNumber)
           : false;
 
-      //该服务器订单已在本地落单
+      // 该服务器订单已在本地落单
       if (alreadyExistsById || alreadyExistsByNumber) {
+        _logger.i('服务器订单在本地已存在，跳过: ${serverOrder.orderNumber} (ID: ${serverOrder.id})');
         return '';
       }
 
@@ -677,10 +711,23 @@ class OrderService {
           (serverOrder.createdAt != null
               ? DateTime.tryParse(serverOrder.createdAt!) ?? DateTime.now()
               : DateTime.now());
-      final DateTime createdAt = orderTime;
+      final DateTime createdAt = serverOrder.createdAt != null
+          ? DateTime.tryParse(serverOrder.createdAt!) ?? orderTime
+          : orderTime;
 
-      final String orderId =
-          '${serverOrder.orderNo}-${createdAt.month.toString().padLeft(2, '0')}${createdAt.day.toString().padLeft(2, '0')}${createdAt.hour.toString().padLeft(2, '0')}${createdAt.minute.toString().padLeft(2, '0')}${createdAt.second.toString().padLeft(2, '0')}';
+      final String orderId = 'ONLINE-${serverOrder.id}';
+
+      // 映射 items 为本地统一数据结构
+      final List<Map<String, dynamic>> localItems =
+          OrderItemMapper.mapServerItemsToLocalItems(serverOrder.items);
+
+      // 订单状态解析
+      OrderStatus orderStatus = OrderStatus.pending;
+      if (serverOrder.status == 'completed') {
+        orderStatus = OrderStatus.completed;
+      } else if (serverOrder.status == 'cancelled') {
+        orderStatus = OrderStatus.cancelled;
+      }
 
       // 创建本地订单
       final order = OrderModel(
@@ -688,39 +735,59 @@ class OrderService {
         orderNo: serverOrder.orderNo,
         orderTime: orderTime,
         createdAt: createdAt,
-        items: jsonEncode(serverOrder.items),
+        items: jsonEncode(localItems),
         totalAmount: double.tryParse(serverOrder.finalAmount) ?? 0.0,
         discountAmount: double.tryParse(serverOrder.discountAmount) ?? 0.0,
         taxRate: double.tryParse(serverOrder.taxRate) ?? 10.0,
         serviceFee: 0.0,
-        cashAmount: 0.0,
+        cashAmount: double.tryParse(serverOrder.paidAmount) ?? 0.0,
         posAmount: 0.0,
-        orderStatus: OrderStatus.pending,
+        orderStatus: orderStatus,
         syncStatus: SyncStatus.synced,
         printStatus: PrintStatus.pending,
         note: serverOrder.note,
         type: serverOrder.type,
+        cashChange: 0.0,
+        voucherAmount: 0.0,
         remoteOrderId: serverOrder.id,
         remoteOrderNumber: serverOrder.orderNumber,
-        isOnlineOrder: serverOrder.placeIn == 'online',
+        isOnlineOrder:
+            serverOrder.placeIn == 'online' || serverOrder.placeIn.isEmpty,
       );
 
       // 保存到本地数据库 (orders 表和 server_orders 表)
       await _databaseService.insertOrder(order);
       await _databaseService.insertServerOrder(serverOrder.toMap());
+      await _databaseService.insertLog(LogModel(
+        orderId: order.id,
+        action: 'fetch_remote',
+        status: 'success',
+        message: '服务器订单已同步落地到本地',
+        timestamp: DateTime.now(),
+      ));
+
       _logger.i('服务器订单落地成功: ${serverOrder.orderNumber} -> $orderId');
 
-      // 添加到打印队列
-      await _addToPrintQueue(order);
+      if (autoPrint) {
+        // 添加到打印队列 (内部已统一处理自动打印开关及打印失败日志)
+        await _addToPrintQueue(order);
+      } else {
+        await _databaseService.updateOrder(order.copyWith(
+          printStatus: PrintStatus.skipped,
+          printedTime: DateTime.now(),
+        ));
+      }
+
+      if (confirmPulled) {
+        await confirmPulledOrders([serverOrder.id]);
+      }
 
       return orderId;
     } catch (e) {
-      _logger.e('拉取服务器订单失败: $e');
+      _logger.e('落地服务器订单失败: $e');
       rethrow;
     }
   }
-
-
 
   /// 重新打印服务器订单（不能跳过）
   Future<void> reprintServerOrder(ServerOrderModel serverOrder) async {
@@ -728,16 +795,18 @@ class OrderService {
       _logger.i('重新打印服务器订单: ${serverOrder.orderNumber}');
 
       final DateTime orderTime = serverOrder.orderTime ?? DateTime.now();
+      final List<Map<String, dynamic>> localItems =
+          OrderItemMapper.mapServerItemsToLocalItems(serverOrder.items);
 
       // 创建临时订单对象用于打印
       final tempOrder = OrderModel(
-        id: serverOrder.id.toString(),
+        id: 'ONLINE-${serverOrder.id}',
         orderNo: serverOrder.orderNo,
         orderTime: orderTime,
         createdAt: serverOrder.createdAt != null
-            ? DateTime.parse(serverOrder.createdAt!)
+            ? DateTime.tryParse(serverOrder.createdAt!) ?? DateTime.now()
             : DateTime.now(),
-        items: jsonEncode(serverOrder.items),
+        items: jsonEncode(localItems),
         totalAmount: double.tryParse(serverOrder.finalAmount) ?? 0.0,
         discountAmount: double.tryParse(serverOrder.discountAmount) ?? 0.0,
         taxRate: double.tryParse(serverOrder.taxRate) ?? 10.0,
@@ -745,6 +814,8 @@ class OrderService {
         type: serverOrder.type,
         remoteOrderId: serverOrder.id,
         remoteOrderNumber: serverOrder.orderNumber,
+        isOnlineOrder:
+            serverOrder.placeIn == 'online' || serverOrder.placeIn.isEmpty,
       );
 
       // 直接调用打印服务，不允许跳过
@@ -765,60 +836,21 @@ class OrderService {
       }
 
       int count = 0;
+      final List<dynamic> confirmedIds = [];
       for (final serverOrder in serverOrders) {
-        final alreadyExistsById =
-            await _databaseService.existsOrderByRemoteId(serverOrder.id);
-        final alreadyExistsByNumber = serverOrder.orderNumber.isNotEmpty
-            ? await _databaseService
-                .existsOrderByRemoteNumber(serverOrder.orderNumber)
-            : false;
-
-        if (alreadyExistsById || alreadyExistsByNumber) {
-          continue; // 本地已存在则跳过，避免重复
-        }
-
-        final DateTime orderTime = serverOrder.orderTime ?? DateTime.now();
-        final DateTime createdAt = serverOrder.createdAt != null
-            ? DateTime.parse(serverOrder.createdAt!)
-            : DateTime.now();
-
-        final String orderId =
-            '${serverOrder.orderNo}-${createdAt.month.toString().padLeft(2, '0')}${createdAt.day.toString().padLeft(2, '0')}${createdAt.hour.toString().padLeft(2, '0')}${createdAt.minute.toString().padLeft(2, '0')}${createdAt.second.toString().padLeft(2, '0')}';
-
-        // 订单状态解析
-        OrderStatus orderStatus = OrderStatus.completed;
-        if (serverOrder.status == 'pending') {
-          orderStatus = OrderStatus.pending;
-        } else if (serverOrder.status == 'cancelled') {
-          orderStatus = OrderStatus.cancelled;
-        }
-
-        final order = OrderModel(
-          id: orderId,
-          orderNo: serverOrder.orderNo,
-          orderTime: orderTime,
-          createdAt: createdAt,
-          items: jsonEncode(serverOrder.items),
-          totalAmount: double.tryParse(serverOrder.finalAmount) ?? 0.0,
-          discountAmount: double.tryParse(serverOrder.discountAmount) ?? 0.0,
-          taxRate: double.tryParse(serverOrder.taxRate) ?? 10.0,
-          serviceFee: 0.0,
-          cashAmount: 0.0,
-          posAmount: 0.0,
-          orderStatus: orderStatus,
-          syncStatus: SyncStatus.synced,
-          printStatus: PrintStatus.skipped, // 批量拉取历史订单默认跳过打印
-          note: serverOrder.note,
-          type: serverOrder.type,
-          remoteOrderId: serverOrder.id,
-          remoteOrderNumber: serverOrder.orderNumber,
-          isOnlineOrder: serverOrder.placeIn == 'online',
+        final localOrderId = await putServerOrderToLocal(
+          serverOrder,
+          autoPrint: false, // 批量拉取历史订单默认跳过打印
+          confirmPulled: false, // 统一在循环后确认
         );
+        if (localOrderId.isNotEmpty) {
+          count++;
+          confirmedIds.add(serverOrder.id);
+        }
+      }
 
-        // 保存到本地 orders 表与 server_orders 表
-        await _databaseService.insertOrder(order);
-        await _databaseService.insertServerOrder(serverOrder.toMap());
-        count++;
+      if (confirmedIds.isNotEmpty) {
+        await confirmPulledOrders(confirmedIds);
       }
 
       _logger.i('批量拉取服务器订单完成，成功同步恢复 $count 个订单到本地数据库');

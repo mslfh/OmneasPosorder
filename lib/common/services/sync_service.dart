@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:logger/logger.dart';
 import '../models/order_model.dart';
-import '../utils/order_item_mapper.dart';
+import '../models/server_order_model.dart';
 import 'database_service.dart';
-import 'print_service.dart';
+import 'order_service.dart';
 
 enum FetchOrdersStatus { success, error }
 
@@ -363,7 +363,7 @@ class SyncService {
     fetchOrdersEventNotifier.value = FetchOrdersEvent(status, DateTime.now());
   }
 
-  /// 拉取服务器新订单并同步到本地数据库
+  /// 拉取服务器新订单并落地到本地数据库
   Future<void> fetchAndSyncRemoteOrders() async {
     try {
       if (!isBaseUrlConfigured) {
@@ -374,7 +374,6 @@ class SyncService {
 
       // 1. 获取本地已同步的最大 remote_order_id
       int latestId = await _databaseService.getMaxRemoteOrderId() ?? 0;
-      //Debug for 0
       _logger.i('本地最新remote_order_id: $latestId');
 
       // 2. 拉取服务器新订单
@@ -383,98 +382,43 @@ class SyncService {
       if (response.statusCode == 200 && response.data['success'] == true) {
         final List<dynamic> orders = response.data['data'] ?? [];
         _logger.i('拉取到${orders.length}个新订单');
-        for (final order in orders) {
-          print('拉取到新订单: ${const JsonEncoder.withIndent('  ').convert(order)}');
-          // 3. 插入server_orders表
-          await _databaseService.insertServerOrder(order);
-          final remoteOrderNumber = order['order_number'];
-          final remoteOrderId = order['id'];
-          // 4. 本地orders表去重，插入本地orders表并触发打印
-          final exists = await _databaseService
-              .existsOrderByRemoteNumber(remoteOrderNumber);
-          if (!exists) {
-            // 使用方法映射items和options
-            final items = OrderItemMapper.mapServerItemsToLocalItems(
-                order['items'] as List<dynamic>? ?? []);
-            // 为拉取的订单生成本地唯一ID（避免与本地订单ID冲突）
-            // 保证本地ID的唯一性和一致性，同时通过remoteOrderId和remoteOrderNumber追踪来源
-            final now = DateTime.now();
-            final localOrderId =
-                'ONLINE-$remoteOrderId-${now.millisecondsSinceEpoch}';
-            final remoteOrderTime = _parseRemoteOrderTime(order);
-            final remoteCreatedAt = _parseRemoteCreatedAt(order);
-            // 映射为本地OrderModel
-            final orderModel = OrderModel(
-              id: localOrderId, // 生成的唯一本地ID，避免与本地订单ID冲突
-              orderNo: order['order_no'] ?? '',
-              orderTime: remoteOrderTime,
-              createdAt: remoteCreatedAt,
-              items: jsonEncode(items),
-              totalAmount: double.tryParse(order['total_amount'] ?? '0') ?? 0.0,
-              discountAmount:
-                  double.tryParse(order['discount_amount'] ?? '0') ?? 0.0,
-              taxRate: double.tryParse(order['tax_rate'] ?? '10') ?? 10.0,
-              serviceFee: 0.0,
-              cashAmount: 0.0, // 线下支付，初始为0
-              posAmount: 0.0, // 线下支付，初始为0
-              orderStatus: OrderStatus.pending,
-              syncStatus: SyncStatus.synced,
-              printStatus: PrintStatus.pending,
-              note: order['note'],
-              type: order['type'],
-              cashChange: 0.0,
-              voucherAmount: 0.0,
-              remoteOrderId: remoteOrderId,
-              remoteOrderNumber: remoteOrderNumber,
-              isOnlineOrder: true, // 标记为服务器拉取订单
-            );
-            // 插入本地orders表并触发打印
-            await _databaseService.insertOrder(orderModel);
-            _logger.i('新订单已同步到本地并待打印: $remoteOrderNumber');
-            // 记录拉取日志
-            await _databaseService.insertLog(LogModel(
-              orderId: orderModel.id,
-              action: 'fetch_remote',
-              status: 'success',
-              message: '服务器新订单已拉取并同步到本地',
-              timestamp: DateTime.now(),
-            ));
 
-            // 触发打印流程
-            final printService = PrintService();
-            // 使用样式打印双联小票（顾客用+后厨用）
-            await printService.printOrderWithTemplates(orderModel);
-          } else {
-            _logger.i('订单已存在本地: $remoteOrderNumber');
+        final orderService = OrderService();
+        final List<dynamic> confirmedIds = [];
+
+        for (final rawOrder in orders) {
+          try {
+            if (rawOrder is! Map<String, dynamic>) continue;
+            print('拉取到新订单: ${const JsonEncoder.withIndent('  ').convert(rawOrder)}');
+            final serverOrder = ServerOrderModel.fromMap(rawOrder);
+
+            final localOrderId = await orderService.putServerOrderToLocal(
+              serverOrder,
+              autoPrint: true,
+              confirmPulled: false, // 批量拉取统一在循环后进行回调确认
+            );
+
+            if (localOrderId.isNotEmpty) {
+              _logger.i('新订单已同步落地到本地并队列打印: ${serverOrder.orderNumber}');
+            }
+            confirmedIds.add(serverOrder.id);
+          } catch (e, st) {
+            _logger.e('处理单笔服务器新订单落地失败: $e\n$st');
           }
         }
-        // 5. 回调接口告知服务器订单已成功拉取并处理
-        _logger.i('开始确认拉取后的订单：');
-        _logger.i(orders.map((o) => o['id']).toList());
 
-        if (orders.isEmpty) {
+        // 3. 回调接口告知服务器订单已成功拉取并处理
+        if (confirmedIds.isEmpty) {
           _logger.i('没有新订单需要确认拉取');
           _notifyFetchStatus(FetchOrdersStatus.success);
           return;
+        }
+
+        final isSuccess = await orderService.confirmPulledOrders(confirmedIds);
+        if (isSuccess) {
+          _notifyFetchStatus(FetchOrdersStatus.success);
         } else {
-          final resp = await _dio.post('/orders/confirm-pulled-order',
-              data: {
-                'ids': orders.map((o) => o['id']).toList(),
-              },
-              options: Options(
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': 'Bearer \'${await _getAuthToken()}\'',
-                },
-              ));
-          if (resp.statusCode == 200) {
-            _logger.i('服务器订单已成功拉取并处理');
-            _notifyFetchStatus(FetchOrdersStatus.success);
-          } else {
-            _logger.w(
-                '确认拉取订单失败: ${response.data['message'] ?? response.statusMessage}');
-            _notifyFetchStatus(FetchOrdersStatus.error);
-          }
+          _notifyFetchStatus(FetchOrdersStatus.error);
         }
       } else {
         _logger.w(
@@ -485,32 +429,5 @@ class SyncService {
       _logger.e('同步服务器订单异常: $e\n$stack');
       _notifyFetchStatus(FetchOrdersStatus.error);
     }
-  }
-
-
-  DateTime _parseRemoteOrderTime(Map<String, dynamic> order) {
-    final rawOrderTime = order['order_time']?.toString();
-    if (rawOrderTime != null && rawOrderTime.isNotEmpty) {
-      final normalized = rawOrderTime.contains('T')
-          ? rawOrderTime
-          : rawOrderTime.replaceFirst(' ', 'T');
-      final parsed = DateTime.tryParse(normalized);
-      if (parsed != null) {
-        return parsed.isUtc ? parsed.toLocal() : parsed;
-      }
-    }
-    return _parseRemoteCreatedAt(order);
-  }
-
-  DateTime _parseRemoteCreatedAt(Map<String, dynamic> order) {
-    final rawCreatedAt = order['created_at']?.toString();
-    if (rawCreatedAt != null && rawCreatedAt.isNotEmpty) {
-      final parsed = DateTime.tryParse(rawCreatedAt);
-      if (parsed != null) {
-        return parsed.isUtc ? parsed.toLocal() : parsed;
-      }
-    }
-
-    return DateTime.now();
   }
 }

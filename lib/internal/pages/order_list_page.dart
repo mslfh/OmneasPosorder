@@ -392,7 +392,7 @@ class _OrderListPageState extends State<OrderListPage> {
     }
   }
 
-  // 拉取服务器订单到本地
+  // 拉取服务器订单落地到本地
   Future<void> _putServerOrder(ServerOrderModel serverOrder) async {
     final nav = Navigator.of(context);
     try {
