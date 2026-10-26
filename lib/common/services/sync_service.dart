@@ -4,8 +4,11 @@ import 'package:dio/dio.dart';
 import 'package:logger/logger.dart';
 import '../models/order_model.dart';
 import '../models/server_order_model.dart';
+import 'api_service.dart';
 import 'database_service.dart';
 import 'order_service.dart';
+import '../utils/local_order_log_helper.dart';
+import '../utils/type_utils.dart';
 
 enum FetchOrdersStatus { success, error }
 
@@ -19,6 +22,7 @@ class SyncService {
   static final Logger _logger = Logger();
   late Dio _dio;
   final DatabaseService _databaseService = DatabaseService();
+  final ApiService _apiService = ApiService();
   final ValueNotifier<FetchOrdersEvent?> fetchOrdersEventNotifier = ValueNotifier<FetchOrdersEvent?>(null);
 
   // 单例模式
@@ -71,108 +75,179 @@ class SyncService {
 
   bool get isBaseUrlConfigured => _hasValidBaseUrl(_dio.options.baseUrl);
 
-  /// 推送单个订单到后端（支持传递printStatus）
-  Future<void> syncOrder(String orderId, {PrintStatus? printStatus}) async {
+  Map<String, dynamic> _buildTerminalOrderPayload(
+    OrderModel order, {
+    List<Map<String, dynamic>>? overrideItems,
+  }) {
+    final itemsList = overrideItems ?? order.getItemsList();
+
+    final formattedItems = itemsList.map((item) {
+      final itemId = NumberFormatUtils.toInt(item['id'] ?? item['product_id']);
+      final quantity = NumberFormatUtils.toInt(item['quantity'] ?? item['count'], 1);
+      final price = NumberFormatUtils.toDouble(
+        item['price'] ?? item['product_selling_price'] ?? item['unit_price'],
+      );
+      final options = item['options'] ?? item['customization'] ?? [];
+
+      return {
+        'id': itemId,
+        'quantity': quantity,
+        'price': price,
+        'options': options,
+      };
+    }).toList();
+
+    final paidAmount = order.cashAmount + order.posAmount + order.voucherAmount;
+
+    return {
+      'order_id': order.id,
+      if (order.remoteOrderId != null) 'remote_order_id': order.remoteOrderId,
+      if (order.orderNo.isNotEmpty) 'order_no': order.orderNo,
+      'type': order.normalizedApiType,
+      'status': order.orderStatus == OrderStatus.completed ? 'completed' : 'pending',
+      'order_time': order.orderTime.toStandardDateTimeString(),
+      'note': order.note ?? '',
+      'total_amount': order.totalAmount,
+      'paid_amount': paidAmount,
+      'service_fee': order.serviceFee,
+      'discount_amount': order.discountAmount,
+      'cash_amount': order.cashAmount,
+      'cash_change': order.cashChange,
+      'pos_amount': order.posAmount,
+      'voucher_amount': order.voucherAmount,
+      if (order.tableName != null && order.tableName!.isNotEmpty)
+        'table_name': order.tableName,
+      'items': formattedItems,
+    };
+  }
+
+  static String _formatOrderTimeStr(DateTime dt) {
+    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
+        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}';
+  }
+
+  /// 推送单个订单到后端（自动根据 remoteOrderId 判定调用 /orders/terminal-place 或 /orders/terminal-sync）
+  Future<void> syncOrder(String orderId) async {
     try {
       if (!isBaseUrlConfigured) {
-        throw Exception('API server URL is not configured');
+        _logger.w('未配置后端 API 地址，跳过订单同步发包: $orderId');
+        return;
       }
 
       final order = await _databaseService.getOrder(orderId);
       if (order == null) {
         throw Exception('订单不存在: $orderId');
       }
-      if (order.syncStatus == SyncStatus.synced ||
-          order.syncStatus == SyncStatus.skipped) {
-        _logger.i('订单无需再次同步: $orderId');
-        return;
+
+      // 自动判定：已存在远程 ID，则使用 terminal-sync 覆盖更新；否则使用 terminal-place 新建
+      final isUpdate = order.remoteOrderId != null;
+      var endpoint = isUpdate ? '/orders/terminal-sync' : '/orders/terminal-place';
+
+      _logger.i('开始同步订单到后端 (${isUpdate ? "覆盖更新" : "新建创建"}): $orderId (endpoint: $endpoint)');
+      LocalOrderLogHelper.logOrder(order, tag: 'SYNC_START', message: '发起网络同步请求 ($endpoint)');
+
+      final requestData = _buildTerminalOrderPayload(order);
+
+      _logger.d('发送到后端的数据 ($endpoint): ${const JsonEncoder.withIndent("  ").convert(requestData)}');
+
+      Response response;
+      try {
+        response = await _apiService.post(
+          endpoint,
+          data: requestData,
+        );
+      } on DioException catch (e) {
+        final errorMsg = e.response?.data?.toString() ?? e.message ?? '';
+        // 容错兜底：若调用新建接口 (terminal-place) 时服务端返回"已存在"，自动切为 terminal-sync 覆盖更新
+        if (!isUpdate &&
+            (errorMsg.contains('已存在') ||
+                errorMsg.contains('already exists') ||
+                errorMsg.contains('Duplicate entry'))) {
+          _logger.w('服务端提示订单已存在，自动回退切换至 terminal-sync 覆盖更新: $orderId');
+          endpoint = '/orders/terminal-sync';
+          response = await _apiService.post(
+            endpoint,
+            data: requestData,
+          );
+        } else {
+          rethrow;
+        }
       }
-      // 新增：如果是服务器订单，直接跳过同步
-      if (order.isOnlineOrder) {
-        _logger.i('Online Order不需要同步到服务器: $orderId');
-        return;
-      }
 
-      // 打印原始订单数据
-      print('\n========== 订单同步开始 ==========');
-      print('原始订单数据:');
-      print('--------------------------------');
+      _logger.d('后端响应数据 (状态码 ${response.statusCode}): ${response.data}');
 
-      _logger.i('开始同步订单到后端: $orderId');
-
-      // 构建请求数据，增加print_status字段
-      final requestData = {
-        'order_id': order.id,
-        'order_no': order.orderNo,
-        'order_time': order.orderTime.toIso8601String(),
-        'created_at': order.createdAt.toIso8601String(),
-        'items': jsonDecode(order.items),
-        'total_amount': order.totalAmount,
-        'discount_amount': order.discountAmount,
-        'tax_rate': order.taxRate,
-        'service_fee': order.serviceFee,
-        'cash_amount': order.cashAmount,
-        'pos_amount': order.posAmount,
-        'cash_change': order.cashChange,
-        'local_created_at': order.createdAt.toIso8601String(),
-        'note': order.note,
-        'type': order.type,
-        'print_status': (printStatus ?? order.printStatus)
-            .toString()
-            .split('.')
-            .last, // 传递打印状态
-      };
-
-      // 打印格式化的请求数据
-      print('\n发送到后端的数据:');
-      print(const JsonEncoder.withIndent('  ').convert(requestData));
-      print('--------------------------------');
-
-      // 发送到后端API
-      final response = await _dio.post(
-        '/orders/terminal-place',
-        data: requestData,
-        options: Options(
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer \'${await _getAuthToken()}\'',
-          },
-        ),
-      );
-
-      // 打印响应数据
-      print('\n后端响应数据:');
-      print('状态码: ${response.statusCode}');
-      print('响应数据:');
-      print(const JsonEncoder.withIndent('  ').convert(response.data));
-      print('========== 订单同步结束 ==========\n');
-
-      // 检查响应
       if (response.statusCode == 200 || response.statusCode == 201) {
-        final remoteOrderId = response.data['data']['id'];
-        // 同步成功，更新本地状态
-        await _updateOrderSyncSuccess(order, remoteOrderId);
-        _logger.i('订单同步成功: $orderId');
+        final resData = response.data;
+        final dataMap = resData is Map ? (resData['data'] ?? resData) : null;
+        final remoteOrderId = dataMap?['id'] ?? dataMap?['order_id'];
+        final remoteOrderNumber =
+            (dataMap?['order_number'] ?? dataMap?['order_no'])?.toString();
+        await _updateOrderSyncSuccess(
+          order,
+          remoteOrderId,
+          remoteOrderNumber: remoteOrderNumber,
+        );
+        _logger.i('订单同步成功: $orderId (remoteOrderId: $remoteOrderId)');
       } else {
         throw Exception('后端返回错误状态: ${response.statusCode}');
       }
     } on DioException catch (e) {
-      print('\n========== 同步错误信息 ==========');
-      print('错误类型: DioException');
-      print('错误消息: ${e.message}');
-      print(
-          '错误响应: ${e.response?.data != null ? const JsonEncoder.withIndent('  ').convert(e.response?.data) : "无响应数据"}');
-      print('================================\n');
-
+      _logger.e('同步 DioException 错误: ${e.message}, 响应: ${e.response?.data}');
       await _handleSyncError(orderId, e);
       rethrow;
     } catch (e) {
-      print('\n========== 同步错误信息 ==========');
-      print('错误类型: ${e.runtimeType}');
-      print('错误消息: $e');
-      print('================================\n');
-
+      _logger.e('同步异常: $e');
       await _handleSyncError(orderId, e);
+      rethrow;
+    }
+  }
+
+  /// 明确覆盖更新已有订单到后端 (POST /orders/terminal-sync)
+  Future<void> syncTerminalOrder(
+    OrderModel order, {
+    List<Map<String, dynamic>>? overrideItems,
+  }) async {
+    try {
+      if (!isBaseUrlConfigured) {
+        _logger.w('未配置后端 API 地址，跳过终端订单同步发包: ${order.id}');
+        return;
+      }
+
+      _logger.i('开始覆盖更新终端订单: ${order.id} (remoteOrderId: ${order.remoteOrderId})');
+      LocalOrderLogHelper.logOrder(order, tag: 'TERMINAL_SYNC_START', message: '覆盖更新已有订单数据 (/orders/terminal-sync)');
+
+      final requestData = _buildTerminalOrderPayload(
+        order,
+        overrideItems: overrideItems,
+      );
+
+      _logger.d('发送到后端的数据 (/orders/terminal-sync): ${const JsonEncoder.withIndent("  ").convert(requestData)}');
+
+      final response = await _apiService.post(
+        '/orders/terminal-sync',
+        data: requestData,
+      );
+
+      _logger.d('后端响应数据 (状态码 ${response.statusCode}): ${response.data}');
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final resData = response.data;
+        final dataMap = resData is Map ? (resData['data'] ?? resData) : null;
+        final remoteOrderId = dataMap?['id'] ?? dataMap?['order_id'];
+        final remoteOrderNumber =
+            (dataMap?['order_number'] ?? dataMap?['order_no'])?.toString();
+        await _updateOrderSyncSuccess(
+          order,
+          remoteOrderId,
+          remoteOrderNumber: remoteOrderNumber,
+        );
+        _logger.i('终端订单覆盖更新成功: ${order.id} (remoteOrderId: $remoteOrderId)');
+      } else {
+        throw Exception('后端返回错误状态: ${response.statusCode}');
+      }
+    } catch (e) {
+      _logger.e('终端订单覆盖更新失败: ${order.id}, 错误: $e');
+      await _handleSyncError(order.id, e);
       rethrow;
     }
   }
@@ -255,11 +330,21 @@ class SyncService {
 
   /// 更新订单同步成功状态
   Future<void> _updateOrderSyncSuccess(
-      OrderModel order, dynamic remoteOrderId) async {
+    OrderModel order,
+    dynamic remoteOrderId, {
+    String? remoteOrderNumber,
+  }) async {
+    final parsedRemoteId = remoteOrderId is int
+        ? remoteOrderId
+        : int.tryParse(remoteOrderId?.toString() ?? '');
+
     final updatedOrder = order.copyWith(
       syncStatus: SyncStatus.synced,
       syncedTime: DateTime.now(),
-      remoteOrderId: remoteOrderId,
+      remoteOrderId: parsedRemoteId ?? order.remoteOrderId,
+      remoteOrderNumber: (remoteOrderNumber != null && remoteOrderNumber.isNotEmpty)
+          ? remoteOrderNumber
+          : order.remoteOrderNumber,
       errorMessage: null, // 清除错误信息
     );
 
@@ -363,7 +448,7 @@ class SyncService {
     fetchOrdersEventNotifier.value = FetchOrdersEvent(status, DateTime.now());
   }
 
-  /// 拉取服务器新订单并落地到本地数据库
+  /// 拉取服务器新订单并落地到本地数据库 (支持自动多页完整拉取)
   Future<void> fetchAndSyncRemoteOrders() async {
     try {
       if (!isBaseUrlConfigured) {
@@ -372,24 +457,42 @@ class SyncService {
         return;
       }
 
-      // 1. 获取本地已同步的最大 remote_order_id
       int latestId = await _databaseService.getMaxRemoteOrderId() ?? 0;
-      _logger.i('本地最新remote_order_id: $latestId');
+      _logger.i('本地最新 remote_order_id: $latestId');
 
-      // 2. 拉取服务器新订单
-      final response =
-          await _dio.get('/orders/fetch-new-order?latestId=$latestId');
-      if (response.statusCode == 200 && response.data['success'] == true) {
-        final List<dynamic> orders = response.data['data'] ?? [];
-        _logger.i('拉取到${orders.length}个新订单');
+      int totalFetchedCount = 0;
+      final orderService = OrderService();
+      final List<dynamic> confirmedIds = [];
+      bool hasMorePages = true;
+      int currentPage = 1;
 
-        final orderService = OrderService();
-        final List<dynamic> confirmedIds = [];
+      while (hasMorePages) {
+        final params = <String, dynamic>{
+          'latestId': latestId,
+          'page': currentPage,
+        };
 
-        for (final rawOrder in orders) {
+        final response = await _apiService.get(
+          'orders/fetch-new-order',
+          params: params,
+        );
+
+        if (response.statusCode != 200) {
+          _logger.w('拉取服务器新订单失败，状态码: ${response.statusCode}');
+          break;
+        }
+
+        final parsedPage = parseOrderResponseData(response.data);
+        final rawOrders = parsedPage.orders;
+
+        if (rawOrders.isEmpty) {
+          break;
+        }
+
+        _logger.i('第 $currentPage 页拉取到 ${rawOrders.length} 个新订单');
+
+        for (final rawOrder in rawOrders) {
           try {
-            if (rawOrder is! Map<String, dynamic>) continue;
-            print('拉取到新订单: ${const JsonEncoder.withIndent('  ').convert(rawOrder)}');
             final serverOrder = ServerOrderModel.fromMap(rawOrder);
 
             final localOrderId = await orderService.putServerOrderToLocal(
@@ -402,18 +505,26 @@ class SyncService {
               _logger.i('新订单已同步落地到本地并队列打印: ${serverOrder.orderNumber}');
             }
             confirmedIds.add(serverOrder.id);
+            totalFetchedCount++;
+
+            if (serverOrder.id > latestId) {
+              latestId = serverOrder.id;
+            }
           } catch (e, st) {
             _logger.e('处理单笔服务器新订单落地失败: $e\n$st');
           }
         }
 
-        // 3. 回调接口告知服务器订单已成功拉取并处理
-        if (confirmedIds.isEmpty) {
-          _logger.i('没有新订单需要确认拉取');
-          _notifyFetchStatus(FetchOrdersStatus.success);
-          return;
+        if (parsedPage.hasMore && parsedPage.currentPage < parsedPage.lastPage) {
+          currentPage++;
+        } else {
+          hasMorePages = false;
         }
+      }
 
+      _logger.i('新订单全部页拉取完成，共拉取到 $totalFetchedCount 个新订单');
+
+      if (confirmedIds.isNotEmpty) {
         final isSuccess = await orderService.confirmPulledOrders(confirmedIds);
         if (isSuccess) {
           _notifyFetchStatus(FetchOrdersStatus.success);
@@ -421,9 +532,7 @@ class SyncService {
           _notifyFetchStatus(FetchOrdersStatus.error);
         }
       } else {
-        _logger.w(
-            '拉取服务器订单失败: ${response.data['message'] ?? response.statusMessage}');
-        _notifyFetchStatus(FetchOrdersStatus.error);
+        _notifyFetchStatus(FetchOrdersStatus.success);
       }
     } catch (e, stack) {
       _logger.e('同步服务器订单异常: $e\n$stack');

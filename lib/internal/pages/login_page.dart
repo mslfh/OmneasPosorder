@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
+import 'package:logger/logger.dart';
 import '../../common/services/api_service.dart';
 import '../../common/services/background_task_manager.dart';
 import '../../common/services/app_initialization_service.dart';
@@ -113,15 +114,16 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  static final Logger _logger = Logger();
+
   Future<void> _login() async {
     setState(() {
       _isLoading = true;
       _error = null;
     });
-    print('[LOGIN] Start login');
+    _logger.i('Start login');
     final serverUrl = SettingsService.cleanUrlFormat(_apiServerUrlController.text);
-    print('[LOGIN] Server URL: ' + serverUrl);
-    print('[LOGIN] Username: ' + _usernameController.text.trim());
+    _logger.i('Server URL: $serverUrl | Username: ${_usernameController.text.trim()}');
     try {
       if (serverUrl.isEmpty) {
         setState(() => _error = '请输入服务器地址');
@@ -130,21 +132,13 @@ class _LoginPageState extends State<LoginPage> {
 
       final api = ApiService();
       await api.updateBaseUrl(serverUrl);
-      print('[LOGIN] ApiService baseUrl set to: ' + serverUrl);
 
-      const loginData = {
-        'userLogin': 'placeholder',
-        'password': 'placeholder',
-      };
-      print('[LOGIN] Request data: ' + loginData.toString());
       final response = await api.post('login', data: {
         'userLogin': _usernameController.text.trim(),
         'password': _passwordController.text.trim(),
       });
-      print('[LOGIN] Response: ' + response.toString());
-      print('[LOGIN] Response.data: ' + response.data.toString());
-      final token = response.data['token'] ?? response.data['authToken'];
-      print('[LOGIN] Token: ' + token.toString());
+      _logger.d('Response: $response');
+      final token = response.data?['token'] ?? response.data?['authToken'];
       final box = await Hive.openBox('authBox');
       if (token != null) {
         await box.put('authToken', token);
@@ -160,18 +154,17 @@ class _LoginPageState extends State<LoginPage> {
           await box.delete('savedPassword');
           await box.put('rememberMe', false);
         }
-        print('[LOGIN] Login success, token saved.');
+        _logger.i('Login success, token saved.');
         // 登录成功后启动后台任务和网络监听
         await _enterApp();
       } else {
-        print('[LOGIN] 登录失败，未获取到Token');
+        _logger.w('登录失败，未获取到Token');
         setState(() {
           _error = '登录失败，未获取到Token';
         });
       }
     } catch (e, stack) {
-      print('[LOGIN] Exception: ' + e.toString());
-      print('[LOGIN] Stack: ' + stack.toString());
+      _logger.e('Login Exception: $e', error: e, stackTrace: stack);
       setState(() {
         _error = '登录失败: $e';
       });
@@ -181,7 +174,6 @@ class _LoginPageState extends State<LoginPage> {
           _isLoading = false;
         });
       }
-      print('[LOGIN] End login');
     }
   }
 
@@ -199,12 +191,11 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       await _persistServerUrl(serverUrl, clearAuthToken: true);
-      print('[LOGIN] Skip login selected, entering app without authentication.');
+      _logger.i('Skip login selected, entering app without authentication.');
 
       await _enterApp();
     } catch (e, stack) {
-      print('[LOGIN] Skip login exception: ' + e.toString());
-      print('[LOGIN] Skip login stack: ' + stack.toString());
+      _logger.e('Skip login exception: $e', error: e, stackTrace: stack);
       setState(() {
         _error = '跳过登录失败: $e';
       });

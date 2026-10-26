@@ -1,6 +1,8 @@
 import 'package:hive/hive.dart';
+import 'package:logger/logger.dart';
 
 class AdminPasswordService {
+  static final Logger _logger = Logger();
   static const String _boxName = 'authBox';
   static const String _passwordKey = 'adminPassword';
   static const String _defaultPassword = '12345abc';
@@ -17,7 +19,7 @@ class AdminPasswordService {
       }
       return password;
     } catch (e) {
-      print('[ERROR] AdminPasswordService getAdminPassword: $e');
+      _logger.e('AdminPasswordService getAdminPassword: $e');
       return _defaultPassword;
     }
   }
@@ -28,7 +30,7 @@ class AdminPasswordService {
       final correctPassword = await getAdminPassword();
       return inputPassword == correctPassword;
     } catch (e) {
-      print('[ERROR] AdminPasswordService verifyPassword: $e');
+      _logger.e('AdminPasswordService verifyPassword: $e');
       return false;
     }
   }
@@ -47,7 +49,7 @@ class AdminPasswordService {
       await box.put(_passwordKey, newPassword);
       return true;
     } catch (e) {
-      print('[ERROR] AdminPasswordService changePassword: $e');
+      _logger.e('AdminPasswordService changePassword: $e');
       return false;
     }
   }
@@ -58,7 +60,7 @@ class AdminPasswordService {
       final box = await Hive.openBox(_boxName);
       await box.put(_passwordKey, _defaultPassword);
     } catch (e) {
-      print('[ERROR] AdminPasswordService resetToDefault: $e');
+      _logger.e('AdminPasswordService resetToDefault: $e');
     }
   }
 }

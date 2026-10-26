@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
 import '../models/order_model.dart';
 import '../models/server_order_model.dart';
+import '../models/report_models.dart';
 import '../utils/order_item_mapper.dart';
+import '../utils/type_utils.dart';
 import 'database_service.dart';
 import 'sync_service.dart';
 import 'print_service.dart';
@@ -115,7 +117,7 @@ class OrderService {
       // 第三步：根据设置决定是否同步到后端（同步时传递print_status）
       if (printedOrder != null) {
         if (settings.enableAutoSync) {
-          _syncToBackendWithPrintStatus(printedOrder);
+          _syncOrderToBackend(printedOrder);
         } else {
           // 自动同步关闭：标记为已跳过同步
           await _databaseService.updateOrder(
@@ -151,36 +153,26 @@ class OrderService {
     }
   }
 
-  /// 异步推送同步到后端
-  Future<void> _syncToBackendWithPrintStatus(OrderModel order) async {
+  /// 异步推送同步订单到后端
+  Future<void> _syncOrderToBackend(OrderModel order) async {
     try {
-      //首先将order的sync状态初始化为pending
-      await _databaseService.updateOrder(
-        order.copyWith(syncStatus: SyncStatus.pending),
-      );
+      // 若订单已完成同步且已有远程ID，避免重复推送到服务器造成重单
+      // if (order.syncStatus == SyncStatus.synced && order.remoteOrderId != null) {
+      //   _logger.i('订单已在服务器落单(ID: ${order.remoteOrderId})，无需再次重复同步: ${order.id}');
+      //   return;
+      // }
+
+      // 将待同步订单状态更新为 pending
+      if (order.syncStatus != SyncStatus.pending) {
+        await _databaseService.updateOrder(
+          order.copyWith(syncStatus: SyncStatus.pending),
+        );
+      }
+
       // 调用同步服务
-      await _syncService.syncOrder(order.id, printStatus: order.printStatus);
+      await _syncService.syncOrder(order.id);
     } catch (e) {
       _logger.e('同步到后端失败: ${order.id}, 错误: $e');
-
-      // 更新错误信息和重试计数
-      final latestOrder = await _databaseService.getOrder(order.id);
-      if (latestOrder != null) {
-        await _databaseService.updateOrder(latestOrder.copyWith(
-          errorMessage: '同步失败: $e',
-          syncStatus: SyncStatus.syncFailed,
-          retryCount: latestOrder.retryCount + 1,
-          lastRetryTime: DateTime.now(),
-        ));
-      }
-      // 记录日志
-      await _databaseService.insertLog(LogModel(
-        orderId: order.id,
-        action: 'sync',
-        status: 'error',
-        message: '同步失败: $e',
-        timestamp: DateTime.now(),
-      ));
     }
   }
 
@@ -195,9 +187,7 @@ class OrderService {
             order.copyWith(
               printStatus: PrintStatus.skipped,
               printedTime: DateTime.now(),
-              orderStatus: order.isOnlineOrder
-                  ? OrderStatus.confirmed
-                  : order.orderStatus,
+              orderStatus: order.orderStatus,
               errorMessage: null,
             ),
           );
@@ -247,8 +237,15 @@ class OrderService {
       if (order == null) {
         throw Exception('订单不存在: $orderId');
       }
+
+      // // 若已经同步成功且有远程ID，提示无需重复同步
+      // if (order.syncStatus == SyncStatus.synced && order.remoteOrderId != null) {
+      //   _logger.i('订单已同步成功，无需重新同步: $orderId');
+      //   return;
+      // }
+
       _logger.i('手动重试同步订单: $orderId');
-      await _syncToBackendWithPrintStatus(order);
+      await _syncOrderToBackend(order);
     } catch (e) {
       _logger.e('手动重试同步失败: $orderId, 错误: $e');
       rethrow;
@@ -288,7 +285,7 @@ class OrderService {
           continue;
         }
 
-        await _syncToBackendWithPrintStatus(order);
+        await _syncOrderToBackend(order);
 
         // 避免并发过多，延迟一下
         await Future.delayed(Duration(milliseconds: 500));
@@ -415,66 +412,7 @@ class OrderService {
     }
   }
 
-  Future<void> _updateOrderByTerminal(
-    OrderModel order,
-    List<Map<String, dynamic>> items,
-  )
-  async {
-    if (order.remoteOrderId == null &&
-        (order.remoteOrderNumber?.isEmpty ?? true)) {
-      throw Exception('在线订单缺少远程标识，无法更新服务器订单');
-    }
-
-    final payload = {
-      'remote_order_id': order.remoteOrderId,
-      'remote_order_number': order.remoteOrderNumber,
-      'order_time': order.orderTime.toIso8601String(),
-      'items': items,
-      'total_amount': order.totalAmount,
-      'note': order.note,
-      'type': order.type,
-      'status': order.orderStatus.name,
-      'sync_status': order.syncStatus.name,
-      'print_status': order.printStatus.name,
-    };
-    print(payload);
-
-    await _apiService.put(
-      '/orders/update-order-by-terminal',
-      data: payload,
-    );
-  }
-
-  Future<void> _completeOrderByTerminal(OrderModel order) async {
-    if (order.remoteOrderId == null &&
-        (order.remoteOrderNumber?.isEmpty ?? true)) {
-      throw Exception('在线订单缺少远程标识，无法完成服务器订单');
-    }
-    final payload = {
-      'remote_order_id': order.remoteOrderId,
-      'remote_order_number': order.remoteOrderNumber,
-      'order_no': order.orderNo,
-      'order_time': order.orderTime.toIso8601String(),
-      'total_amount': order.totalAmount,
-      'cash_amount': order.cashAmount,
-      'pos_amount': order.posAmount,
-      'cash_change': order.cashChange,
-      'voucher_amount': order.voucherAmount,
-      'note': order.note,
-      'type': order.type,
-      'status': OrderStatus.completed.name,
-      'sync_status': SyncStatus.synced.name,
-      'print_status': order.printStatus.name,
-    };
-
-    print(payload);
-    await _apiService.post(
-      '/orders/complete-order-by-terminal',
-      data: payload,
-    );
-  }
-
-  /// 完成在线订单结账
+  /// 完成在线订单结账（统一调用 POST /orders/terminal-sync 进行覆盖更新）
   Future<void> completeOnlineOrderCheckout({
     required OrderModel order,
     required List<Map<String, dynamic>> items,
@@ -489,8 +427,7 @@ class OrderService {
     required double cashChange,
     required double voucherAmount,
     required bool itemsChanged,
-  })
-  async {
+  }) async {
     final updatedOrder = order.copyWith(
       items: jsonEncode(items),
       totalAmount: totalAmount,
@@ -504,17 +441,19 @@ class OrderService {
       note: note,
       type: type,
       orderStatus: OrderStatus.completed,
-      syncedTime: itemsChanged ? DateTime.now() : order.syncedTime,
+      syncStatus: SyncStatus.pending,
       errorMessage: null,
     );
 
-    if (itemsChanged) {
-      await _updateOrderByTerminal(updatedOrder, items);
-    }
-
-    await _completeOrderByTerminal(updatedOrder);
-
+    // 1. 本地落盘更新 (离线优先，避免网络异常导致本地改单丢失)
     await _databaseService.updateOrder(updatedOrder);
+
+    // 2. 调用终端同步更新接口 POST /orders/terminal-sync 覆盖更新已有订单
+    try {
+      await _syncService.syncTerminalOrder(updatedOrder, overrideItems: items);
+    } catch (e) {
+      _logger.w('修改订单发包至后端异常 (已落地本地数据库，将等待自动重试): $e');
+    }
 
     await _databaseService.insertLog(LogModel(
       orderId: order.id,
@@ -601,64 +540,60 @@ class OrderService {
     }
   }
 
-  /// 从服务器获取订单
+  /// 从服务器获取订单（支持多页自动完整分页拉取）
   Future<List<ServerOrderModel>> getServerOrders({
     DateTime? date,
     DateTimeRange? dateRange,
-  })
-  async {
+  }) async {
     try {
-      final params = <String, dynamic>{};
+      if (!_apiService.isBaseUrlConfigured) {
+        _logger.w('未配置后端 API 地址，跳过获取服务器订单');
+        return [];
+      }
+      final baseParams = <String, dynamic>{};
       if (dateRange != null) {
-        final start = dateRange.start;
-        final end = dateRange.end;
-        params['start_date'] =
-            '${start.year}-${start.month.toString().padLeft(2, '0')}-${start.day.toString().padLeft(2, '0')}';
-        params['end_date'] =
-            '${end.year}-${end.month.toString().padLeft(2, '0')}-${end.day.toString().padLeft(2, '0')}';
+        baseParams['start_date'] = dateRange.start.toStandardDateString();
+        baseParams['end_date'] = dateRange.end.toStandardDateString();
       } else if (date != null) {
-        params['date'] =
-            '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+        baseParams['date'] = date.toStandardDateString();
       }
 
-      final response =
-          await _apiService.get('orders/fetch-for-terminal', params: params);
+      final List<ServerOrderModel> allServerOrders = [];
+      int currentPage = 1;
+      bool hasMore = true;
 
-      if (response.statusCode == 200) {
-        final payload = response.data;
-        dynamic ordersSource;
+      while (hasMore) {
+        final queryParams = Map<String, dynamic>.from(baseParams);
+        queryParams['page'] = currentPage;
 
-        if (payload is Map<String, dynamic>) {
-          if (payload['success'] == false) {
-            throw Exception(payload['message'] ?? 'Failed to fetch orders');
-          }
-          ordersSource = payload['data'];
-        } else {
-          ordersSource = payload;
+        _logger.i('拉取服务器订单 (page: $currentPage)...');
+        final response =
+            await _apiService.get('orders/fetch-for-terminal', params: queryParams);
+
+        if (response.statusCode != 200) {
+          throw Exception('Failed to fetch orders: ${response.statusCode}');
         }
 
-        if (ordersSource == null) {
-          return [];
+        final parsedPage = parseOrderResponseData(response.data);
+        if (parsedPage.orders.isEmpty) {
+          break;
         }
 
-        final List<dynamic> ordersData;
-        if (ordersSource is List) {
-          ordersData = ordersSource;
-        } else if (ordersSource is Map<String, dynamic>) {
-          // 兼容接口返回单个订单对象，而不是数组的情况
-          ordersData = [ordersSource];
-        } else {
-          throw Exception(
-              'Unexpected server order payload: ${ordersSource.runtimeType}');
-        }
-
-        return ordersData
-            .whereType<Map<String, dynamic>>()
-            .map((order) => ServerOrderModel.fromMap(order))
+        final pageOrders = parsedPage.orders
+            .map((orderMap) => ServerOrderModel.fromMap(orderMap))
             .toList();
-      } else {
-        throw Exception('Failed to fetch orders: ${response.statusCode}');
+        allServerOrders.addAll(pageOrders);
+
+        _logger.i('服务器订单 page $currentPage 拉取到 ${pageOrders.length} 条 (已累计: ${allServerOrders.length})');
+
+        if (parsedPage.hasMore && parsedPage.currentPage < parsedPage.lastPage) {
+          currentPage++;
+        } else {
+          hasMore = false;
+        }
       }
+
+      return allServerOrders;
     } catch (e) {
       _logger.e('获取服务器订单失败: $e');
       rethrow;
@@ -669,6 +604,10 @@ class OrderService {
   Future<bool> confirmPulledOrders(List<dynamic> ids) async {
     if (ids.isEmpty) return true;
     try {
+      if (!_apiService.isBaseUrlConfigured) {
+        _logger.w('未配置后端 API 地址，跳过确认拉取回调');
+        return true;
+      }
       _logger.i('开始确认拉取后的订单： $ids');
       final response = await _apiService.post(
         '/orders/confirm-pulled-order',
@@ -721,12 +660,19 @@ class OrderService {
       final List<Map<String, dynamic>> localItems =
           OrderItemMapper.mapServerItemsToLocalItems(serverOrder.items);
 
-      // 订单状态解析
+      // 严格判定服务器订单是否已支付 (对比应付金额 finalAmount 与实付金额 paidAmount)
+      final bool isPaid = serverOrder.isPaid;
+      final double totalAmt = double.tryParse(serverOrder.finalAmount) ?? 0.0;
+      final double paidAmtVal = double.tryParse(serverOrder.paidAmount) ?? 0.0;
+      final double cashAmt =
+          isPaid ? (paidAmtVal > 0 ? paidAmtVal : totalAmt) : 0.0;
+
+      // 订单状态解析：已付清款项 (isPaid == true) 或服务器状态为 completed，本地订单状态直接认定为 OrderStatus.completed (已完成)
       OrderStatus orderStatus = OrderStatus.pending;
-      if (serverOrder.status == 'completed') {
-        orderStatus = OrderStatus.completed;
-      } else if (serverOrder.status == 'cancelled') {
+      if (serverOrder.status.toLowerCase() == 'cancelled') {
         orderStatus = OrderStatus.cancelled;
+      } else if (isPaid || serverOrder.status.toLowerCase() == 'completed') {
+        orderStatus = OrderStatus.completed;
       }
 
       // 创建本地订单
@@ -736,11 +682,11 @@ class OrderService {
         orderTime: orderTime,
         createdAt: createdAt,
         items: jsonEncode(localItems),
-        totalAmount: double.tryParse(serverOrder.finalAmount) ?? 0.0,
+        totalAmount: totalAmt,
         discountAmount: double.tryParse(serverOrder.discountAmount) ?? 0.0,
         taxRate: double.tryParse(serverOrder.taxRate) ?? 10.0,
         serviceFee: 0.0,
-        cashAmount: double.tryParse(serverOrder.paidAmount) ?? 0.0,
+        cashAmount: cashAmt,
         posAmount: 0.0,
         orderStatus: orderStatus,
         syncStatus: SyncStatus.synced,
@@ -857,6 +803,155 @@ class OrderService {
       return count;
     } catch (e) {
       _logger.e('批量拉取服务器订单失败: $e');
+      rethrow;
+    }
+  }
+
+  /// 通知顾客取餐（后厨菜品做好，标记本地订单完成并预留调用后端通知接口）
+  Future<void> notifyCustomerOrderReady(OrderModel order) async {
+    try {
+      final updatedOrder = order.copyWith(
+        orderStatus: OrderStatus.completed,
+      );
+      await _databaseService.updateOrder(updatedOrder);
+
+      await _databaseService.insertLog(LogModel(
+        orderId: order.id,
+        action: 'notify_ready',
+        status: 'success',
+        message: '菜品已出餐，标记订单完成并通知顾客取餐',
+        timestamp: DateTime.now(),
+      ));
+
+      _logger.i('订单已标记完成并触发取餐通知: ${order.id}');
+
+      // 调用后端 API 通知顾客取餐
+      try {
+        if (!_apiService.isBaseUrlConfigured) {
+          _logger.w('未配置后端 API 地址，跳过触发取餐通知发包');
+          return;
+        }
+        if (order.remoteOrderId != null ||
+            (order.remoteOrderNumber?.isNotEmpty ?? false)) {
+          await _apiService.post(
+            '/orders/notify-customer-ready',
+            data: {
+              'remote_order_id': order.remoteOrderId,
+              'remote_order_number': order.remoteOrderNumber,
+              'order_no': order.orderNo,
+              'status': 'ready',
+            },
+          );
+        }
+      } catch (e) {
+        _logger.w('调用后端通知顾客取餐接口异常: $e');
+      }
+    } catch (e) {
+      _logger.e('处理取餐通知异常: ${order.id}, 错误: $e');
+      rethrow;
+    }
+  }
+
+  /// 生成指定日期的日终结算汇总数据 (Daily Settlement / Z-Report)
+  Future<DailySettlementModel> generateDailySettlement({DateTime? date}) async {
+    final targetDate = date ?? DateTime.now();
+    final start = DateTime(targetDate.year, targetDate.month, targetDate.day, 0, 0, 0);
+    final end = DateTime(targetDate.year, targetDate.month, targetDate.day, 23, 59, 59, 999);
+
+    final orders = await _databaseService.getOrdersByDateRange(start, end);
+
+    double totalRevenue = 0;
+    double cashRevenue = 0;
+    double posRevenue = 0;
+    double voucherRevenue = 0;
+    double totalDiscount = 0;
+    int totalOrders = orders.length;
+    int completedOrders = 0;
+    int cancelledOrders = 0;
+    int dineInOrders = 0;
+    double dineInRevenue = 0;
+    int takeawayOrders = 0;
+    double takeawayRevenue = 0;
+
+    for (final order in orders) {
+      if (order.orderStatus == OrderStatus.cancelled) {
+        cancelledOrders++;
+        continue;
+      }
+
+      completedOrders++;
+      totalRevenue += order.totalAmount;
+      totalDiscount += order.discountAmount;
+      voucherRevenue += order.voucherAmount;
+
+      if (order.cashAmount == 0 && order.posAmount == 0) {
+        cashRevenue += order.totalAmount;
+      } else {
+        cashRevenue += order.cashAmount;
+        posRevenue += order.posAmount;
+      }
+
+      if (order.isDineIn) {
+        dineInOrders++;
+        dineInRevenue += order.totalAmount;
+      } else {
+        takeawayOrders++;
+        takeawayRevenue += order.totalAmount;
+      }
+    }
+
+    final dateStr = '${targetDate.year}${targetDate.month.toString().padLeft(2, '0')}${targetDate.day.toString().padLeft(2, '0')}';
+    final settlementId = 'Z-$dateStr';
+
+    return DailySettlementModel(
+      settlementId: settlementId,
+      date: targetDate,
+      createdAt: DateTime.now(),
+      totalRevenue: totalRevenue,
+      cashRevenue: cashRevenue,
+      posRevenue: posRevenue,
+      voucherRevenue: voucherRevenue,
+      totalDiscount: totalDiscount,
+      totalOrders: totalOrders,
+      completedOrders: completedOrders,
+      cancelledOrders: cancelledOrders,
+      dineInOrders: dineInOrders,
+      dineInRevenue: dineInRevenue,
+      takeawayOrders: takeawayOrders,
+      takeawayRevenue: takeawayRevenue,
+      averageOrderValue: completedOrders > 0 ? totalRevenue / completedOrders : 0,
+    );
+  }
+
+  /// 执行日结：记日志、打纸质小票、并提交给服务器预留 API
+  Future<void> executeDailySettlement(DailySettlementModel settlement) async {
+    try {
+      _logger.i('开始执行日终结算 (Z-Report): ${settlement.settlementId}');
+
+      // 1. 本地日志记录
+      await _databaseService.insertLog(LogModel(
+        orderId: settlement.settlementId,
+        action: 'daily_settlement',
+        status: 'success',
+        message: '[Z-Report 日终结算] 完成总额: ￥${settlement.totalRevenue.toStringAsFixed(2)}, 现金: ￥${settlement.cashRevenue.toStringAsFixed(2)}, POS: ￥${settlement.posRevenue.toStringAsFixed(2)}, 有效笔数: ${settlement.completedOrders}',
+        timestamp: DateTime.now(),
+      ));
+
+      // 2. 打印纸质 Z-Report 日结总结小票
+      await _printService.printDailySettlement(settlement);
+
+      // 3. 预留：向后端 API 提交上报日结数据 (POST /api/reports/daily-settlement)
+      try {
+        await _apiService.post(
+          '/reports/daily-settlement',
+          data: settlement.toJson(),
+        );
+        _logger.i('日结数据已成功上报至服务器: ${settlement.settlementId}');
+      } catch (e) {
+        _logger.w('调用后端日结提交 API 预留接口（暂未开放）: $e');
+      }
+    } catch (e) {
+      _logger.e('执行日结操作失败: $e');
       rethrow;
     }
   }

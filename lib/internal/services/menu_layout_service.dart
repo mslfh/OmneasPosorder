@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'package:logger/logger.dart';
 import '../../common/models/menu_item_layout_config.dart';
 import '../../common/services/database_service.dart';
 
 /// 菜品网格布局持久化与数据服务
 class MenuLayoutService {
+  static final Logger _logger = Logger();
   static const String _layoutSettingKey = 'menu_grid_layout_configs';
   static Map<int, MenuItemLayoutConfig>? _cachedConfigs;
 
@@ -28,7 +30,7 @@ class MenuLayoutService {
         return Map.from(map);
       }
     } catch (e) {
-      print('[MenuLayoutService] 加载网格布局配置异常: $e');
+      _logger.e('加载网格布局配置异常: $e');
     }
 
     _cachedConfigs = {};
@@ -43,7 +45,7 @@ class MenuLayoutService {
       final jsonString = jsonEncode(jsonList);
       await DatabaseService().saveSetting(_layoutSettingKey, jsonString);
     } catch (e) {
-      print('[MenuLayoutService] 保存网格布局配置异常: $e');
+      _logger.e('保存网格布局配置异常: $e');
     }
   }
 
@@ -60,7 +62,7 @@ class MenuLayoutService {
     try {
       await DatabaseService().saveSetting(_layoutSettingKey, '[]');
     } catch (e) {
-      print('[MenuLayoutService] 清空网格布局配置异常: $e');
+      _logger.e('清空网格布局配置异常: $e');
     }
   }
 }

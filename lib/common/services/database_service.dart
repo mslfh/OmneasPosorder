@@ -5,6 +5,7 @@ import 'package:logger/logger.dart';
 import '../models/order_model.dart';
 import '../models/printer_station_model.dart';
 import '../models/dining_table.dart';
+import '../utils/local_order_log_helper.dart';
 import 'dart:convert';
 
 // 添加平台检测导入
@@ -402,6 +403,7 @@ class DatabaseService {
     try {
       await db.insert('orders', order.toMap());
       _logger.i('订单插入成功: ${order.id}');
+      LocalOrderLogHelper.logOrder(order, tag: 'DB_INSERT', message: 'SQLite 数据库新增记录成功');
 
       // 记录日志
       await insertLog(LogModel(
@@ -413,7 +415,7 @@ class DatabaseService {
       ));
     } catch (e) {
       _logger.e('订单插入失败: ${order.id}, 错误: $e');
-      throw e;
+      rethrow;
     }
   }
 
@@ -428,9 +430,10 @@ class DatabaseService {
         whereArgs: [order.id],
       );
       _logger.i('订单更新成功: ${order.id}');
+      LocalOrderLogHelper.logOrder(order, tag: 'DB_UPDATE', message: 'SQLite 数据库记录更新成功');
     } catch (e) {
       _logger.e('订单更新失败: ${order.id}, 错误: $e');
-      throw e;
+      rethrow;
     }
   }
 
@@ -501,10 +504,11 @@ class DatabaseService {
       final maps = await db.query(
         'orders',
         where:
-            'is_online_order = 1 AND order_status IN (?, ?) AND order_time BETWEEN ? AND ?',
+            'is_online_order = 1 AND order_status IN (?, ?, ?) AND order_time BETWEEN ? AND ?',
         whereArgs: [
           OrderStatus.pending.index,
           OrderStatus.confirmed.index,
+          OrderStatus.completed.index,
           start,
           end
         ],
@@ -777,7 +781,7 @@ class DatabaseService {
     final additions = serverOrder['additions'];
     if (additions is String) {
       data['additions'] = additions;
-    } else if (additions is List) {
+    } else if (additions is List || additions is Map) {
       data['additions'] = jsonEncode(additions);
     } else {
       data['additions'] = '[]';

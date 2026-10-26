@@ -13,11 +13,7 @@ KeyEventHandler quickInputHandler({
   bool Function()? getPreferOptions,
 }) {
   return (event, products) {
-    if (event is KeyDownEvent) {
-      print('[DEBUG QI_HANDLER] event.logicalKey=${event.logicalKey}, hasInput=${quickInputManager.hasInput}');
-    }
     if (quickInputManager.handleKeyEvent(event, products, allOptions: getAllOptions?.call(), preferOptions: getPreferOptions?.call() ?? false)) {
-      print('[DEBUG QI_HANDLER] handleKeyEvent returned true, calling setState');
       setState(() {
         updateQuickInputOverlay();
       });

@@ -66,7 +66,7 @@ class OnlineOrderMapper {
     Map<String, dynamic> item,
     List<MenuItem> menuCatalog,
   ) {
-    final itemId = _toInt(item['id']) ?? 0;
+    final itemId = _toInt(item['id']) ?? _toInt(item['product_id']) ?? 0;
     final resolved =
         menuCatalog.where((product) => product.id == itemId).toList();
     final product = resolved.isNotEmpty
@@ -74,11 +74,16 @@ class OnlineOrderMapper {
         : MenuItem(
             id: itemId,
             code: item['code']?.toString() ?? 'ONLINE-$itemId',
-            title: item['name']?.toString() ?? 'Unknown',
+            title: item['name']?.toString() ??
+                item['product_title']?.toString() ??
+                'Unknown',
             kitchenPrintName: item['kitchen_print_name']?.toString() ??
                 item['kitchenPrintName']?.toString(),
             acronym: null,
-            sellingPrice: _toDouble(item['price']) ?? 0.0,
+            sellingPrice: _toDouble(item['price']) ??
+                _toDouble(item['product_selling_price']) ??
+                _toDouble(item['unit_price']) ??
+                0.0,
             stock: 0,
             sort: 0,
             categoryIds: const [],

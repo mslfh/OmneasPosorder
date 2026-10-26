@@ -19,15 +19,8 @@ KeyEventHandler enterKeyHandler({
 }) {
   return (event, products) {
     if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
-      print('[DEBUG] Enter键被按下');
-      print('[DEBUG] hasInput: ${quickInputManager.hasInput}');
-      print('[DEBUG] hasResults: ${quickInputManager.hasResults}');
-      print('[DEBUG] hasOrderedProducts: ${hasOrderedProducts()}');
-      print('[DEBUG] onOrder is null: ${onOrder == null}');
-
       // 优先处理快捷输入
       if (quickInputManager.hasResults) {
-        print('[DEBUG] 处理快捷输入选择');
         final selectedItem = quickInputManager.getSelectedItem();
 
         if (selectedItem is MenuItem) {
@@ -50,13 +43,10 @@ KeyEventHandler enterKeyHandler({
       }
       // 如果没有快捷输入，则触发订单动作（下单或添加在线订单）
       else if (!quickInputManager.hasInput && onOrder != null) {
-        print('[DEBUG] 触发下单操作');
         playClickSound();
         onOrder();
         return true;
       }
-
-      print('[DEBUG] Enter键处理条件不满足，返回false');
     }
     return false;
   };

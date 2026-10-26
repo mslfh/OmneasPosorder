@@ -84,16 +84,40 @@ class OrderItemMapper {
           }
         }
       }
+      final int quantity =
+          int.tryParse(item['quantity']?.toString() ?? '1') ?? 1;
+
+      // product_selling_price 字段为菜品单价
+      final double? unitPriceRaw = double.tryParse(
+        item['product_selling_price']?.toString() ??
+            item['unit_price']?.toString() ??
+            item['price']?.toString() ??
+            item['selling_price']?.toString() ??
+            '',
+      );
+
+      // final_amount 字段为该 item 的最终总价（单价 * 数量 - 折扣）
+      final double? finalAmountRaw =
+          double.tryParse(item['final_amount']?.toString() ?? '');
+
+      final double unitPrice = unitPriceRaw ??
+          (finalAmountRaw != null && quantity > 0
+              ? finalAmountRaw / quantity
+              : 0.0);
+
+      final double finalAmount = finalAmountRaw ?? (unitPrice * quantity);
+
       return {
-        'id': item['product_id'],
-        'name': item['product_title'],
+        'id': item['product_id'] ?? item['id'],
+        'name': item['product_title'] ?? item['name'] ?? '',
         'kitchen_print_name': item['kitchen_print_name'] ??
             item['kitchenPrintName'] ??
             item['product']?['kitchen_print_name'] ??
             item['product']?['kitchenPrintName'],
-        'price':
-            double.tryParse(item['final_amount']?.toString() ?? '0') ?? 0.0,
-        'quantity': item['quantity'] ?? 1,
+        'price': unitPrice, // 本地统一使用的菜品单价
+        'product_selling_price': unitPrice, // 显式记录菜品单价
+        'final_amount': finalAmount, // 显式记录 item 最终总价
+        'quantity': quantity,
         'options': options,
         'is_printable': item['product']?['is_printable'] ?? true,
       };

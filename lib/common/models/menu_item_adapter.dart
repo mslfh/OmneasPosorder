@@ -12,7 +12,7 @@ class MenuItemAdapter extends HiveObject {
   @HiveField(2)
   String title;
   @HiveField(3)
-  String? acronym; // 改为可空类型
+  String? acronym; // 可空类型
   @HiveField(4)
   double sellingPrice;
   @HiveField(5)
@@ -20,7 +20,7 @@ class MenuItemAdapter extends HiveObject {
   @HiveField(6)
   int sort;
   @HiveField(7)
-  List<int> categoryIds; // 新增字段
+  List<int> categoryIds; // 分类IDs
   @HiveField(8)
   bool isPrintable; // 是否需要打印到后厨
   @HiveField(9)
@@ -29,35 +29,39 @@ class MenuItemAdapter extends HiveObject {
   bool isSoldOut; // 是否沽清
   @HiveField(11)
   String? soldOutUntil; // 沽清截止时间
+  @HiveField(12)
+  String? soldOutLabel; // 售罄自定义标签
 
   MenuItemAdapter({
     required this.id,
     required this.code,
     required this.title,
-    required this.acronym, // 可空类型
+    required this.acronym,
     required this.sellingPrice,
     required this.stock,
     required this.sort,
-    required this.categoryIds, // 新增字段
+    required this.categoryIds,
     required this.isPrintable,
     this.kitchenPrintName,
     this.isSoldOut = false,
     this.soldOutUntil,
+    this.soldOutLabel,
   });
 
   factory MenuItemAdapter.fromMenuItem(MenuItem item) => MenuItemAdapter(
     id: item.id,
     code: item.code,
     title: item.title,
-    acronym: item.acronym, // 可空类型
+    acronym: item.acronym,
     sellingPrice: item.sellingPrice,
     stock: item.stock,
     sort: item.sort,
-    categoryIds: item.categoryIds, // 新增字段
+    categoryIds: item.categoryIds,
     isPrintable: item.isPrintable,
     kitchenPrintName: item.kitchenPrintName,
     isSoldOut: item.isSoldOut,
     soldOutUntil: item.soldOutUntil,
+    soldOutLabel: item.soldOutLabel,
   );
 
   MenuItem toMenuItem() => MenuItem(
@@ -65,13 +69,14 @@ class MenuItemAdapter extends HiveObject {
     code: code,
     title: title,
     kitchenPrintName: kitchenPrintName,
-    acronym: acronym, // 可空类型
+    acronym: acronym,
     sellingPrice: sellingPrice,
     stock: stock,
     sort: sort,
-    categoryIds: categoryIds, // 新增字段
+    categoryIds: categoryIds,
     isPrintable: isPrintable,
     isSoldOut: isSoldOut,
     soldOutUntil: soldOutUntil,
+    soldOutLabel: soldOutLabel,
   );
 }

@@ -27,19 +27,6 @@ class QuickInputOverlay extends StatelessWidget {
     // 不要重新过滤，直接使用原始顺序（QuickInputManager 中已保证商品在前）
     final bool hasAnyResults = searchResults.isNotEmpty;
 
-    // Debug: 打印搜索结果和高亮索引
-    try {
-      print('[DEBUG OVERLAY] searchResults.length=${searchResults.length}, highlightedIndex=$highlightedIndex');
-      for (int i = 0; i < searchResults.length; i++) {
-        final item = searchResults[i];
-        if (item is MenuItem) {
-          print('[DEBUG OVERLAY] [$i] MenuItem: ${item.title}');
-        } else if (item is MenuOption) {
-          print('[DEBUG OVERLAY] [$i] MenuOption: ${item.name}');
-        }
-      }
-    } catch (e) {}
-
     return Positioned(
       left: 100,
       right: 100,

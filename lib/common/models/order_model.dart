@@ -219,6 +219,60 @@ class OrderModel {
     );
   }
 
+  /// 是否已支付（对比已收款项总额与应收总额）
+  bool get isPaid {
+    if (orderStatus == OrderStatus.completed) return true;
+
+    final paidTotal = cashAmount + posAmount + voucherAmount;
+    final total = totalAmount;
+
+    // 免费订单场景
+    if (total <= 0.0001 && paidTotal >= 0.0) {
+      return true;
+    }
+
+    // 正常订单场景：已付金额 >= 应付金额 (允许 0.01 浮点计算误差)
+    if (total > 0.0 && paidTotal >= (total - 0.01)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /// 是否为堂食类型
+  bool get isDineIn {
+    if (isTableOrder) return true;
+    final rawType = type?.toLowerCase() ?? '';
+    return rawType.contains('dine') || rawType.contains('table');
+  }
+
+  /// 归一化为标准的后端 API 就餐类型字符串 ("dine_in" 或 "takeaway")
+  String get normalizedApiType {
+    return isDineIn ? 'dine_in' : 'takeaway';
+  }
+
+  /// 展现订单来源 / 场景 (优先处理 isOnlineOrder)
+  String get displayOrderSource {
+    if (isOnlineOrder) {
+      return 'ONLINE (在线网单)';
+    }
+    if (isTableOrder) {
+      return tableName != null ? '堂食坐台 ($tableName)' : '堂食坐台';
+    }
+    return isDineIn ? 'Dine In (堂食)' : 'Takeaway (外带/自提)';
+  }
+
+  /// 简短展现订单来源 (适用于列表 Chip 标签)
+  String get displayOrderSourceShort {
+    if (isOnlineOrder) {
+      return 'ONLINE';
+    }
+    if (isTableOrder) {
+      return tableName ?? '坐台';
+    }
+    return isDineIn ? 'DINE IN' : 'TAKEAWAY';
+  }
+
   /// 是否为堂食坐台单
   bool get isTableOrder =>
       (type != null && (type == 'table' || type == 'dinein_table' || type == 'dinein')) &&

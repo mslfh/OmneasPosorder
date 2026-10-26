@@ -959,7 +959,7 @@ class _OrderListPageState extends State<OrderListPage> {
             ),
             const SizedBox(height: 4),
             Text(
-              '来源: ${serverOrder.placeIn.toUpperCase()} | 类型: ${serverOrder.type.toUpperCase()} | 时间: ${_formatTime(item.sortTime)}',
+              '来源: ${serverOrder.placeIn.toUpperCase()} / ${serverOrder.type.toUpperCase()} | 时间: ${_formatTime(item.sortTime)}',
               style: TextStyle(fontSize: 12, color: Colors.grey[800]),
             ),
             if (item.displayItemsText != '-') ...[
@@ -1389,13 +1389,18 @@ class _OrderListPageState extends State<OrderListPage> {
     );
   }
 
-  void _navigateToOrderDetail(OrderModel order) {
-    Navigator.push(
+  void _navigateToOrderDetail(OrderModel order) async {
+    final result = await Navigator.push<OrderModel>(
       context,
       MaterialPageRoute(
         builder: (context) => OrderDetailPage(orderId: order.id),
       ),
-    ).then((_) => _refreshData());
+    );
+    if (result != null && mounted) {
+      Navigator.of(context).pop(result);
+    } else {
+      _refreshData();
+    }
   }
 
   String _formatTime(DateTime time) {

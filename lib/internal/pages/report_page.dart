@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../common/services/database_service.dart';
 import '../../common/services/print_service.dart';
+import '../../common/services/order_service.dart';
 import '../../common/services/language_service.dart';
 import '../../common/models/order_model.dart';
 import '../../common/models/report_models.dart';
@@ -117,9 +118,6 @@ class _ReportPageState extends State<ReportPage> {
       }
     }
 
-    print(
-        'Stats calculated - Total: $totalRevenue, Cash: $cashRevenue, POS: $posRevenue, Orders: $totalOrders, Completed: $completedOrders, Cancelled: $cancelledOrders');
-
     return OrderStats(
       totalRevenue: totalRevenue,
       cashRevenue: cashRevenue,
@@ -224,12 +222,139 @@ class _ReportPageState extends State<ReportPage> {
     }
   }
 
+  Future<void> _handleDailySettlement() async {
+    try {
+      final orderService = OrderService();
+      final settlement = await orderService.generateDailySettlement(date: _startDate);
+
+      if (!mounted) return;
+
+      await showDialog(
+        context: context,
+        builder: (dialogCtx) => AlertDialog(
+          title: Row(
+            children: [
+              const Icon(Icons.assignment_turned_in, color: Colors.indigo),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '日终结算对账 (Z-Report) #${settlement.settlementId}',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '结算日期: ${DateFormat('yyyy-MM-dd').format(settlement.date)}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const Divider(height: 20),
+                _buildSettlementRow('销售总额 (实收)', '￥${settlement.totalRevenue.toStringAsFixed(2)}', isBold: true),
+                _buildSettlementRow('现金实收', '￥${settlement.cashRevenue.toStringAsFixed(2)}'),
+                _buildSettlementRow('POS 刷卡收入', '￥${settlement.posRevenue.toStringAsFixed(2)}'),
+                if (settlement.voucherRevenue > 0)
+                  _buildSettlementRow('代金券金额', '￥${settlement.voucherRevenue.toStringAsFixed(2)}'),
+                if (settlement.totalDiscount > 0)
+                  _buildSettlementRow('优惠折扣总额', '-￥${settlement.totalDiscount.toStringAsFixed(2)}'),
+                const Divider(height: 16),
+                _buildSettlementRow('有效完成笔数', '${settlement.completedOrders} 笔'),
+                _buildSettlementRow('取消/退款笔数', '${settlement.cancelledOrders} 笔'),
+                _buildSettlementRow('总订单笔数', '${settlement.totalOrders} 笔'),
+                _buildSettlementRow('客单价', '￥${settlement.averageOrderValue.toStringAsFixed(2)}'),
+                const Divider(height: 16),
+                _buildSettlementRow('堂食笔数/金额', '${settlement.dineInOrders}笔 / ￥${settlement.dineInRevenue.toStringAsFixed(2)}'),
+                _buildSettlementRow('外买/自提笔数/金额', '${settlement.takeawayOrders}笔 / ￥${settlement.takeawayRevenue.toStringAsFixed(2)}'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(),
+              child: Text('cancel'.tr),
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.print, size: 18),
+              label: const Text('确认日结并打单'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.indigo,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () async {
+                Navigator.of(dialogCtx).pop();
+                try {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('正在执行日终结算并发送 Z-Report 小票...'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                  await orderService.executeDailySettlement(settlement);
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('日终结算成功！已打印 Z-Report 并记入日志 (单号: ${settlement.settlementId})'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } catch (e) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('日结执行失败: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              },
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('生成日结数据失败: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Widget _buildSettlementRow(String label, String value, {bool isBold = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(fontSize: 13, color: isBold ? Colors.indigo[900] : Colors.grey[800])),
+          Text(value, style: TextStyle(fontSize: 13, fontWeight: isBold ? FontWeight.bold : FontWeight.w500, color: isBold ? Colors.indigo[900] : Colors.black87)),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text('report_title'.tr),
         actions: [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.assignment_turned_in, size: 16),
+              label: const Text('日终结算 (Z-Report)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.indigo,
+                foregroundColor: Colors.white,
+                elevation: 2,
+              ),
+              onPressed: _stats != null ? _handleDailySettlement : null,
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.date_range),
             onPressed: _selectDateRange,

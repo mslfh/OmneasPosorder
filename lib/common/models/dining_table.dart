@@ -533,7 +533,9 @@ class DiningTablePreorder {
         return {
           'product_id': map['product_id'] ?? map['id'],
           'name': map['product_title'] ?? map['name'] ?? map['title'],
-          'price': map['unit_price'] ?? map['price'] ?? map['selling_price'],
+          'price': map['product_selling_price'] ?? map['unit_price'] ?? map['price'] ?? map['selling_price'],
+          'product_selling_price': map['product_selling_price'] ?? map['unit_price'] ?? map['price'] ?? map['selling_price'],
+          'final_amount': map['final_amount'],
           'quantity': map['quantity'] ?? 1,
           'options': map['customization'] ?? map['options'] ?? [],
         };

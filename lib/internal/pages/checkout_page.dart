@@ -133,8 +133,22 @@ class _CheckoutPageState extends State<CheckoutPage> {
     return double.parse(sum.toStringAsFixed(2));
   }
 
+  double get alreadyPaidAmount {
+    if (hasOnlineOrder && widget.onlineOrder!.isPaid) {
+      final totalPaid = widget.onlineOrder!.cashAmount +
+          widget.onlineOrder!.posAmount +
+          widget.onlineOrder!.voucherAmount;
+      return totalPaid > 0 ? totalPaid : widget.onlineOrder!.totalAmount;
+    }
+    return 0.0;
+  }
+
   /// 当前需支付金额（根据结算模式）
   double get currentPayableAmount {
+    if (hasOnlineOrder && widget.onlineOrder!.isPaid) {
+      final diff = totalPrice - alreadyPaidAmount;
+      return diff > 0 ? double.parse(diff.toStringAsFixed(2)) : 0.0;
+    }
     switch (splitType) {
       case SplitType.full:
         return totalPrice;
@@ -1348,12 +1362,12 @@ class _CheckoutPageState extends State<CheckoutPage> {
     if (isPlacingOrder) return;
 
     double payable = currentPayableAmount;
-    if (payable <= 0) {
+    if (payable <= 0 && !(hasOnlineOrder && widget.onlineOrder!.isPaid)) {
       _showErrorDialog('Payable amount must be greater than \$0.00');
       return;
     }
 
-    if (receivedAmount == 0.0) {
+    if (payable > 0 && receivedAmount == 0.0) {
       _showMissingAmountDialog();
       return;
     }
@@ -1418,6 +1432,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
       if (splitType == SplitType.full) {
         String orderId;
         if (hasOnlineOrder) {
+          final origCash = widget.onlineOrder!.cashAmount;
+          final origPos = widget.onlineOrder!.posAmount;
+          final origVoucher = widget.onlineOrder!.voucherAmount;
           await orderService.completeOnlineOrderCheckout(
             order: widget.onlineOrder!,
             items: allItems,
@@ -1425,12 +1442,12 @@ class _CheckoutPageState extends State<CheckoutPage> {
             discountAmount: 0.0,
             taxRate: 10.0,
             serviceFee: 0.0,
-            cashAmount: thisCash,
-            posAmount: thisPos,
+            cashAmount: origCash + thisCash,
+            posAmount: origPos + thisPos,
             note: finalNote,
             type: finalType,
             cashChange: cashChangeValue,
-            voucherAmount: 0.0,
+            voucherAmount: origVoucher,
             itemsChanged: onlineOrderItemsChanged,
           );
           orderId = widget.onlineOrder!.id;

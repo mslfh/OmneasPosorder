@@ -108,6 +108,7 @@ class _OrderPageState extends State<OrderPage> {
     super.initState();
     _isAdminMode = widget.isAdminMode;
     _searchInputFocusNode.addListener(_handleSearchInputFocusChange);
+    MenuDataService.soldOutEventNotifier.addListener(_onSoldOutEventPushed);
     _uiHelper = UIHelper();
     _orderMatchManager = OrderMatchManager();
     _initializeData();
@@ -543,8 +544,34 @@ class _OrderPageState extends State<OrderPage> {
     // 你可以继续添加更多 handler ...
   }
 
+  void _onSoldOutEventPushed() {
+    final event = MenuDataService.soldOutEventNotifier.value;
+    if (event == null || !mounted) return;
+
+    final int productId = event['productId'];
+    final bool isSoldOut = event['isSoldOut'];
+    final String? soldOutLabel = event['soldOutLabel'];
+
+    setState(() {
+      allProducts = allProducts.map((p) {
+        if (p.id == productId) {
+          return p.copyWith(isSoldOut: isSoldOut, soldOutLabel: soldOutLabel);
+        }
+        return p;
+      }).toList();
+
+      products = products.map((p) {
+        if (p.id == productId) {
+          return p.copyWith(isSoldOut: isSoldOut, soldOutLabel: soldOutLabel);
+        }
+        return p;
+      }).toList();
+    });
+  }
+
   @override
   void dispose() {
+    MenuDataService.soldOutEventNotifier.removeListener(_onSoldOutEventPushed);
     _searchInputFocusNode.removeListener(_handleSearchInputFocusChange);
     _pageKeyboardFocusNode.dispose();
     _searchInputFocusNode.dispose();

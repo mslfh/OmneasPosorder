@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart' hide Category;
 import 'package:hive/hive.dart';
+import 'package:logger/logger.dart';
 import '../../common/models/menu_item.dart';
 import '../../common/models/category.dart';
 import '../../common/models/menu_option.dart';
@@ -10,6 +12,7 @@ import '../../common/services/cache_service.dart';
 
 /// 菜品数据加载服务
 class MenuDataService {
+  static final Logger _logger = Logger();
   final ApiService _apiService = ApiService();
 
   /// 初始网络数据同步与缓存写入（供应用启动或强制全量同步时调用）
@@ -58,7 +61,7 @@ class MenuDataService {
         await optionGroupsBox.put('groups', OptionGroupsAdapter(groups: optionGroups));
       }
     } catch (e) {
-      print('[ERROR] 初始数据同步失败: $e');
+      _logger.e('初始数据同步失败: $e');
       rethrow;
     }
   }
@@ -70,13 +73,13 @@ class MenuDataService {
       final categoriesBox = await Hive.openBox<CategoryAdapter>('categoriesBox');
 
       if (productsBox.isEmpty || categoriesBox.isEmpty) {
-        print('[DEBUG] 缓存为空，从API获取数据');
+        _logger.d('缓存为空，从API获取数据');
         return await _fetchMenuDataFromApi();
       } else {
         final allProducts = productsBox.values.map((e) => e.toMenuItem()).toList();
         final products = _sortProducts(List<MenuItem>.from(allProducts));
         final categories = categoriesBox.values.map((e) => e.toCategory()).toList();
-        print('[DEBUG] 使用本地缓存数据，菜品数量: ${products.length}，分类数量: ${categories.length}');
+        _logger.d('使用本地缓存数据，菜品数量: ${products.length}，分类数量: ${categories.length}');
         return {
           'allProducts': allProducts,
           'products': products,
@@ -85,7 +88,7 @@ class MenuDataService {
         };
       }
     } catch (e) {
-      print('[ERROR] 加载菜品数据失败: $e');
+      _logger.e('加载菜品数据失败: $e');
       return {
         'allProducts': [],
         'products': [],
@@ -106,7 +109,7 @@ class MenuDataService {
       if (prodDataRaw is List) {
         prodData = prodDataRaw;
       } else {
-        print('[ERROR] products/active 返回的 data 不是 List');
+        _logger.w('products/active 返回的 data 不是 List');
         prodData = [];
       }
 
@@ -128,7 +131,7 @@ class MenuDataService {
         'error': null,
       };
     } catch (e) {
-      print('[ERROR] API获取菜品数据失败: $e');
+      _logger.e('API获取菜品数据失败: $e');
       return {
         'allProducts': [],
         'products': [],
@@ -150,13 +153,13 @@ class MenuDataService {
 
       final adapter = optionGroupsBox.get('groups');
       if (adapter != null && adapter.groups.isNotEmpty) {
-        print('[DEBUG] ✅ 使用本地缓存的 optionGroups，组数: ${adapter.groups.length}');
+        _logger.d('使用本地缓存的 optionGroups，组数: ${adapter.groups.length}');
         return adapter.groups;
       }
-      print('[DEBUG] 选项配置缓存为空，从API获取数据');
+      _logger.d('选项配置缓存为空，从API获取数据');
       return await _fetchOptionsFromApi();
     } catch (e) {
-      print('[DEBUG] ❌ loadOptions 出错: $e');
+      _logger.w('loadOptions 出错: $e');
       return await _fetchOptionsFromApi();
     }
   }
@@ -177,7 +180,7 @@ class MenuDataService {
 
       return groups;
     } catch (e) {
-      print('[ERROR] 获取选项失败: $e');
+      _logger.e('获取选项失败: $e');
       return {};
     }
   }
@@ -196,7 +199,7 @@ class MenuDataService {
         await categoriesBox.add(CategoryAdapter.fromCategory(cat));
       }
     } catch (e) {
-      print('[ERROR] 保存缓存失败: $e');
+      _logger.e('保存缓存失败: $e');
     }
   }
 
@@ -221,6 +224,60 @@ class MenuDataService {
   Future<void> clearAllCaches() async {
     await CacheService.clearMenuCaches();
     await CacheService.clearOptionsCache();
+  }
+
+  /// 售罄状态推送/更新事件监听器 (通知所有订阅页面实时刷新 UI)
+  static final ValueNotifier<Map<String, dynamic>?> soldOutEventNotifier =
+      ValueNotifier<Map<String, dynamic>?>(null);
+
+  /// 动态更新单个商品的售罄状态 (更新 Hive 本地缓存并返回最新 MenuItem)
+  Future<MenuItem?> updateProductSoldOutStatus({
+    required int productId,
+    required bool isSoldOut,
+    String? soldOutLabel,
+  }) async {
+    try {
+      final productsBox = await Hive.openBox<MenuItemAdapter>('productsBox');
+
+      for (final key in productsBox.keys) {
+        final adapter = productsBox.get(key);
+        if (adapter != null && adapter.id == productId) {
+          adapter.isSoldOut = isSoldOut;
+          if (soldOutLabel != null) {
+            adapter.soldOutLabel = soldOutLabel;
+          }
+          await adapter.save();
+          _logger.d('已成功更新商品 #$productId 售罄状态: isSoldOut=$isSoldOut, label=$soldOutLabel');
+          return adapter.toMenuItem();
+        }
+      }
+      return null;
+    } catch (e) {
+      _logger.e('更新商品售罄状态失败: $e');
+      rethrow;
+    }
+  }
+
+  /// 当收到后端推送 (WebSocket/SSE/轮询) 改变商品售罄状态时调用的预留方法
+  Future<void> onProductSoldOutPushed({
+    required int productId,
+    required bool isSoldOut,
+    String? soldOutLabel,
+  }) async {
+    final updatedItem = await updateProductSoldOutStatus(
+      productId: productId,
+      isSoldOut: isSoldOut,
+      soldOutLabel: soldOutLabel,
+    );
+
+    // 触发全局 ValueNotifier 事件，通知正在显示的 UI 页面实时更新
+    soldOutEventNotifier.value = {
+      'productId': productId,
+      'isSoldOut': isSoldOut,
+      'soldOutLabel': soldOutLabel,
+      'updatedItem': updatedItem,
+      'timestamp': DateTime.now(),
+    };
   }
 }
 

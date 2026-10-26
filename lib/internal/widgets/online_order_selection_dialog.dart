@@ -56,11 +56,32 @@ class _OnlineOrderSelectionDialogState
     return '${diff.inDays}d ago';
   }
 
+  Widget _buildPaymentStatusChip(bool isPaid) {
+    final color = isPaid ? Colors.green : Colors.deepOrange;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      margin: const EdgeInsets.only(right: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Text(
+        isPaid ? '已支付' : '未支付',
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
   Widget _buildStatusChip(OrderStatus status) {
     final isPending = status == OrderStatus.pending;
     final color = isPending ? Colors.orange : Colors.blue;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: color.withOpacity(0.12),
         borderRadius: BorderRadius.circular(999),
@@ -75,6 +96,73 @@ class _OnlineOrderSelectionDialogState
         ),
       ),
     );
+  }
+
+  Future<void> _handleNotifyOrderReady(OrderModel order) async {
+    try {
+      await _orderService.notifyCustomerOrderReady(order);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('订单 #${order.orderNo} 菜品已做好，已通知顾客取餐！'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      setState(() {
+        _ordersFuture = _orderService.getPendingOnlineOrders(date: _today);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('通知取餐失败: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _onOrderCardTap(OrderModel order) {
+    if (order.isPaid) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('订单 #${order.orderNo} 已完成支付'),
+          content: const Text('该订单已完成支付。您可选择直接通知顾客取餐，或将其载入点餐页进行加菜与修改。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text('cancel'.tr),
+            ),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                Navigator.of(context).pop(order);
+              },
+              icon: const Icon(Icons.edit_note, color: Colors.blue),
+              label: const Text('修改/加菜'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.blue,
+              ),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                _handleNotifyOrderReady(order);
+              },
+              icon: const Icon(Icons.notifications_active),
+              label: const Text('通知取餐'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.amber[800],
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      Navigator.of(context).pop(order);
+    }
   }
 
   Widget _buildOrderSummary(OrderModel order) {
@@ -105,7 +193,8 @@ class _OnlineOrderSelectionDialogState
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 4),
+            _buildPaymentStatusChip(order.isPaid),
             _buildStatusChip(order.orderStatus),
           ],
         ),
@@ -219,7 +308,7 @@ class _OnlineOrderSelectionDialogState
 
             final rawOrders = snapshot.data ?? const <OrderModel>[];
             final ordersFiltered = rawOrders
-                .where((o) => o.orderStatus == OrderStatus.confirmed || o.orderStatus == OrderStatus.pending)
+                .where((o) => o.orderStatus != OrderStatus.cancelled)
                 .toList();
 
             if (ordersFiltered.isEmpty) {
@@ -241,32 +330,53 @@ class _OnlineOrderSelectionDialogState
                   elevation: 0,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
-                    side: BorderSide(color: Colors.orange.withOpacity(0.18)),
+                    side: BorderSide(
+                      color: order.isPaid
+                          ? Colors.green.withOpacity(0.3)
+                          : Colors.orange.withOpacity(0.18),
+                    ),
                   ),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(14),
-                    onTap: () => Navigator.of(context).pop(order),
+                    onTap: () => _onOrderCardTap(order),
                     child: Padding(
                       padding: const EdgeInsets.all(10),
                       child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           Container(
                             width: 42,
                             height: 42,
                             decoration: BoxDecoration(
-                              color: Colors.orange.withOpacity(0.12),
+                              color: order.isPaid
+                                  ? Colors.green.withOpacity(0.12)
+                                  : Colors.orange.withOpacity(0.12),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Icon(
-                              Icons.cloud_done,
-                              color: Colors.orange[700],
+                              order.isPaid
+                                  ? Icons.check_circle_outline
+                                  : Icons.cloud_done,
+                              color: order.isPaid
+                                  ? Colors.green[700]
+                                  : Colors.orange[700],
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(child: _buildOrderSummary(order)),
                           const SizedBox(width: 8),
-                          Icon(Icons.chevron_right, color: Colors.grey[500]),
+                          if (order.isPaid)
+                            IconButton(
+                              icon: Icon(
+                                Icons.notifications_active,
+                                color: Colors.amber[800],
+                                size: 28,
+                              ),
+                              tooltip: '菜品做好，通知顾客取餐',
+                              onPressed: () => _handleNotifyOrderReady(order),
+                            )
+                          else
+                            Icon(Icons.chevron_right, color: Colors.grey[500]),
                         ],
                       ),
                     ),

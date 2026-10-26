@@ -1,9 +1,9 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../common/models/order_model.dart';
 import '../../common/models/server_order_model.dart';
 import '../../common/services/order_service.dart';
 import '../../common/services/order_match_service.dart';
+import '../../common/services/print_service.dart';
 import '../../common/services/language_service.dart';
 
 class OrderDetailPage extends StatefulWidget {
@@ -74,7 +74,7 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
       _showSuccessSnackBar('conn_success'.tr);
       await _loadOrderDetail();
     } catch (e) {
-      _showErrorSnackBar('conn_failed'.tr + ': $e');
+      _showErrorSnackBar('${'conn_failed'.tr}: $e');
     }
   }
 
@@ -201,7 +201,13 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                       _buildOrderInfoComparisonCard(),
                       const SizedBox(height: 16),
 
-                      // 3. 本地与服务器菜品对比卡片
+                      // 3. 服务器订单扩展详情卡片
+                      if (_serverOrder != null) ...[
+                        _buildServerDetailsCard(),
+                        const SizedBox(height: 16),
+                      ],
+
+                      // 4. 本地与服务器菜品对比卡片
                       _buildItemsComparisonCard(),
                       const SizedBox(height: 16),
 
@@ -441,11 +447,11 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
               isDiff: isAmountMismatch,
             ),
             _buildComparisonRow(
-              '订单类型',
-              local.isTableOrder
-                  ? '堂食坐台 (${local.tableName ?? "坐台单"})'
-                  : (local.type ?? 'takeaway'),
-              server?.type ?? '-',
+              '订单来源/场景',
+              local.displayOrderSource,
+              server != null
+                  ? '${server.placeIn.toUpperCase()} / ${server.type.toUpperCase()}'
+                  : '-',
             ),
             _buildComparisonRow(
               '下单时间',
@@ -607,14 +613,70 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
     );
   }
 
+  Future<void> _printSingleItem(Map<String, dynamic> itemMap) async {
+    if (_order == null) return;
+    final name = (itemMap['name'] ?? itemMap['product_title'] ?? itemMap['product_name'] ?? '菜品').toString();
+    final quantity = _toInt(itemMap['quantity'] ?? itemMap['count']) ?? 1;
+
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogCtx) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.print, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('单品补打小票'),
+            ],
+          ),
+          content: Text('是否打印单品小票 [$name x$quantity] 并发送至后厨/收银打单站？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(false),
+              child: Text('cancel'.tr),
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.print, size: 16),
+              label: const Text('确认打单'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(dialogCtx).pop(true),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true || !mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('正在补打单品 [$name] 小票...'),
+          duration: const Duration(seconds: 1),
+        ),
+      );
+
+      final printService = PrintService();
+      await printService.printSingleItem(order: _order!, targetItem: itemMap);
+
+      if (!mounted) return;
+      _showSuccessSnackBar('单品 [$name] 小票已成功发送至打印机！');
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackBar('打印单品失败: $e');
+    }
+  }
+
   Widget _buildLocalItemRow(Map<String, dynamic> itemMap) {
     final name = (itemMap['name'] ?? itemMap['product_title'] ?? itemMap['product_name'] ?? '').toString();
     final quantity = _toInt(itemMap['quantity']) ?? 1;
-    final price = _toDouble(itemMap['price']) ?? 0.0;
-    final subtotal = quantity * price;
+    final price = _toDouble(itemMap['price'] ?? itemMap['product_selling_price'] ?? itemMap['unit_price']) ?? 0.0;
+    final finalAmount = _toDouble(itemMap['final_amount']);
+    final subtotal = finalAmount ?? (quantity * price);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -625,8 +687,17 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
             ),
           ),
           Text('x$quantity'),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           Text('￥${subtotal.toStringAsFixed(2)}'),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.print_outlined, size: 18, color: Colors.blue),
+            tooltip: '单品打 / 补打小票',
+            onPressed: () => _printSingleItem(itemMap),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
         ],
       ),
     );
@@ -639,13 +710,15 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
         child: Text(item.toString()),
       );
     }
-    final name = (item['product_title'] ?? item['name'] ?? item['product_name'] ?? '').toString();
-    final quantity = _toInt(item['quantity'] ?? item['count']) ?? 1;
-    final price = _toDouble(item['price'] ?? item['unit_price']) ?? 0.0;
-    final subtotal = quantity * price;
+    final itemMap = Map<String, dynamic>.from(item);
+    final name = (itemMap['product_title'] ?? itemMap['name'] ?? itemMap['product_name'] ?? '').toString();
+    final quantity = _toInt(itemMap['quantity'] ?? itemMap['count']) ?? 1;
+    final price = _toDouble(itemMap['product_selling_price'] ?? itemMap['unit_price'] ?? itemMap['price'] ?? itemMap['selling_price']) ?? 0.0;
+    final finalAmount = _toDouble(itemMap['final_amount']);
+    final subtotal = finalAmount ?? (quantity * price);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -656,8 +729,17 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
             ),
           ),
           Text('x$quantity'),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           Text('￥${subtotal.toStringAsFixed(2)}'),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.print_outlined, size: 18, color: Colors.blue),
+            tooltip: '单品打 / 补打小票',
+            onPressed: () => _printSingleItem(itemMap),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
         ],
       ),
     );
@@ -729,14 +811,39 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
     );
   }
 
+  void _editAndAddItemsForOnlineOrder() {
+    if (_order == null) return;
+    Navigator.of(context).pop(_order);
+  }
+
   // 5. 操作卡片
   Widget _buildActionsCard() {
+    final isOnline = _order?.isOnlineOrder ?? false;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const Text('订单操作', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            if (isOnline) ...[
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _editAndAddItemsForOnlineOrder,
+                  icon: const Icon(Icons.edit_note, size: 20),
+                  label: const Text('修改订单 / 加菜 (载入点餐页)'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal[700],
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
             Row(
               children: [
                 Expanded(
@@ -783,9 +890,298 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
             if (_logs.isEmpty)
               Text('no_data'.tr, style: const TextStyle(color: Colors.grey))
             else
-              ..._logs.map((log) => _buildLogItem(log)).toList(),
+              ..._logs.map((log) => _buildLogItem(log)),
           ],
         ),
+      ),
+    );
+  }
+
+  // 服务器订单扩展详情卡片
+  Widget _buildServerDetailsCard() {
+    final server = _serverOrder;
+    if (server == null) return const SizedBox.shrink();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.cloud_outlined, color: Colors.blue),
+                const SizedBox(width: 8),
+                const Text(
+                  '服务器订单扩展数据 (Server Details)',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: Text(
+                    'ID: ${server.id}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue.shade900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 20),
+
+            // 仅当 additions 不为空时，解析并显示 additions 字段中的顾客及扩展元数据
+            if (server.additions.isNotEmpty) ...[
+              _buildAdditionsCardSection(server.additions),
+            ],
+
+            _buildGridDetailRows([
+              _DetailItem('服务器 ID', '#${server.id}'),
+              _DetailItem(
+                  '服务器完整单号',
+                  server.orderNumber.isNotEmpty
+                      ? server.orderNumber
+                      : '-'),
+              _DetailItem('下单渠道 / 场景', server.placeIn.toUpperCase()),
+              _DetailItem('订单标签', server.tag ?? '-'),
+              _DetailItem(
+                  '下单/预约时间',
+                  server.orderTime != null
+                      ? _formatDateTime(server.orderTime!)
+                      : (server.createdAt ?? '-')),
+              _DetailItem('服务端同步时间', server.syncedAt ?? '-'),
+            ]),
+            const SizedBox(height: 12),
+
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '服务器财务与计费明细',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildGridDetailRows([
+                    _DetailItem('商品原价', '￥${server.totalAmount}'),
+                    _DetailItem('折扣金额', '￥${server.discountAmount}'),
+                    _DetailItem('税率 / 税额',
+                        '${server.taxRate}% (￥${server.taxAmount})'),
+                    _DetailItem('应收金额', '￥${server.finalAmount}',
+                        isBold: true),
+                    _DetailItem('实付金额', '￥${server.paidAmount}'),
+                    _DetailItem('支付方式', server.paymentMethod ?? '-'),
+                  ]),
+                ],
+              ),
+            ),
+
+            if ((server.note != null && server.note!.trim().isNotEmpty) ||
+                (server.remark != null &&
+                    server.remark!.trim().isNotEmpty)) ...[
+              const SizedBox(height: 12),
+              if (server.note != null && server.note!.trim().isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text('顾客备注: ${server.note}',
+                      style: const TextStyle(
+                          fontSize: 12, color: Colors.black87)),
+                ),
+              if (server.remark != null && server.remark!.trim().isNotEmpty)
+                Text('系统/内部备注: ${server.remark}',
+                    style: TextStyle(
+                        fontSize: 12, color: Colors.grey.shade700)),
+            ],
+
+            if (server.payments.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text('支付记录明细:',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 13)),
+              const SizedBox(height: 4),
+              ...server.payments.map((p) => _buildPaymentRow(p)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 解析并展示 additions 字段中的顾客元数据及附加字段
+  Widget _buildAdditionsCardSection(List<dynamic> additions) {
+    if (additions.isEmpty) return const SizedBox.shrink();
+
+    final additionItems = <_DetailItem>[];
+    final customAdditions = <Widget>[];
+
+    for (final item in additions) {
+      if (item is Map) {
+        item.forEach((key, value) {
+          if (value == null || value.toString().trim().isEmpty) return;
+
+          final keyStr = key.toString();
+          final valStr = value.toString().trim();
+
+          switch (keyStr) {
+            case 'customer_name':
+              additionItems.add(_DetailItem('顾客姓名', valStr));
+              break;
+            case 'customer_phone':
+              additionItems.add(_DetailItem('联系电话', valStr));
+              break;
+            case 'pickup_time':
+              additionItems.add(_DetailItem('取餐/预约时间', valStr));
+              break;
+            case 'extend_info':
+              additionItems.add(_DetailItem('扩展/座位信息', valStr));
+              break;
+            default:
+              final label = keyStr
+                  .replaceAll('_', ' ')
+                  .split(' ')
+                  .map((w) => w.isNotEmpty
+                      ? '${w[0].toUpperCase()}${w.substring(1)}'
+                      : '')
+                  .join(' ');
+              additionItems.add(_DetailItem(label, valStr));
+          }
+        });
+      } else {
+        customAdditions.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Text('• ${item.toString()}',
+                style: const TextStyle(fontSize: 12)),
+          ),
+        );
+      }
+    }
+
+    if (additionItems.isEmpty && customAdditions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.blue.shade100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.person_outline, size: 16, color: Colors.blue.shade800),
+              const SizedBox(width: 6),
+              Text(
+                '顾客及附加信息 (Additions)',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: Colors.blue.shade900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (additionItems.isNotEmpty) _buildGridDetailRows(additionItems),
+          if (customAdditions.isNotEmpty) ...[
+            if (additionItems.isNotEmpty) const SizedBox(height: 6),
+            ...customAdditions,
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGridDetailRows(List<_DetailItem> items) {
+    return Wrap(
+      spacing: 16,
+      runSpacing: 8,
+      children: items.map((item) {
+        return SizedBox(
+          width: 160,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                item.label,
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                item.value,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: item.isBold ? FontWeight.bold : FontWeight.w500,
+                  color: item.isBold ? Colors.blue.shade900 : Colors.black87,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildPaymentRow(dynamic p) {
+    if (p is! Map) {
+      return Text('• ${p.toString()}', style: const TextStyle(fontSize: 12));
+    }
+    final method = p['method'] ?? p['payment_method'] ?? '支付';
+    final amount = p['amount'] ?? p['paid_amount'] ?? '0.00';
+    final status = p['status'] ?? '';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Icon(Icons.payment, size: 14, color: Colors.green.shade700),
+          const SizedBox(width: 6),
+          Text('$method: ￥$amount', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+          if (status.toString().isNotEmpty) ...[
+            const SizedBox(width: 8),
+            Text('($status)', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAdditionRow(dynamic a) {
+    if (a is! Map) {
+      return Text('• ${a.toString()}', style: const TextStyle(fontSize: 12));
+    }
+    final title = a['title'] ?? a['name'] ?? '附加费用';
+    final amount = a['amount'] ?? a['price'] ?? '0.00';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          const Icon(Icons.add_circle_outline, size: 14, color: Colors.orange),
+          const SizedBox(width: 6),
+          Text('$title: ￥$amount', style: const TextStyle(fontSize: 12)),
+        ],
       ),
     );
   }
@@ -947,4 +1343,12 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
       ),
     );
   }
+}
+
+class _DetailItem {
+  final String label;
+  final String value;
+  final bool isBold;
+
+  const _DetailItem(this.label, this.value, {this.isBold = false});
 }

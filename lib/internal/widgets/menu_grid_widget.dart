@@ -94,15 +94,15 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
   int _calculateCrossAxisCount(double containerWidth) {
     int cardsPerRow;
     if (containerWidth < 650) {
-      cardsPerRow = 4; // 竖屏 / 窄屏：每行 4 列
+      cardsPerRow = 4;
     } else if (containerWidth < 950) {
-      cardsPerRow = 6; // 中等横屏（如 iPad 横屏/小屏电脑）：每行 6 列
+      cardsPerRow = 5;
     } else if (containerWidth < 1300) {
-      cardsPerRow = 8; // 电脑屏幕：每行 8 列
+      cardsPerRow = 7;
     } else if (containerWidth < 1650) {
-      cardsPerRow = 10; // 宽屏电脑：每行 10 列
+      cardsPerRow = 9;
     } else {
-      cardsPerRow = 12; // Full HD 1920px+ 显示器：每行 12 列
+      cardsPerRow = 10;
     }
     return cardsPerRow * 3; // 基础单元格 3 单位 = 1 标准卡片宽
   }
@@ -714,38 +714,38 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                     vertical: 4.0 * scale,
                   ),
                   child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          item.title,
-                          style: TextStyle(
-                            fontSize: dynamicTitleFontSize,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                            height: 1.15,
-                          ),
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (item.acronym != null && item.acronym!.trim().isNotEmpty) ...[
-                          SizedBox(height: 2.0 * scale),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
                           Text(
-                            item.acronym!.trim(),
+                            item.title,
                             style: TextStyle(
-                              fontSize: dynamicAcronymFontSize,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.grey[700],
-                              height: 1.1,
+                              fontSize: dynamicTitleFontSize,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                              height: 1.15,
                             ),
                             textAlign: TextAlign.center,
-                            maxLines: 1,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
+                          if (item.acronym != null && item.acronym!.trim().isNotEmpty) ...[
+                            SizedBox(height: 5.0 * scale),
+                            Text(
+                              item.acronym!.trim(),
+                              style: TextStyle(
+                                fontSize: dynamicAcronymFontSize,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey[700],
+                                height: 1.1,
+                              ),
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                         ],
-                      ],
                     ),
                   ),
                 ),

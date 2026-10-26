@@ -29,13 +29,14 @@ class MenuItemAdapterAdapter extends TypeAdapter<MenuItemAdapter> {
       kitchenPrintName: fields[9] as String?,
       isSoldOut: fields[10] as bool? ?? false,
       soldOutUntil: fields[11] as String?,
+      soldOutLabel: fields[12] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, MenuItemAdapter obj) {
     writer
-      ..writeByte(12)
+      ..writeByte(13)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -59,7 +60,9 @@ class MenuItemAdapterAdapter extends TypeAdapter<MenuItemAdapter> {
       ..writeByte(10)
       ..write(obj.isSoldOut)
       ..writeByte(11)
-      ..write(obj.soldOutUntil);
+      ..write(obj.soldOutUntil)
+      ..writeByte(12)
+      ..write(obj.soldOutLabel);
   }
 
   @override

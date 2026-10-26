@@ -59,7 +59,9 @@ class DiningTableMapper {
             kitchenPrintName: item['kitchen_print_name']?.toString(),
             acronym: null,
             sellingPrice: _toDouble(item['price']) ??
+                _toDouble(item['product_selling_price']) ??
                 _toDouble(item['selling_price']) ??
+                _toDouble(item['unit_price']) ??
                 0.0,
             stock: 0,
             sort: 0,

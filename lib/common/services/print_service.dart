@@ -8,6 +8,8 @@ import '../models/report_models.dart';
 import '../models/merchant_info.dart';
 import '../../internal/utils/order_selected.dart';
 import '../../internal/utils/online_order_mapper.dart';
+import '../utils/local_order_log_helper.dart';
+import '../utils/type_utils.dart';
 import 'database_service.dart';
 import 'settings_service.dart';
 
@@ -591,6 +593,7 @@ class PrintService {
   Future<void> printOrderWithTemplates(OrderModel order) async {
     try {
       _logger.i('开始打印订单内容: ${order.id}');
+      LocalOrderLogHelper.logOrder(order, tag: 'PRINT_START', message: '开始根据配置的打印位生成指令与打单');
 
       // 获取所有激活且启用的打印位
       final activeStations = await _databaseService.getEnabledPrinterStations();
@@ -1264,6 +1267,262 @@ class PrintService {
 
     // 7. 底部落款与自动切纸
     builder.addCenter('*** END OF REPORT ***');
+    builder.feedLines(1);
+    builder.cutPaper(feed: 4);
+
+    return await builder.buildBytes();
+  }
+
+  /// 打印 Z-Report 日终结算总结单小票
+  Future<void> printDailySettlement(DailySettlementModel settlement) async {
+    try {
+      _logger.i('开始打印日终结算总结小票 (Z-Report): ${settlement.settlementId}');
+      final printBytes = await _generateDailySettlementESCPOSCommands(settlement);
+
+      final allStations = await _databaseService.getEnabledPrinterStations();
+      if (allStations.isEmpty) {
+        _logger.w('未找到启用的打印位，无法打印日结总结单');
+        return;
+      }
+
+      List<PrinterStationModel> targetStations = allStations.where(
+        (s) => s.role == 'counter' || s.role == 'both' || s.contentType == 'customer_receipt' || s.contentType == 'both',
+      ).toList();
+
+      if (targetStations.isEmpty) {
+        targetStations = allStations;
+      }
+
+      int successCount = 0;
+      List<String> errors = [];
+
+      for (final station in targetStations) {
+        try {
+          final adapter = PrinterAdapterFactory.createAdapter(station);
+          await adapter.sendBytes(printBytes);
+          successCount++;
+          _logger.i('日结总结小票 (Z-Report) 已成功发送至打印位 [${station.name}]');
+        } catch (e) {
+          _logger.e('日结总结小票发送至 [${station.name}] 失败: $e');
+          errors.add('${station.name}: $e');
+        }
+      }
+
+      if (successCount == 0 && errors.isNotEmpty) {
+        throw Exception(errors.join('; '));
+      }
+    } catch (e) {
+      _logger.e('打印日结总结小票失败: $e');
+      rethrow;
+    }
+  }
+
+  /// 生成基于 ESC/POS 格式的标准日终结算 (Z-Report) 总结单指令字节流
+  Future<List<int>> _generateDailySettlementESCPOSCommands(
+      DailySettlementModel settlement) async {
+    final merchant = await getMerchantInfo();
+    final builder = EscPosBuilder()
+      ..init()
+      ..enableChineseMode();
+
+    if (merchant.name.isNotEmpty) {
+      builder.addCenter(merchant.name, bold: true);
+    }
+    builder.addTitle('Z-REPORT / DAILY SETTLEMENT');
+    builder.addCenter('收银日终结算总结单 (Z-Report)', bold: true);
+    builder.addDivider(char: '=', length: 48);
+
+    builder.alignLeft();
+    builder.addLine('Settlement ID (日结单号): ${settlement.settlementId}');
+    builder.addLine('Settlement Date (日结日期): ${_formatDate(settlement.date)}');
+    builder.addLine('Executed Time (打印时间): ${_formatDateTime(settlement.createdAt)}');
+    builder.addDivider(char: '-', length: 48);
+
+    builder.setBold(true);
+    builder.addLine('[SALES SUMMARY / 营业总结]');
+    builder.setBold(false);
+    builder.addTwoColumns('Total Revenue (销售总额):', '￥${settlement.totalRevenue.toStringAsFixed(2)}', isBold: true);
+    builder.addTwoColumns('Valid Orders (有效完成笔数):', '${settlement.completedOrders}');
+    builder.addTwoColumns('Cancelled Orders (取消笔数):', '${settlement.cancelledOrders}');
+    builder.addTwoColumns('Total Orders (总订单笔数):', '${settlement.totalOrders}');
+    builder.addTwoColumns('Average Order Value (客单价):', '￥${settlement.averageOrderValue.toStringAsFixed(2)}');
+    builder.addDivider(char: '-', length: 48);
+
+    builder.setBold(true);
+    builder.addLine('[PAYMENT BREAKDOWN / 银收分布]');
+    builder.setBold(false);
+    builder.addTwoColumns('Cash Revenue (现金实收):', '￥${settlement.cashRevenue.toStringAsFixed(2)}');
+    builder.addTwoColumns('POS Revenue (POS/刷卡):', '￥${settlement.posRevenue.toStringAsFixed(2)}');
+    if (settlement.voucherRevenue > 0) {
+      builder.addTwoColumns('Voucher Revenue (代金券):', '￥${settlement.voucherRevenue.toStringAsFixed(2)}');
+    }
+    if (settlement.totalDiscount > 0) {
+      builder.addTwoColumns('Total Discount (总优惠额):', '-￥${settlement.totalDiscount.toStringAsFixed(2)}');
+    }
+    builder.addDivider(char: '-', length: 48);
+
+    builder.setBold(true);
+    builder.addLine('[DINING SCENE / 用餐场景]');
+    builder.setBold(false);
+    builder.addTwoColumns('Dine In (堂食笔数/金额):', '${settlement.dineInOrders}单 | ￥${settlement.dineInRevenue.toStringAsFixed(2)}');
+    builder.addTwoColumns('Takeaway (外卖/自提):', '${settlement.takeawayOrders}单 | ￥${settlement.takeawayRevenue.toStringAsFixed(2)}');
+    builder.addDivider(char: '=', length: 48);
+
+    builder.addCenter('*** 日终结算完成 / 请保存备查 ***');
+    builder.feedLines(1);
+    builder.cutPaper(feed: 4);
+
+    return await builder.buildBytes();
+  }
+
+  /// 打印单品小票 / 补打后厨单品单 (Print Single Item)
+  Future<void> printSingleItem({
+    required OrderModel order,
+    required Map<String, dynamic> targetItem,
+    PrinterStationModel? targetStation,
+  }) async {
+    try {
+      final itemName = (targetItem['kitchen_print_name'] ??
+              targetItem['name'] ??
+              targetItem['product_title'] ??
+              '未知商品')
+          .toString();
+
+      _logger.i('开始打印单品小票: 订单 #${order.orderNo}, 商品: $itemName');
+      LocalOrderLogHelper.logOrder(order,
+          tag: 'PRINT_SINGLE_ITEM', message: '补打单品小票: $itemName');
+
+      final printBytes =
+          await _generateSingleItemESCPOSCommands(order, targetItem);
+
+      if (targetStation != null) {
+        final adapter = PrinterAdapterFactory.createAdapter(targetStation);
+        await adapter.sendBytes(printBytes);
+        _logger.i('单品小票已成功发送至指定打印位 [${targetStation.name}]');
+        return;
+      }
+
+      final allStations = await _databaseService.getEnabledPrinterStations();
+      if (allStations.isEmpty) {
+        throw Exception('未找到启用的打印位，无法打印单品小票');
+      }
+
+      List<PrinterStationModel> targetStations = allStations.where(
+        (s) =>
+            s.role == 'kitchen' ||
+            s.role == 'both' ||
+            s.contentType == 'kitchen_ticket' ||
+            s.contentType == 'both',
+      ).toList();
+
+      if (targetStations.isEmpty) {
+        targetStations = allStations;
+      }
+
+      int successCount = 0;
+      List<String> errors = [];
+
+      for (final station in targetStations) {
+        try {
+          final adapter = PrinterAdapterFactory.createAdapter(station);
+          await adapter.sendBytes(printBytes);
+          successCount++;
+          _logger.i('单品小票已成功发送至打印位 [${station.name}]');
+        } catch (e) {
+          _logger.e('单品小票发送至 [${station.name}] 失败: $e');
+          errors.add('${station.name}: $e');
+        }
+      }
+
+      if (successCount == 0 && errors.isNotEmpty) {
+        throw Exception(errors.join('; '));
+      }
+    } catch (e) {
+      _logger.e('打印单品小票失败: $e');
+      rethrow;
+    }
+  }
+
+  /// 生成单品小票 ESC/POS 指令字节流
+  Future<List<int>> _generateSingleItemESCPOSCommands(
+      OrderModel order, Map<String, dynamic> targetItem) async {
+    final merchant = await getMerchantInfo();
+    final builder = EscPosBuilder()
+      ..init()
+      ..enableChineseMode();
+
+    final itemName = (targetItem['kitchen_print_name'] ??
+            targetItem['name'] ??
+            targetItem['product_title'] ??
+            '未知商品')
+        .toString();
+    final quantity =
+        NumberFormatUtils.toInt(targetItem['quantity'] ?? targetItem['count'], 1);
+    final price = NumberFormatUtils.toDouble(targetItem['price'] ??
+        targetItem['product_selling_price'] ??
+        targetItem['unit_price']);
+    final finalAmt =
+        NumberFormatUtils.toDouble(targetItem['final_amount'], price * quantity);
+
+    // 1. 标题 (大号 2x2 居中)
+    builder.addTitle('SINGLE ITEM TICKET');
+    builder.addCenter('*** 单品补打 / 厨房贴单 ***', bold: true);
+    builder.addDivider(char: '=', length: 48);
+
+    // 2. 订单标识与打印节点
+    builder.alignLeft();
+    builder.addLine('Order No (订单号):  #${order.orderNo}');
+    builder.addLine('Local Order ID:    ${order.id}');
+    if (order.tableName != null) {
+      builder.addLine('Table (堂食坐台):   ${order.tableName}');
+    } else {
+      builder.addLine('Scene (用餐场景):   ${order.displayOrderSourceShort}');
+    }
+    builder.addLine('Print Time (时间):  ${DateTime.now().toStandardDateTimeString()}');
+    builder.addDivider(char: '-', length: 48);
+
+    // 3. 核心单品名称 (大字号 2x2 加粗突显)
+    builder.alignCenter();
+    builder.setFontSize(width: 2, height: 2);
+    builder.setBold(true);
+    builder.addLine('$itemName x $quantity');
+    builder.resetFontSize();
+    builder.setBold(false);
+    builder.feedLines(1);
+
+    // 4. 选配规格 (options / customization)
+    builder.alignLeft();
+    final options = targetItem['options'] ?? targetItem['customization'] ?? [];
+    if (options is List && options.isNotEmpty) {
+      builder.setBold(true);
+      builder.addLine('[CUSTOMIZATION / 规格选配]:');
+      builder.setBold(false);
+      for (final opt in options) {
+        if (opt is Map) {
+          final optName = opt['option_name'] ?? opt['name'] ?? '';
+          final extraPrice =
+              NumberFormatUtils.toDouble(opt['extra_price'] ?? opt['extraCost']);
+          if (extraPrice > 0) {
+            builder.addLine('  • $optName (+￥${extraPrice.toStringAsFixed(2)})');
+          } else {
+            builder.addLine('  • $optName');
+          }
+        } else {
+          builder.addLine('  • ${opt.toString()}');
+        }
+      }
+      builder.addDivider(char: '-', length: 48);
+    }
+
+    // 5. 金额与整单备注
+    builder.addTwoColumns(
+        'Item Price (单价/小计):', '￥${price.toStringAsFixed(2)} / ￥${finalAmt.toStringAsFixed(2)}');
+    if (order.note != null && order.note!.isNotEmpty) {
+      builder.addLine('Order Note (整单备注): ${order.note}');
+    }
+
+    builder.addDivider(char: '=', length: 48);
+    builder.addCenter('--- 单品小票打印完成 ---');
     builder.feedLines(1);
     builder.cutPaper(feed: 4);
 

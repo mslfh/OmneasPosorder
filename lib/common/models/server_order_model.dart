@@ -73,11 +73,14 @@ class ServerOrderModel {
   });
 
   static List<dynamic> _asList(dynamic value) {
+    if (value == null) return const [];
     if (value is List) return value;
+    if (value is Map) return [value];
     if (value is String && value.isNotEmpty) {
       try {
         final decoded = jsonDecode(value);
         if (decoded is List) return decoded;
+        if (decoded is Map) return [decoded];
       } catch (_) {}
     }
     return const [];
@@ -99,6 +102,77 @@ class ServerOrderModel {
   static String _asString(dynamic value, [String fallback = '']) {
     if (value == null) return fallback;
     return value.toString();
+  }
+
+  /// 是否为堂食类型
+  bool get isDineIn {
+    final rawType = type.toLowerCase();
+    final rawPlaceIn = placeIn.toLowerCase();
+    return rawType.contains('dine') || rawType.contains('table') || rawPlaceIn == 'table';
+  }
+
+  /// 归一化为标准的后端 API 就餐类型字符串 ("dine_in" 或 "takeaway")
+  String get normalizedApiType {
+    return isDineIn ? 'dine_in' : 'takeaway';
+  }
+
+  /// 判断服务器订单是否已付清款项（对比应付金额 finalAmount 与已付金额 paidAmount）
+  bool get isPaid {
+    final statusLower = status.toLowerCase();
+    if (statusLower == 'completed' || statusLower == 'paid') {
+      return true;
+    }
+
+    final finalAmt = double.tryParse(finalAmount) ?? 0.0;
+    final paidAmt = double.tryParse(paidAmount) ?? 0.0;
+
+    // 免费订单场景：应付金额 <= 0 且 已付金额 >= 0
+    if (finalAmt <= 0.0001 && paidAmt >= 0.0) {
+      return true;
+    }
+
+    // 正常订单场景：已付金额 >= 应付金额 (允许 0.01 浮点计算误差)
+    if (finalAmt > 0.0 && paidAmt >= (finalAmt - 0.01)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  // 提取顾客元数据 Map 的便捷 Getter
+  Map<String, dynamic>? get customerMetadata {
+    for (final a in additions) {
+      if (a is Map) {
+        final map = Map<String, dynamic>.from(a);
+        if (map.containsKey('customer_name') ||
+            map.containsKey('customer_phone') ||
+            map.containsKey('pickup_time') ||
+            map.containsKey('extend_info')) {
+          return map;
+        }
+      }
+    }
+    return null;
+  }
+
+  String? get customerName {
+    final meta = customerMetadata;
+    return meta?['customer_name']?.toString().trim();
+  }
+
+  String? get customerPhone {
+    final meta = customerMetadata;
+    return meta?['customer_phone']?.toString().trim();
+  }
+
+  String? get pickupTime {
+    final meta = customerMetadata;
+    return meta?['pickup_time']?.toString().trim();
+  }
+
+  String? get extendInfo {
+    final meta = customerMetadata;
+    return meta?['extend_info']?.toString().trim();
   }
 
   // 获取订单状态
@@ -126,6 +200,30 @@ class ServerOrderModel {
   }
 
   factory ServerOrderModel.fromMap(Map<String, dynamic> map) {
+    List<dynamic> parsedAdditions = _asList(map['additions']);
+
+    // 容错处理：若 additions 字段为空，但后端响应顶级字段中包含顾客信息，则合成为 additions 项
+    if (parsedAdditions.isEmpty) {
+      final topCustomerName = map['customer_name']?.toString();
+      final topCustomerPhone = map['customer_phone']?.toString();
+      final topPickupTime = map['pickup_time']?.toString();
+      final topExtendInfo = map['extend_info']?.toString();
+
+      if ((topCustomerName != null && topCustomerName.trim().isNotEmpty) ||
+          (topCustomerPhone != null && topCustomerPhone.trim().isNotEmpty) ||
+          (topPickupTime != null && topPickupTime.trim().isNotEmpty) ||
+          (topExtendInfo != null && topExtendInfo.trim().isNotEmpty)) {
+        parsedAdditions = [
+          {
+            if (topCustomerName != null) 'customer_name': topCustomerName,
+            if (topCustomerPhone != null) 'customer_phone': topCustomerPhone,
+            if (topPickupTime != null) 'pickup_time': topPickupTime,
+            if (topExtendInfo != null) 'extend_info': topExtendInfo,
+          }
+        ];
+      }
+    }
+
     return ServerOrderModel(
       id: map['id'] is int ? map['id'] as int : int.tryParse(map['id']?.toString() ?? '') ?? 0,
       orderNumber: _asString(map['order_number']),
@@ -146,7 +244,7 @@ class ServerOrderModel {
       createdAt: map['created_at']?.toString(),
       updatedAt: map['updated_at']?.toString(),
       items: _asList(map['items']),
-      additions: _asList(map['additions']),
+      additions: parsedAdditions,
       paymentMethod: map['payment_method'],
       tag: map['tag'],
       userId: map['user_id'],

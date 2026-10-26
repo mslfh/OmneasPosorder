@@ -79,16 +79,12 @@ class QuickInputManager {
 
     // 上下箭头 - 切换高亮
     if (key == LogicalKeyboardKey.arrowDown && _searchResults.isNotEmpty) {
-      print('[DEBUG QI_MGR] arrowDown: _highlightedIndex $_highlightedIndex -> ${(_highlightedIndex + 1) % _searchResults.length}');
       _highlightedIndex = (_highlightedIndex + 1) % _searchResults.length;
-      print('[DEBUG QI_MGR] after arrowDown: _highlightedIndex=$_highlightedIndex');
       return true;
     }
 
     if (key == LogicalKeyboardKey.arrowUp && _searchResults.isNotEmpty) {
-      print('[DEBUG QI_MGR] arrowUp: _highlightedIndex $_highlightedIndex -> ${(_highlightedIndex - 1 + _searchResults.length) % _searchResults.length}');
       _highlightedIndex = (_highlightedIndex - 1 + _searchResults.length) % _searchResults.length;
-      print('[DEBUG QI_MGR] after arrowUp: _highlightedIndex=$_highlightedIndex');
       return true;
     }
 
@@ -135,37 +131,14 @@ class QuickInputManager {
 
     final lowerInput = _input.toLowerCase();
 
-    // Debug 日志，记录输入和待搜索集合大小
-    try {
-      print('[DEBUG] QuickInputManager._performSearch input="$_input" lower="$lowerInput" products=${allProducts.length} options=${allOptions?.length ?? 0}');
-    } catch (e) {
-      // ignore
-    }
-
     // 根据 preferOptions 决定搜索优先级
     if (preferOptions && allOptions != null) {
       // 优先搜索选项
       final matchedOptions = _searchOptions(allOptions, lowerInput);
-      try {
-        print('[DEBUG] matchedOptions=${matchedOptions.length} (preferOptions=true)');
-        if (matchedOptions.isNotEmpty) {
-          final optionNames = matchedOptions.take(5).map((o) => o.name).toList();
-          print('[DEBUG] matched option names sample: $optionNames');
-        }
-      } catch (e) {}
-
       final matchedProducts = _searchProducts(allProducts, lowerInput);
-      try {
-        print('[DEBUG] matchedProducts=${matchedProducts.length} (after option search)');
-        if (matchedProducts.isNotEmpty) {
-          final titles = matchedProducts.take(5).map((p) => p.title).toList();
-          print('[DEBUG] matched product titles sample: $titles');
-        }
-      } catch (e) {}
 
-      // 当两边都有匹配时，合并结果（选项优先）
+      // 当两边都有匹配时，合并结果（商品优先展示）
       if (matchedOptions.isNotEmpty && matchedProducts.isNotEmpty) {
-        // 为了同时展示商品和选项，并让用户能直接选择商品，始终将商品放在前面
         _searchResults = [...matchedProducts, ...matchedOptions];
         _isSearchingOptions = false; // 混合模式以商品为主色
         _highlightedIndex = 0;
@@ -189,22 +162,7 @@ class QuickInputManager {
     } else {
       // 默认：先搜索商品，再搜索选项
       final matchedProducts = _searchProducts(allProducts, lowerInput);
-      try {
-        print('[DEBUG] matchedProducts=${matchedProducts.length}');
-        if (matchedProducts.isNotEmpty) {
-          final titles = matchedProducts.take(5).map((p) => p.title).toList();
-          print('[DEBUG] matched product titles sample: $titles');
-        }
-      } catch (e) {}
-
       final matchedOptions = (allOptions != null) ? _searchOptions(allOptions, lowerInput) : <MenuOption>[];
-      try {
-        print('[DEBUG] matchedOptions=${matchedOptions.length}');
-        if (matchedOptions.isNotEmpty) {
-          final optionNames = matchedOptions.take(5).map((o) => o.name).toList();
-          print('[DEBUG] matched option names sample: $optionNames');
-        }
-      } catch (e) {}
 
       // 当两边都有匹配时，合并结果（商品优先）
       if (matchedProducts.isNotEmpty && matchedOptions.isNotEmpty) {

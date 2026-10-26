@@ -1,7 +1,9 @@
 import 'package:dio/dio.dart';
+import 'package:logger/logger.dart';
 import 'settings_service.dart';
 
 class ApiService {
+  static final Logger _logger = Logger();
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
   ApiService._internal() {
@@ -11,6 +13,8 @@ class ApiService {
   static final SettingsService _settingsService = SettingsService();
   late Dio _dio;
   String? _authToken; // token 字段
+
+  bool get isBaseUrlConfigured => _dio.options.baseUrl.trim().isNotEmpty;
 
   String _normalizeBaseUrl(String rawUrl) {
     var clean = SettingsService.cleanUrlFormat(rawUrl);
@@ -79,15 +83,13 @@ class ApiService {
     }
     final fixedPath = _normalizePath(path);
     final options = _buildOptions();
-    print('[API] GET url: ${_dio.options.baseUrl}$fixedPath');
-    print('[API] headers: ${options.headers}');
-    print('[API] params: ${params ?? 'null'}');
+    _logger.d('[API] GET url: ${_dio.options.baseUrl}$fixedPath | params: ${params ?? "null"}');
     final response = await _dio.get(
       fixedPath,
       queryParameters: params,
       options: options,
     );
-    print('[API] response.statusCode: ${response.statusCode}');
+    _logger.d('[API] response.statusCode: ${response.statusCode}');
     return response;
   }
 
@@ -97,9 +99,7 @@ class ApiService {
     }
     final fixedPath = _normalizePath(path);
     final options = _buildOptions();
-    print('[API] POST url: ${_dio.options.baseUrl}$fixedPath');
-    print('[API] headers: ${options.headers}');
-    print('[API] data: ${data ?? 'null'}');
+    _logger.d('[API] POST url: ${_dio.options.baseUrl}$fixedPath');
     return await _dio.post(fixedPath, data: data, options: options);
   }
 

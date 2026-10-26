@@ -1,10 +1,12 @@
 import 'package:hive/hive.dart';
+import 'package:logger/logger.dart';
 import '../models/menu_item_adapter.dart';
 import '../models/category_adapter.dart';
 import '../models/option_groups_adapter.dart';
 
 /// 缓存服务类，用于管理和刷新本地Hive缓存
 class CacheService {
+  static final Logger _logger = Logger();
   static const String _productsBoxName = 'productsBox';
   static const String _categoriesBoxName = 'categoriesBox';
   static const String _optionGroupsBoxName = 'optionGroupsBox';
@@ -17,7 +19,7 @@ class CacheService {
         await box.clear();
       }
     } catch (e) {
-      print('[DEBUG] 清空菜品缓存失败: $e');
+      _logger.e('清空菜品缓存失败: $e');
     }
   }
 
@@ -29,7 +31,7 @@ class CacheService {
         await box.clear();
       }
     } catch (e) {
-      print('[DEBUG] 清空分类缓存失败: $e');
+      _logger.e('清空分类缓存失败: $e');
     }
   }
 
@@ -41,7 +43,7 @@ class CacheService {
         await box.clear();
       }
     } catch (e) {
-      print('[DEBUG] 清空选项缓存失败: $e');
+      _logger.e('清空选项缓存失败: $e');
     }
   }
 
