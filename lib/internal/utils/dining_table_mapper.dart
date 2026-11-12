@@ -13,7 +13,7 @@ class DiningTableMapper {
           ? item
           : Map<String, dynamic>.from(item as Map);
       return _toSelectedProduct(map, menuCatalog);
-    }).toList();
+    }).toList().cast<SelectedProduct>();
   }
 
   /// 将 SelectedProduct 列表转换为提交给后端桌台/订单 API 的 items 格式
@@ -24,16 +24,29 @@ class DiningTableMapper {
       final options = p.options.map((o) {
         return {
           'group_name': o.type,
+          'type': o.type,
           'option_name': o.option.name,
+          'ingredientName': o.option.name,
           'price': o.option.extraCost,
+          'extra_price': o.option.extraCost,
+          'priceChange': o.option.extraCost,
         };
       }).toList();
 
+      final double price = p.product.sellingPrice;
+      final int quantity = p.quantity;
+      final double optionsTotal =
+          p.options.fold(0.0, (s, o) => s + o.option.extraCost);
+      final double finalAmount =
+          double.parse(((price + optionsTotal) * quantity).toStringAsFixed(2));
+
       return {
+        'id': p.product.id,
         'product_id': p.product.id,
         'name': p.product.title,
-        'price': p.product.sellingPrice,
-        'quantity': p.quantity,
+        'price': price,
+        'final_amount': finalAmount,
+        'quantity': quantity,
         'notes': '',
         'options': options,
       };
@@ -69,7 +82,11 @@ class DiningTableMapper {
             isPrintable: item['is_printable'] == true,
           );
 
-    final options = (item['options'] as List<dynamic>? ?? []).map((opt) {
+    final rawOptions = item['options'] as List<dynamic>? ??
+        item['customization'] as List<dynamic>? ??
+        [];
+
+    final options = rawOptions.map((opt) {
       final optMap = opt is Map<String, dynamic>
           ? opt
           : Map<String, dynamic>.from(opt as Map);
@@ -79,9 +96,11 @@ class DiningTableMapper {
           '';
       final optionName = optMap['option_name']?.toString() ??
           optMap['name']?.toString() ??
+          optMap['ingredientName']?.toString() ??
           '';
       final price = _toDouble(optMap['price']) ??
           _toDouble(optMap['extra_price']) ??
+          _toDouble(optMap['priceChange']) ??
           0.0;
 
       return SelectedOption(

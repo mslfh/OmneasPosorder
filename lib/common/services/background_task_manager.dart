@@ -205,7 +205,6 @@ class BackgroundTaskManager {
       final syncService = SyncService();
       final printService = PrintService();
 
-      syncService.configureBaseUrl(settings.apiServerUrl);
       printService.configurePrinter(
         printerIP: settings.printerAddress,
         printerPort: settings.printerPort,
@@ -860,7 +859,7 @@ Future<void> _executeFetchRemoteOrdersTask() async {
   BackgroundTaskManager._isFetching = true;
   try {
     final syncService = SyncService();
-    await syncService.fetchAndSyncRemoteOrders();
+    await syncService.fetchAndLandNewRemoteOrders();
   } catch (e) {
     logger.e('拉取服务器新订单任务失败: $e');
   } finally {
@@ -943,7 +942,6 @@ Future<void> _configureServicesFromSettings() async {
   await settingsService.initialize();
   final settings = settingsService.getSettings();
 
-  SyncService().configureBaseUrl(settings.apiServerUrl);
   PrintService().configurePrinter(
     printerIP: settings.printerAddress,
     printerPort: settings.printerPort,

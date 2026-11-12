@@ -40,7 +40,7 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
       if (order != null) {
         try {
           final serverOrders =
-              await _orderService.getServerOrders(date: order.orderTime);
+              await _orderService.fetchServerOrders(date: order.orderTime);
           for (final s in serverOrders) {
             if ((order.remoteOrderId != null && order.remoteOrderId == s.id) ||
                 (order.remoteOrderNumber != null &&
@@ -70,7 +70,7 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
 
   Future<void> _retrySync() async {
     try {
-      await _orderService.retrySyncOrder(widget.orderId);
+      await _orderService.retrySyncOrderToRemote(widget.orderId);
       _showSuccessSnackBar('conn_success'.tr);
       await _loadOrderDetail();
     } catch (e) {
@@ -452,6 +452,7 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
               server != null
                   ? '${server.placeIn.toUpperCase()} / ${server.type.toUpperCase()}'
                   : '-',
+              ignoreDiff: true,
             ),
             _buildComparisonRow(
               '下单时间',
@@ -491,8 +492,12 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
     );
   }
 
-  Widget _buildComparisonRow(String label, String localVal, String serverVal, {bool isDiff = false}) {
-    final bool textDiff = isDiff || (serverVal != '-' && localVal.toLowerCase() != serverVal.toLowerCase());
+  Widget _buildComparisonRow(String label, String localVal, String serverVal,
+      {bool isDiff = false, bool ignoreDiff = false}) {
+    final bool textDiff = !ignoreDiff &&
+        (isDiff ||
+            (serverVal != '-' &&
+                localVal.toLowerCase() != serverVal.toLowerCase()));
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
@@ -668,36 +673,120 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
     }
   }
 
+  List<Map<String, dynamic>> _extractItemOptions(Map<String, dynamic> itemMap) {
+    final rawOptions = itemMap['options'] ??
+        itemMap['customization'] ??
+        itemMap['option_items'] ??
+        itemMap['options_list'] ??
+        itemMap['customizations'];
+    if (rawOptions is! List || rawOptions.isEmpty) return [];
+
+    final List<Map<String, dynamic>> result = [];
+    for (final opt in rawOptions) {
+      if (opt is Map) {
+        final mapObj = opt['option'] is Map
+            ? Map<String, dynamic>.from(opt['option'] as Map)
+            : Map<String, dynamic>.from(opt);
+        final name = (mapObj['option_name'] ??
+                mapObj['ingredientName'] ??
+                mapObj['replacementName'] ??
+                mapObj['name'] ??
+                mapObj['title'] ??
+                '')
+            .toString();
+        final extraPrice = _toDouble(
+              mapObj['extra_price'] ??
+                  mapObj['priceChange'] ??
+                  mapObj['extra_cost'] ??
+                  mapObj['extraCost'] ??
+                  mapObj['extra'] ??
+                  mapObj['price'],
+            ) ??
+            0.0;
+        if (name.isNotEmpty) {
+          result.add({
+            'name': name,
+            'price': extraPrice,
+          });
+        }
+      } else if (opt != null) {
+        final str = opt.toString().trim();
+        if (str.isNotEmpty) {
+          result.add({
+            'name': str,
+            'price': 0.0,
+          });
+        }
+      }
+    }
+    return result;
+  }
+
   Widget _buildLocalItemRow(Map<String, dynamic> itemMap) {
     final name = (itemMap['name'] ?? itemMap['product_title'] ?? itemMap['product_name'] ?? '').toString();
     final quantity = _toInt(itemMap['quantity']) ?? 1;
     final price = _toDouble(itemMap['price'] ?? itemMap['product_selling_price'] ?? itemMap['unit_price']) ?? 0.0;
     final finalAmount = _toDouble(itemMap['final_amount']);
     final subtotal = finalAmount ?? (quantity * price);
+    final options = _extractItemOptions(itemMap);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Text(
-              name,
-              style: const TextStyle(fontWeight: FontWeight.w500),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  '$name (\$$price)',
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                ),
+              ),
+              Text('x$quantity'),
+              const SizedBox(width: 12),
+              Text('\$${subtotal.toStringAsFixed(2)}'),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.print_outlined, size: 18, color: Colors.blue),
+                tooltip: '单品打 / 补打小票',
+                onPressed: () => _printSingleItem(itemMap),
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ],
+          ),
+          if (options.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: 12, top: 2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: options.map((opt) {
+                  final optName = opt['name'] as String;
+                  final optPrice = opt['price'] as double;
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 1),
+                    child: Row(
+                      children: [
+                        Text(
+                          '• $optName',
+                          style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                        ),
+                        if (optPrice > 0) ...[
+                          const SizedBox(width: 4),
+                          Text(
+                            '(+￥${optPrice.toStringAsFixed(2)})',
+                            style: TextStyle(fontSize: 11, color: Colors.orange[800]),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
             ),
-          ),
-          Text('x$quantity'),
-          const SizedBox(width: 12),
-          Text('￥${subtotal.toStringAsFixed(2)}'),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.print_outlined, size: 18, color: Colors.blue),
-            tooltip: '单品打 / 补打小票',
-            onPressed: () => _printSingleItem(itemMap),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-          ),
         ],
       ),
     );
@@ -716,30 +805,65 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
     final price = _toDouble(itemMap['product_selling_price'] ?? itemMap['unit_price'] ?? itemMap['price'] ?? itemMap['selling_price']) ?? 0.0;
     final finalAmount = _toDouble(itemMap['final_amount']);
     final subtotal = finalAmount ?? (quantity * price);
+    final options = _extractItemOptions(itemMap);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Text(
-              name,
-              style: const TextStyle(fontWeight: FontWeight.w500),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                ),
+              ),
+              Text('x$quantity'),
+              const SizedBox(width: 12),
+              Text('￥${subtotal.toStringAsFixed(2)}'),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.print_outlined, size: 18, color: Colors.blue),
+                tooltip: '单品打 / 补打小票',
+                onPressed: () => _printSingleItem(itemMap),
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ],
+          ),
+          if (options.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: 12, top: 2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: options.map((opt) {
+                  final optName = opt['name'] as String;
+                  final optPrice = opt['price'] as double;
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 1),
+                    child: Row(
+                      children: [
+                        Text(
+                          '• $optName',
+                          style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                        ),
+                        if (optPrice > 0) ...[
+                          const SizedBox(width: 4),
+                          Text(
+                            '(+￥${optPrice.toStringAsFixed(2)})',
+                            style: TextStyle(fontSize: 11, color: Colors.orange[800]),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
             ),
-          ),
-          Text('x$quantity'),
-          const SizedBox(width: 12),
-          Text('￥${subtotal.toStringAsFixed(2)}'),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.print_outlined, size: 18, color: Colors.blue),
-            tooltip: '单品打 / 补打小票',
-            onPressed: () => _printSingleItem(itemMap),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-          ),
         ],
       ),
     );
@@ -756,9 +880,9 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'order_status'.tr,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                const Text(
+                  '订单与同步状态概览',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 IconButton(
                   icon: const Icon(Icons.edit, size: 20, color: Colors.blue),
@@ -767,16 +891,50 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
+            // 本地订单状态与支付标识
             Row(
               children: [
-                Text('${'order_status'.tr}: '),
+                const Text('本地订单状态: ', style: TextStyle(fontWeight: FontWeight.w600)),
                 _buildStatusChip(
                   _getOrderStatusText(_order!.orderStatus),
                   _getOrderStatusColor(_order!.orderStatus),
                 ),
+                const SizedBox(width: 8),
+                _buildStatusChip(
+                  _order!.isPaid ? '已支付' : '未支付 (到店付)',
+                  _order!.isPaid ? Colors.green : Colors.deepOrange,
+                ),
               ],
             ),
+            // 服务器订单状态与支付标识
+            if (_serverOrder != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Text('服务器订单状态: ', style: TextStyle(fontWeight: FontWeight.w600)),
+                  _buildStatusChip(
+                    '${_serverOrder!.status.toUpperCase()} (${_getOrderStatusText(_serverOrder!.orderStatusEnum)})',
+                    _serverOrder!.status.toLowerCase() == 'completed'
+                        ? Colors.green
+                        : (_serverOrder!.status.toLowerCase() == 'cancelled' ? Colors.red : Colors.blue),
+                  ),
+                  const SizedBox(width: 8),
+                  _buildStatusChip(
+                    _serverOrder!.isPaid ? '已支付' : '未支付 (到店付)',
+                    _serverOrder!.isPaid ? Colors.green : Colors.deepOrange,
+                  ),
+                ],
+              ),
+            ] else ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Text('服务器订单状态: ', style: TextStyle(fontWeight: FontWeight.w600)),
+                  _buildStatusChip('未连接/离线单', Colors.grey),
+                ],
+              ),
+            ],
             const SizedBox(height: 8),
             Row(
               children: [
@@ -785,19 +943,7 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                   _getSyncStatusText(_order!.syncStatus),
                   _getSyncStatusColor(_order!.syncStatus),
                 ),
-                if (_serverOrder != null) ...[
-                  const SizedBox(width: 8),
-                  Text('服务器状态: ', style: TextStyle(color: Colors.grey[700], fontSize: 12)),
-                  _buildStatusChip(
-                    _serverOrder!.status.toUpperCase(),
-                    _serverOrder!.status == 'completed' ? Colors.green : Colors.orange,
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
+                const SizedBox(width: 16),
                 Text('${'print_status'.tr}: '),
                 _buildStatusChip(
                   _getPrintStatusText(_order!.printStatus),
@@ -1266,23 +1412,35 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
         return 'status_pending'.tr;
       case OrderStatus.confirmed:
         return 'status_confirmed'.tr;
+      case OrderStatus.preparing:
+        return 'status_preparing'.tr;
+      case OrderStatus.readyForPickup:
+        return 'status_ready_for_pickup'.tr;
       case OrderStatus.completed:
         return 'status_completed'.tr;
       case OrderStatus.cancelled:
         return 'status_cancelled'.tr;
+      case OrderStatus.refunded:
+        return 'status_refunded'.tr;
     }
   }
 
   Color _getOrderStatusColor(OrderStatus status) {
     switch (status) {
       case OrderStatus.pending:
-        return Colors.grey;
+        return Colors.orange;
       case OrderStatus.confirmed:
         return Colors.blue;
+      case OrderStatus.preparing:
+        return Colors.purple;
+      case OrderStatus.readyForPickup:
+        return Colors.teal;
       case OrderStatus.completed:
         return Colors.green;
       case OrderStatus.cancelled:
         return Colors.red;
+      case OrderStatus.refunded:
+        return Colors.brown;
     }
   }
 

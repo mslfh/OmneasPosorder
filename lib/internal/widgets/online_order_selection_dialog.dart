@@ -78,8 +78,38 @@ class _OnlineOrderSelectionDialogState
   }
 
   Widget _buildStatusChip(OrderStatus status) {
-    final isPending = status == OrderStatus.pending;
-    final color = isPending ? Colors.orange : Colors.blue;
+    final String label;
+    final Color color;
+    switch (status) {
+      case OrderStatus.pending:
+        label = 'status_pending'.tr;
+        color = Colors.orange;
+        break;
+      case OrderStatus.confirmed:
+        label = 'status_confirmed'.tr;
+        color = Colors.blue;
+        break;
+      case OrderStatus.preparing:
+        label = 'status_preparing'.tr;
+        color = Colors.purple;
+        break;
+      case OrderStatus.readyForPickup:
+        label = 'status_ready_for_pickup'.tr;
+        color = Colors.teal;
+        break;
+      case OrderStatus.completed:
+        label = 'status_completed'.tr;
+        color = Colors.green;
+        break;
+      case OrderStatus.cancelled:
+        label = 'status_cancelled'.tr;
+        color = Colors.red;
+        break;
+      case OrderStatus.refunded:
+        label = 'status_refunded'.tr;
+        color = Colors.brown;
+        break;
+    }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
@@ -88,7 +118,7 @@ class _OnlineOrderSelectionDialogState
         border: Border.all(color: color.withOpacity(0.25)),
       ),
       child: Text(
-        isPending ? 'status_pending'.tr : 'status_confirmed'.tr,
+        label,
         style: TextStyle(
           color: color,
           fontSize: 11,
@@ -100,7 +130,7 @@ class _OnlineOrderSelectionDialogState
 
   Future<void> _handleNotifyOrderReady(OrderModel order) async {
     try {
-      await _orderService.notifyCustomerOrderReady(order);
+      await _orderService.notifyOrderReadyForPickup(order);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -207,7 +237,8 @@ class _OnlineOrderSelectionDialogState
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.access_time, size: 14, color: Colors.orange[800]),
+                      Icon(Icons.access_time,
+                          size: 14, color: Colors.orange[800]),
                       const SizedBox(width: 4),
                       Text(
                         '${'order_time'.tr}: ${_formatOrderTime(order.orderTime)}',
@@ -281,11 +312,13 @@ class _OnlineOrderSelectionDialogState
                       child: Row(
                         children: [
                           if (_currentSort == type)
-                            const Icon(Icons.check, size: 18, color: Colors.orange)
+                            const Icon(Icons.check,
+                                size: 18, color: Colors.orange)
                           else
                             const SizedBox(width: 18),
                           const SizedBox(width: 8),
-                          Text(type.label, style: const TextStyle(fontSize: 14)),
+                          Text(type.label,
+                              style: const TextStyle(fontSize: 14)),
                         ],
                       ),
                     ))
@@ -303,7 +336,8 @@ class _OnlineOrderSelectionDialogState
               return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
-              return Center(child: Text('${'conn_failed'.tr}: ${snapshot.error}'));
+              return Center(
+                  child: Text('${'conn_failed'.tr}: ${snapshot.error}'));
             }
 
             final rawOrders = snapshot.data ?? const <OrderModel>[];
@@ -365,17 +399,16 @@ class _OnlineOrderSelectionDialogState
                           const SizedBox(width: 12),
                           Expanded(child: _buildOrderSummary(order)),
                           const SizedBox(width: 8),
-                          if (order.isPaid)
-                            IconButton(
-                              icon: Icon(
-                                Icons.notifications_active,
-                                color: Colors.amber[800],
-                                size: 28,
-                              ),
-                              tooltip: '菜品做好，通知顾客取餐',
-                              onPressed: () => _handleNotifyOrderReady(order),
-                            )
-                          else
+                          IconButton(
+                            icon: Icon(
+                              Icons.notifications_active,
+                              color: Colors.amber[800],
+                              size: 26,
+                            ),
+                            tooltip: '菜品做好，通知取餐',
+                            onPressed: () => _handleNotifyOrderReady(order),
+                          ),
+                          if (!order.isPaid)
                             Icon(Icons.chevron_right, color: Colors.grey[500]),
                         ],
                       ),

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'order_model.dart';
 
 // 服务器订单状态枚举
 enum ServerSyncStatus {
@@ -116,10 +117,20 @@ class ServerOrderModel {
     return isDineIn ? 'dine_in' : 'takeaway';
   }
 
+  /// 归一化后的标准主订单状态字符串
+  String get normalizedStatus {
+    return OrderStatusX.parse(status).apiValue;
+  }
+
+  /// 转换对应的 OrderStatus 枚举
+  OrderStatus get orderStatusEnum {
+    return OrderStatusX.parse(status);
+  }
+
   /// 判断服务器订单是否已付清款项（对比应付金额 finalAmount 与已付金额 paidAmount）
   bool get isPaid {
     final statusLower = status.toLowerCase();
-    if (statusLower == 'completed' || statusLower == 'paid') {
+    if (statusLower == 'completed' || statusLower == 'paid' || statusLower == 'finished') {
       return true;
     }
 
@@ -179,8 +190,11 @@ class ServerOrderModel {
   ServerSyncStatus getSyncStatus() {
     switch (syncStatus.toLowerCase()) {
       case 'synced':
+      case 'success':
         return ServerSyncStatus.synced;
       case 'failed':
+      case 'syncfailed':
+      case 'error':
         return ServerSyncStatus.failed;
       default:
         return ServerSyncStatus.pending;
@@ -191,8 +205,11 @@ class ServerOrderModel {
   ServerPrintStatus getPrintStatus() {
     switch (printStatus.toLowerCase()) {
       case 'printed':
+      case 'success':
         return ServerPrintStatus.printed;
       case 'failed':
+      case 'printfailed':
+      case 'error':
         return ServerPrintStatus.failed;
       default:
         return ServerPrintStatus.pending;

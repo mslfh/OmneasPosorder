@@ -274,44 +274,53 @@ class QuickInputOverlay extends StatelessWidget {
   }
 
   Widget _buildOptionItem(MenuOption option, bool isHighlighted) {
+    final bool isManual = option.id == 0 || option.type.toLowerCase() == 'manual';
+
     return InkWell(
       onTap: () => onOptionTap?.call(option),
       child: Container(
-        margin: EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+        margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
         decoration: BoxDecoration(
-          color: isHighlighted ? Colors.purple.shade100 : Colors.transparent,
+          color: isHighlighted
+              ? (isManual ? Colors.orange.shade100 : Colors.purple.shade100)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(4),
-          border: isHighlighted ? Border.all(color: Colors.purple.shade300) : null,
+          border: isHighlighted
+              ? Border.all(
+                  color: isManual ? Colors.orange.shade400 : Colors.purple.shade300)
+              : null,
         ),
-        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(
           children: [
             // 选项类型标签
             Container(
-              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.purple.shade600,
+                color: isManual ? Colors.orange.shade700 : Colors.purple.shade600,
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
-                option.type,
-                style: TextStyle(
+                isManual ? '手写' : option.type,
+                style: const TextStyle(
                   color: Colors.white,
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                 ),
               ),
             ),
-            SizedBox(width: 12),
+            const SizedBox(width: 12),
 
             // 选项信息
             Expanded(
               child: Text(
-                option.name,
+                isManual ? '使用此手写选项: "${option.name}"' : option.name,
                 style: TextStyle(
                   fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: isHighlighted ? Colors.purple.shade800 : Colors.black87,
+                  fontWeight: isManual ? FontWeight.bold : FontWeight.w500,
+                  color: isHighlighted
+                      ? (isManual ? Colors.orange.shade900 : Colors.purple.shade800)
+                      : Colors.black87,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -319,13 +328,26 @@ class QuickInputOverlay extends StatelessWidget {
             ),
 
             // 额外费用
-            if (option.extraCost > 0)
+            if (isManual)
+              Text(
+                '+\$0.00 (微调算价)',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isHighlighted
+                      ? Colors.orange.shade800
+                      : Colors.grey.shade600,
+                ),
+              )
+            else if (option.extraCost > 0)
               Text(
                 '+\$${option.extraCost.toStringAsFixed(2)}',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: isHighlighted ? Colors.purple.shade700 : Colors.red.shade600,
+                  color: isHighlighted
+                      ? Colors.purple.shade700
+                      : Colors.red.shade600,
                 ),
               ),
           ],

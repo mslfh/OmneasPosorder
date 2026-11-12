@@ -12,6 +12,7 @@ class MenuItem {
   final bool isSoldOut; // 是否沽清/售罄
   final String? soldOutUntil; // 沽清截止时间
   final String? soldOutLabel; // 自定义售罄标签 (如 "今日售罄", "Sold Out")
+  final int splitGroupId; // 后厨分单ID (0表示不分单)
 
   MenuItem({
     required this.id,
@@ -27,6 +28,7 @@ class MenuItem {
     this.isSoldOut = false,
     this.soldOutUntil,
     this.soldOutLabel,
+    this.splitGroupId = 0,
   });
 
   /// 格式化显示的售罄标签
@@ -62,14 +64,16 @@ class MenuItem {
       isSoldOut: json['is_sold_out'] == true || json['is_sold_out'] == 1,
       soldOutUntil: json['sold_out_until'] as String?,
       soldOutLabel: json['sold_out_label'] as String?,
+      splitGroupId: json['split_group_id'] as int? ?? json['splitGroupId'] as int? ?? 0,
     );
   }
 
-  /// 复制并更新售罄状态
+  /// 复制并更新售罄状态与分单信息
   MenuItem copyWith({
     bool? isSoldOut,
     String? soldOutUntil,
     String? soldOutLabel,
+    int? splitGroupId,
   }) {
     return MenuItem(
       id: id,
@@ -85,6 +89,7 @@ class MenuItem {
       isSoldOut: isSoldOut ?? this.isSoldOut,
       soldOutUntil: soldOutUntil ?? this.soldOutUntil,
       soldOutLabel: soldOutLabel ?? this.soldOutLabel,
+      splitGroupId: splitGroupId ?? this.splitGroupId,
     );
   }
 }

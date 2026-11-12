@@ -1,27 +1,172 @@
 import 'dart:convert';
 
-// 订单状态枚举
+// 订单主状态枚举 (遵循 POS 与 后厨 KDS 统一规范)
 enum OrderStatus {
-  pending, // 待处理
-  confirmed, // 已确认
+  pending, // 待付款 / 待接单
+  confirmed, // 已接单 / 已确认
+  preparing, // 制作中 / 备餐中
+  readyForPickup, // 待取餐 / 已出餐 (ready_for_pickup)
   completed, // 已完成
-  cancelled, // 已取消
+  cancelled, // 已取消 (统一双 l 拼写)
+  refunded, // 已退款
 }
 
-// 同步状态枚举
+extension OrderStatusX on OrderStatus {
+  /// 获取标准的 API 字符串值
+  String get apiValue {
+    switch (this) {
+      case OrderStatus.pending:
+        return 'pending';
+      case OrderStatus.confirmed:
+        return 'confirmed';
+      case OrderStatus.preparing:
+        return 'preparing';
+      case OrderStatus.readyForPickup:
+        return 'ready_for_pickup';
+      case OrderStatus.completed:
+        return 'completed';
+      case OrderStatus.cancelled:
+        return 'cancelled';
+      case OrderStatus.refunded:
+        return 'refunded';
+    }
+  }
+
+  /// 转换与归一化云端/本地状态字符串（含兜底容错处理）
+  static OrderStatus parse(dynamic raw) {
+    if (raw == null) return OrderStatus.pending;
+    if (raw is int) {
+      if (raw >= 0 && raw < OrderStatus.values.length) {
+        return OrderStatus.values[raw];
+      }
+      return OrderStatus.pending;
+    }
+    final s = raw.toString().trim().toLowerCase();
+    switch (s) {
+      case 'ready':
+      case 'ready_for_pickup':
+      case 'readyforpickup':
+        return OrderStatus.readyForPickup;
+      case 'processing':
+      case 'in_progress':
+      case 'preparing':
+        return OrderStatus.preparing;
+      case 'paid':
+      case 'confirmed':
+        return OrderStatus.confirmed;
+      case 'canceled':
+      case 'cancelled':
+        return OrderStatus.cancelled;
+      case 'finished':
+      case 'completed':
+        return OrderStatus.completed;
+      case 'refunded':
+        return OrderStatus.refunded;
+      case 'pending':
+      default:
+        return OrderStatus.pending;
+    }
+  }
+}
+
+// 终端同步状态枚举 
 enum SyncStatus {
   pending, // 待同步
   synced, // 已同步
-  syncFailed, // 同步失败
+  syncFailed, // 同步失败 (failed)
   skipped, // 已跳过
 }
 
-// 打印状态枚举
+extension SyncStatusX on SyncStatus {
+  /// 获取标准的 API 字符串值 (synced / pending / failed / skipped)
+  String get apiValue {
+    switch (this) {
+      case SyncStatus.pending:
+        return 'pending';
+      case SyncStatus.synced:
+        return 'synced';
+      case SyncStatus.syncFailed:
+        return 'failed';
+      case SyncStatus.skipped:
+        return 'skipped';
+    }
+  }
+
+  static SyncStatus parse(dynamic raw) {
+    if (raw == null) return SyncStatus.pending;
+    if (raw is int) {
+      if (raw >= 0 && raw < SyncStatus.values.length) {
+        return SyncStatus.values[raw];
+      }
+      return SyncStatus.pending;
+    }
+    final s = raw.toString().trim().toLowerCase();
+    switch (s) {
+      case 'synced':
+      case 'success':
+        return SyncStatus.synced;
+      case 'failed':
+      case 'syncfailed':
+      case 'sync_failed':
+      case 'error':
+        return SyncStatus.syncFailed;
+      case 'skipped':
+        return SyncStatus.skipped;
+      case 'pending':
+      default:
+        return SyncStatus.pending;
+    }
+  }
+}
+
+// 打印状态枚举 (遵循规范：禁止上传 "success"，统一为 "printed")
 enum PrintStatus {
   pending, // 待打印
-  printed, // 已打印
-  printFailed, // 打印失败
-  skipped, // 跳过打印（例如自动打印被禁用）
+  printed, // 已打印 (printed)
+  printFailed, // 打印失败 (failed)
+  skipped, // 跳过打印
+}
+
+extension PrintStatusX on PrintStatus {
+  /// 获取标准的 API 字符串值 (printed / pending / failed / skipped)
+  String get apiValue {
+    switch (this) {
+      case PrintStatus.pending:
+        return 'pending';
+      case PrintStatus.printed:
+        return 'printed';
+      case PrintStatus.printFailed:
+        return 'failed';
+      case PrintStatus.skipped:
+        return 'skipped';
+    }
+  }
+
+  static PrintStatus parse(dynamic raw) {
+    if (raw == null) return PrintStatus.pending;
+    if (raw is int) {
+      if (raw >= 0 && raw < PrintStatus.values.length) {
+        return PrintStatus.values[raw];
+      }
+      return PrintStatus.pending;
+    }
+    final s = raw.toString().trim().toLowerCase();
+    switch (s) {
+      case 'printed':
+      case 'success':
+        return PrintStatus.printed;
+      case 'failed':
+      case 'printfailed':
+      case 'print_failed':
+      case 'error':
+        return PrintStatus.printFailed;
+      case 'skipped':
+        return PrintStatus.skipped;
+      case 'pending':
+      default:
+        return PrintStatus.pending;
+    }
+  }
 }
 
 bool _isTruthy(dynamic value) {
@@ -35,13 +180,9 @@ int _readIndex(dynamic value, {int fallback = 0}) {
 }
 
 OrderStatus _readOrderStatus(Map<String, dynamic> map) {
-  final raw = map['order_status'];
+  final raw = map['order_status'] ?? map['status'];
   if (raw is String) {
-    final normalized = raw.toLowerCase();
-    return OrderStatus.values.firstWhere(
-      (status) => status.name == normalized,
-      orElse: () => OrderStatus.pending,
-    );
+    return OrderStatusX.parse(raw);
   }
 
   final index = _readIndex(raw);
@@ -54,9 +195,15 @@ OrderStatus _readOrderStatus(Map<String, dynamic> map) {
       case 1:
         return OrderStatus.confirmed;
       case 2:
-        return OrderStatus.completed;
+        return OrderStatus.preparing;
       case 3:
+        return OrderStatus.readyForPickup;
+      case 4:
+        return OrderStatus.completed;
+      case 5:
         return OrderStatus.cancelled;
+      case 6:
+        return OrderStatus.refunded;
     }
   }
 
@@ -85,11 +232,7 @@ OrderStatus _readOrderStatus(Map<String, dynamic> map) {
 SyncStatus _readSyncStatus(Map<String, dynamic> map) {
   final raw = map['sync_status'];
   if (raw is String) {
-    final normalized = raw.toLowerCase();
-    return SyncStatus.values.firstWhere(
-      (status) => status.name == normalized,
-      orElse: () => SyncStatus.pending,
-    );
+    return SyncStatusX.parse(raw);
   }
 
   if (raw != null) {
@@ -196,7 +339,7 @@ class OrderModel {
       posAmount: map['pos_amount']?.toDouble() ?? 0.0,
       orderStatus: _readOrderStatus(map),
       syncStatus: _readSyncStatus(map),
-      printStatus: PrintStatus.values[map['print_status']],
+      printStatus: PrintStatusX.parse(map['print_status']),
       errorMessage: map['error_message'],
       retryCount: map['retry_count'] ?? 0,
       lastRetryTime: map['last_retry_time'] != null

@@ -30,10 +30,6 @@ class OrderService {
 
   // 生成当天的订单编号（仅计算本地生成的订单）
   Future<String> generateOrderNo() async {
-    return await _generateOrderNo();
-  }
-
-  Future<String> _generateOrderNo() async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
@@ -47,10 +43,10 @@ class OrderService {
     return 'B${orderCount.toString().padLeft(3, '0')}';
   }
 
-  /// 下单核心流程：本地事务思维
+  /// 结账下单
   /// 1. 先本地落单（pending状态）
   /// 2. 异步打印（先打印小票）
-  /// 3. 异步同步到后端
+  /// 3. 异步推送到后端
   Future<String> placeOrder({
     required List<Map<String, dynamic>> items,
     required double totalAmount,
@@ -69,13 +65,11 @@ class OrderService {
     final DateTime now = DateTime.now();
     final DateTime createdAt = now;
     final DateTime orderTime = expectedTime ?? now;
-    final String orderNo = await _generateOrderNo();
+    final String orderNo = await generateOrderNo();
     final String orderId =
         '$orderNo-${createdAt.month.toString().padLeft(2, '0')}${createdAt.day.toString().padLeft(2, '0')}${createdAt.hour.toString().padLeft(2, '0')}${createdAt.minute.toString().padLeft(2, '0')}${createdAt.second.toString().padLeft(2, '0')}';
 
     try {
-      // 直接使用传入的 items，不再覆盖 extra_price 字段
-      final List<Map<String, dynamic>> updatedItems = items;
 
       // 第一步：本地落单
       final order = OrderModel(
@@ -83,7 +77,7 @@ class OrderService {
         orderNo: orderNo,
         orderTime: orderTime,
         createdAt: createdAt,
-        items: jsonEncode(updatedItems),
+        items: jsonEncode(items),
         totalAmount: totalAmount,
         discountAmount: discountAmount,
         taxRate: taxRate,
@@ -95,8 +89,8 @@ class OrderService {
         printStatus: PrintStatus.pending,
         note: note,
         type: type,
-        cashChange: cashChange, // 传递找零
-        voucherAmount: voucherAmount, // 传递券金额
+        cashChange: cashChange,
+        voucherAmount: voucherAmount,
       );
 
       // 保存到本地数据库（关键：先落单）
@@ -104,20 +98,20 @@ class OrderService {
       _logger.i('订单本地落单成功: $orderId, 订单编号: $orderNo');
 
       // 第二步：根据设置决定是否打印
-      final settingsService = SettingsService();
-      await settingsService.initialize();
-      final settings = settingsService.getSettings();
-
       // 自动打印是否开启由打印流程内部统一判断，避免遗漏分支
       await _addToPrintQueue(order);
 
       // 获取最新的订单（含最新printStatus）
       final printedOrder = await _databaseService.getOrder(orderId);
 
-      // 第三步：根据设置决定是否同步到后端（同步时传递print_status）
+      // 第三步：根据设置决定是否推送到后端
+      final settingsService = SettingsService();
+      await settingsService.initialize();
+      final settings = settingsService.getSettings();
+
       if (printedOrder != null) {
         if (settings.enableAutoSync) {
-          _syncOrderToBackend(printedOrder);
+          _pushOrderToBackend(printedOrder);
         } else {
           // 自动同步关闭：标记为已跳过同步
           await _databaseService.updateOrder(
@@ -153,24 +147,17 @@ class OrderService {
     }
   }
 
-  /// 异步推送同步订单到后端
-  Future<void> _syncOrderToBackend(OrderModel order) async {
+  /// 推送订单到后端
+  Future<void> _pushOrderToBackend(OrderModel order) async {
     try {
-      // 若订单已完成同步且已有远程ID，避免重复推送到服务器造成重单
-      // if (order.syncStatus == SyncStatus.synced && order.remoteOrderId != null) {
-      //   _logger.i('订单已在服务器落单(ID: ${order.remoteOrderId})，无需再次重复同步: ${order.id}');
-      //   return;
-      // }
-
-      // 将待同步订单状态更新为 pending
+      // 将待推送订单状态更新为 pending
       if (order.syncStatus != SyncStatus.pending) {
         await _databaseService.updateOrder(
           order.copyWith(syncStatus: SyncStatus.pending),
         );
       }
-
       // 调用同步服务
-      await _syncService.syncOrder(order.id);
+      await _syncService.pushOrderToRemote(order.id);
     } catch (e) {
       _logger.e('同步到后端失败: ${order.id}, 错误: $e');
     }
@@ -230,22 +217,16 @@ class OrderService {
     }
   }
 
-  /// 手动重新同步订单
-  Future<void> retrySyncOrder(String orderId) async {
+  /// 手动重新推送订单到云端
+  Future<void> retrySyncOrderToRemote(String orderId) async {
     try {
       final order = await _databaseService.getOrder(orderId);
       if (order == null) {
         throw Exception('订单不存在: $orderId');
       }
 
-      // // 若已经同步成功且有远程ID，提示无需重复同步
-      // if (order.syncStatus == SyncStatus.synced && order.remoteOrderId != null) {
-      //   _logger.i('订单已同步成功，无需重新同步: $orderId');
-      //   return;
-      // }
-
-      _logger.i('手动重试同步订单: $orderId');
-      await _syncOrderToBackend(order);
+      _logger.i('手动重试推送订单到云端: $orderId');
+      await _pushOrderToBackend(order);
     } catch (e) {
       _logger.e('手动重试同步失败: $orderId, 错误: $e');
       rethrow;
@@ -285,7 +266,7 @@ class OrderService {
           continue;
         }
 
-        await _syncOrderToBackend(order);
+        await _pushOrderToBackend(order);
 
         // 避免并发过多，延迟一下
         await Future.delayed(Duration(milliseconds: 500));
@@ -328,16 +309,6 @@ class OrderService {
     } catch (e) {
       _logger.e('批量重试打印失败: $e');
     }
-  }
-
-  /// 获取待同步订单
-  Future<List<OrderModel>> getPendingSyncOrders() async {
-    return await _databaseService.getPendingSyncOrders();
-  }
-
-  /// 获取待打印订单
-  Future<List<OrderModel>> getPendingPrintOrders() async {
-    return await _databaseService.getPendingPrintOrders();
   }
 
   /// 获取待完成的在线订单（已拉取、已打印、待结账）
@@ -389,30 +360,7 @@ class OrderService {
     return await _databaseService.getOrderLogs(orderId);
   }
 
-  /// 标记订单同步成功
-  Future<void> markOrderSynced(String orderId) async {
-    final order = await _databaseService.getOrder(orderId);
-    if (order != null) {
-      await _databaseService.updateOrder(order.copyWith(
-        syncStatus: SyncStatus.synced,
-        syncedTime: DateTime.now(),
-        errorMessage: null, // 清除错误信息
-      ));
-
-      // 记录成功日志
-      await _databaseService.insertLog(LogModel(
-        orderId: orderId,
-        action: 'sync',
-        status: 'success',
-        message: '同步成功',
-        timestamp: DateTime.now(),
-      ));
-
-      _logger.i('订单标记为已同步: $orderId');
-    }
-  }
-
-  /// 完成在线订单结账（统一调用 POST /orders/terminal-sync 进行覆盖更新）
+  /// 完成在线订单结账
   Future<void> completeOnlineOrderCheckout({
     required OrderModel order,
     required List<Map<String, dynamic>> items,
@@ -427,7 +375,8 @@ class OrderService {
     required double cashChange,
     required double voucherAmount,
     required bool itemsChanged,
-  }) async {
+  })
+  async {
     final updatedOrder = order.copyWith(
       items: jsonEncode(items),
       totalAmount: totalAmount,
@@ -448,9 +397,14 @@ class OrderService {
     // 1. 本地落盘更新 (离线优先，避免网络异常导致本地改单丢失)
     await _databaseService.updateOrder(updatedOrder);
 
-    // 2. 调用终端同步更新接口 POST /orders/terminal-sync 覆盖更新已有订单
+    // 2. 菜品发生变更 (itemsChanged == true) 时通过 syncTerminalOrderChanges 覆盖更新菜品明细、总额与结账状态；
+    //    菜品未变动时通过 complete-order-by-terminal 结账完成（二选一，避免重复调用导致后端抛 500 冲突）
     try {
-      await _syncService.syncTerminalOrder(updatedOrder, overrideItems: items);
+      if (itemsChanged) {
+        await _syncService.syncTerminalOrderChanges(updatedOrder, overrideItems: items);
+      } else {
+        await _syncService.completeOrderByTerminal(updatedOrder, overrideItems: items);
+      }
     } catch (e) {
       _logger.w('修改订单发包至后端异常 (已落地本地数据库，将等待自动重试): $e');
     }
@@ -464,29 +418,7 @@ class OrderService {
     ));
   }
 
-  /// 标记订单打印成功
-  Future<void> markOrderPrinted(String orderId) async {
-    final order = await _databaseService.getOrder(orderId);
-    if (order != null) {
-      await _databaseService.updateOrder(order.copyWith(
-        printStatus: PrintStatus.printed,
-        printedTime: DateTime.now(),
-      ));
-
-      // 记录成功日志
-      await _databaseService.insertLog(LogModel(
-        orderId: orderId,
-        action: 'print',
-        status: 'success',
-        message: '打印成功',
-        timestamp: DateTime.now(),
-      ));
-
-      _logger.i('订单标记为已打印: $orderId');
-    }
-  }
-
-  /// 更新订单状态
+  /// 手动更新订单状态
   Future<void> updateStatus(String orderId,
       {OrderStatus? orderStatus, PrintStatus? printStatus})
   async {
@@ -530,7 +462,7 @@ class OrderService {
       // 清理旧日志
       await _databaseService.cleanOldLogs();
 
-      // 重试失败的订单（限制频率）
+      // 重试失败的订单
       await retryAllPendingSyncOrders();
       await retryAllPendingPrintOrders();
 
@@ -540,11 +472,12 @@ class OrderService {
     }
   }
 
-  /// 从服务器获取订单（支持多页自动完整分页拉取）
-  Future<List<ServerOrderModel>> getServerOrders({
+  /// 从服务器查询订单列表（用于收银台列表或历史数据同步）
+  Future<List<ServerOrderModel>> fetchServerOrders({
     DateTime? date,
     DateTimeRange? dateRange,
-  }) async {
+  })
+  async {
     try {
       if (!_apiService.isBaseUrlConfigured) {
         _logger.w('未配置后端 API 地址，跳过获取服务器订单');
@@ -600,38 +533,13 @@ class OrderService {
     }
   }
 
-  /// 回调告知服务器订单已成功拉取并处理
-  Future<bool> confirmPulledOrders(List<dynamic> ids) async {
-    if (ids.isEmpty) return true;
-    try {
-      if (!_apiService.isBaseUrlConfigured) {
-        _logger.w('未配置后端 API 地址，跳过确认拉取回调');
-        return true;
-      }
-      _logger.i('开始确认拉取后的订单： $ids');
-      final response = await _apiService.post(
-        '/orders/confirm-pulled-order',
-        data: {'ids': ids},
-      );
-      if (response.statusCode == 200) {
-        _logger.i('服务器订单已成功确认拉取: $ids');
-        return true;
-      } else {
-        _logger.w('确认拉取订单失败，状态码: ${response.statusCode}');
-        return false;
-      }
-    } catch (e) {
-      _logger.e('确认拉取订单回调异常 ($ids): $e');
-      return false;
-    }
-  }
-
-  /// 手动落地服务器订单到本地数据库
-  Future<String> putServerOrderToLocal(
+  /// 将单笔服务器订单落地到本地
+  Future<String> landServerOrderToLocal(
     ServerOrderModel serverOrder, {
     bool autoPrint = true,
     bool confirmPulled = true,
-  }) async {
+  })
+  async {
     try {
       final alreadyExistsById =
           await _databaseService.existsOrderByRemoteId(serverOrder.id);
@@ -643,6 +551,10 @@ class OrderService {
       // 该服务器订单已在本地落单
       if (alreadyExistsById || alreadyExistsByNumber) {
         _logger.i('服务器订单在本地已存在，跳过: ${serverOrder.orderNumber} (ID: ${serverOrder.id})');
+        // 幂等自愈：若本地已存在但服务器再次下发，说明上次确认回调可能网络超时未送达，在此补发确认
+        if (confirmPulled) {
+          await confirmPulledOrders([serverOrder.id]);
+        }
         return '';
       }
 
@@ -660,19 +572,27 @@ class OrderService {
       final List<Map<String, dynamic>> localItems =
           OrderItemMapper.mapServerItemsToLocalItems(serverOrder.items);
 
-      // 严格判定服务器订单是否已支付 (对比应付金额 finalAmount 与实付金额 paidAmount)
+      // 判定服务器订单是否已支付 (用于设置本地实付金额，决定 local OrderModel 的 isPaid 属性)
       final bool isPaid = serverOrder.isPaid;
       final double totalAmt = double.tryParse(serverOrder.finalAmount) ?? 0.0;
       final double paidAmtVal = double.tryParse(serverOrder.paidAmount) ?? 0.0;
-      final double cashAmt =
-          isPaid ? (paidAmtVal > 0 ? paidAmtVal : totalAmt) : 0.0;
+      // 已支付订单记录已付金额；未支付 (到店支付 pending) 订单记 0.0，以便本地识别为未支付 (isPaid == false)
+      final double cashAmt = isPaid ? (paidAmtVal > 0 ? paidAmtVal : totalAmt) : 0.0;
 
-      // 订单状态解析：已付清款项 (isPaid == true) 或服务器状态为 completed，本地订单状态直接认定为 OrderStatus.completed (已完成)
-      OrderStatus orderStatus = OrderStatus.pending;
-      if (serverOrder.status.toLowerCase() == 'cancelled') {
+      // 订单主状态解析：
+      // 1. 若服务器订单为 cancelled / refunded / completed 终态，映射为对应状态；
+      // 2. 对于新下发的线上订单，无论是 pending (到店支付未结账) 还是 paid (线上已支付)，落地收银台后均统一为 OrderStatus.confirmed (已接单)！
+      OrderStatus orderStatus;
+      final String normStatus = serverOrder.normalizedStatus;
+      if (normStatus == 'cancelled') {
         orderStatus = OrderStatus.cancelled;
-      } else if (isPaid || serverOrder.status.toLowerCase() == 'completed') {
+      } else if (normStatus == 'refunded') {
+        orderStatus = OrderStatus.refunded;
+      } else if (normStatus == 'completed') {
         orderStatus = OrderStatus.completed;
+      } else {
+        // 到店支付 (pending) 或 线上已付 (paid/confirmed)，收银机接单落地后统一为 OrderStatus.confirmed
+        orderStatus = OrderStatus.confirmed;
       }
 
       // 创建本地订单
@@ -715,7 +635,7 @@ class OrderService {
       _logger.i('服务器订单落地成功: ${serverOrder.orderNumber} -> $orderId');
 
       if (autoPrint) {
-        // 添加到打印队列 (内部已统一处理自动打印开关及打印失败日志)
+        // 添加到打印队列
         await _addToPrintQueue(order);
       } else {
         await _databaseService.updateOrder(order.copyWith(
@@ -735,7 +655,7 @@ class OrderService {
     }
   }
 
-  /// 重新打印服务器订单（不能跳过）
+  /// 重新打印服务器订单
   Future<void> reprintServerOrder(ServerOrderModel serverOrder) async {
     try {
       _logger.i('重新打印服务器订单: ${serverOrder.orderNumber}');
@@ -773,10 +693,10 @@ class OrderService {
     }
   }
 
-  /// 批量拉取服务器订单到本地数据库（用于重装 App 或补充本地历史订单）
-  Future<int> pullAllServerOrdersToLocal({DateTime? date}) async {
+  /// 批量拉取历史服务器订单并落地到本地
+  Future<int> restoreServerOrdersToLocal({DateTime? date}) async {
     try {
-      final serverOrders = await getServerOrders(date: date);
+      final serverOrders = await fetchServerOrders(date: date);
       if (serverOrders.isEmpty) {
         return 0;
       }
@@ -784,9 +704,9 @@ class OrderService {
       int count = 0;
       final List<dynamic> confirmedIds = [];
       for (final serverOrder in serverOrders) {
-        final localOrderId = await putServerOrderToLocal(
+        final localOrderId = await landServerOrderToLocal(
           serverOrder,
-          autoPrint: false, // 批量拉取历史订单默认跳过打印
+          autoPrint: false, // 批量恢复历史订单默认跳过打单
           confirmPulled: false, // 统一在循环后确认
         );
         if (localOrderId.isNotEmpty) {
@@ -799,19 +719,45 @@ class OrderService {
         await confirmPulledOrders(confirmedIds);
       }
 
-      _logger.i('批量拉取服务器订单完成，成功同步恢复 $count 个订单到本地数据库');
+      _logger.i('批量恢复服务器订单完成，成功同步落地 $count 个订单到本地数据库');
       return count;
     } catch (e) {
-      _logger.e('批量拉取服务器订单失败: $e');
+      _logger.e('批量恢复服务器订单失败: $e');
       rethrow;
     }
   }
 
-  /// 通知顾客取餐（后厨菜品做好，标记本地订单完成并预留调用后端通知接口）
-  Future<void> notifyCustomerOrderReady(OrderModel order) async {
+  /// 回调告知服务器订单已成功拉取并处理
+  Future<bool> confirmPulledOrders(List<dynamic> ids) async {
+    if (ids.isEmpty) return true;
+    try {
+      if (!_apiService.isBaseUrlConfigured) {
+        _logger.w('未配置后端 API 地址，跳过确认拉取回调');
+        return true;
+      }
+      _logger.i('开始确认拉取后的订单： $ids');
+      final response = await _apiService.post(
+        '/orders/confirm-pulled-order',
+        data: {'ids': ids},
+      );
+      if (response.statusCode == 200) {
+        _logger.i('服务器订单已成功确认拉取: $ids');
+        return true;
+      } else {
+        _logger.w('确认拉取订单失败，状态码: ${response.statusCode}');
+        return false;
+      }
+    } catch (e) {
+      _logger.e('确认拉取订单回调异常 ($ids): $e');
+      return false;
+    }
+  }
+
+  /// 通知顾客取餐（后厨菜品做好，标记本地订单为待取餐并触发叫号取餐通知推送）
+  Future<void> notifyOrderReadyForPickup(OrderModel order) async {
     try {
       final updatedOrder = order.copyWith(
-        orderStatus: OrderStatus.completed,
+        orderStatus: OrderStatus.readyForPickup,
       );
       await _databaseService.updateOrder(updatedOrder);
 
@@ -819,13 +765,13 @@ class OrderService {
         orderId: order.id,
         action: 'notify_ready',
         status: 'success',
-        message: '菜品已出餐，标记订单完成并通知顾客取餐',
+        message: '餐品制作完成，标记订单为待取餐 (ready_for_pickup) 并通知顾客',
         timestamp: DateTime.now(),
       ));
 
-      _logger.i('订单已标记完成并触发取餐通知: ${order.id}');
+      _logger.i('订单已标记 ready_for_pickup 并触发取餐通知: ${order.id}');
 
-      // 调用后端 API 通知顾客取餐
+      // 调用后端 API 通知顾客取餐 (/api/orders/notify-customer-ready)
       try {
         if (!_apiService.isBaseUrlConfigured) {
           _logger.w('未配置后端 API 地址，跳过触发取餐通知发包');
@@ -839,7 +785,7 @@ class OrderService {
               'remote_order_id': order.remoteOrderId,
               'remote_order_number': order.remoteOrderNumber,
               'order_no': order.orderNo,
-              'status': 'ready',
+              'status': 'ready_for_pickup',
             },
           );
         }

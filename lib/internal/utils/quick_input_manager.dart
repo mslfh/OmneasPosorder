@@ -123,72 +123,48 @@ class QuickInputManager {
 
   // 执行统一搜索 - 同时搜索商品和选项
   void _performSearch(List<MenuItem> allProducts, {List<MenuOption>? allOptions, bool preferOptions = false}) {
-    if (_input.isEmpty) {
+    final trimmedInput = _input.trim();
+    if (trimmedInput.isEmpty) {
       _searchResults.clear();
       _isSearchingOptions = false;
       return;
     }
 
-    final lowerInput = _input.toLowerCase();
+    final lowerInput = trimmedInput.toLowerCase();
 
-    // 根据 preferOptions 决定搜索优先级
+    List<MenuItem> matchedProducts = [];
+    List<MenuOption> matchedOptions = [];
+
     if (preferOptions && allOptions != null) {
-      // 优先搜索选项
-      final matchedOptions = _searchOptions(allOptions, lowerInput);
-      final matchedProducts = _searchProducts(allProducts, lowerInput);
-
-      // 当两边都有匹配时，合并结果（商品优先展示）
-      if (matchedOptions.isNotEmpty && matchedProducts.isNotEmpty) {
-        _searchResults = [...matchedProducts, ...matchedOptions];
-        _isSearchingOptions = false; // 混合模式以商品为主色
-        _highlightedIndex = 0;
-        return;
-      }
-
-      if (matchedOptions.isNotEmpty) {
-        _searchResults = matchedOptions;
-        _highlightedIndex = 0;
-        _isSearchingOptions = true;
-        return;
-      }
-
-      if (matchedProducts.isNotEmpty) {
-        _searchResults = matchedProducts;
-        _highlightedIndex = 0;
-        _isSearchingOptions = false;
-        return;
-      }
-
+      matchedOptions = _searchOptions(allOptions, lowerInput);
+      matchedProducts = _searchProducts(allProducts, lowerInput);
     } else {
-      // 默认：先搜索商品，再搜索选项
-      final matchedProducts = _searchProducts(allProducts, lowerInput);
-      final matchedOptions = (allOptions != null) ? _searchOptions(allOptions, lowerInput) : <MenuOption>[];
-
-      // 当两边都有匹配时，合并结果（商品优先）
-      if (matchedProducts.isNotEmpty && matchedOptions.isNotEmpty) {
-        _searchResults = [...matchedProducts, ...matchedOptions];
-        _isSearchingOptions = false; // 混合模式以商品为主色
-        _highlightedIndex = 0;
-        return;
-      }
-
-      if (matchedProducts.isNotEmpty) {
-        _searchResults = matchedProducts;
-        _highlightedIndex = 0;
-        _isSearchingOptions = false;
-        return;
-      }
-
-      if (matchedOptions.isNotEmpty) {
-        _searchResults = matchedOptions;
-        _highlightedIndex = 0;
-        _isSearchingOptions = true;
-        return;
-      }
+      matchedProducts = _searchProducts(allProducts, lowerInput);
+      matchedOptions = (allOptions != null) ? _searchOptions(allOptions, lowerInput) : <MenuOption>[];
     }
 
-    _searchResults.clear();
-    _isSearchingOptions = false;
+    final manualOption = MenuOption(
+      id: 0,
+      name: trimmedInput,
+      type: 'manual',
+      extraCost: 0.0,
+    );
+
+    if (matchedProducts.isNotEmpty && matchedOptions.isNotEmpty) {
+      _searchResults = [...matchedProducts, ...matchedOptions, manualOption];
+      _isSearchingOptions = false;
+    } else if (matchedProducts.isNotEmpty) {
+      _searchResults = [...matchedProducts, manualOption];
+      _isSearchingOptions = false;
+    } else if (matchedOptions.isNotEmpty) {
+      _searchResults = [...matchedOptions, manualOption];
+      _isSearchingOptions = true;
+    } else {
+      _searchResults = [manualOption];
+      _isSearchingOptions = true;
+    }
+
+    _highlightedIndex = 0;
   }
 
   // 字符顺序匹配 - 检查input中的字符是否按顺序出现在text中

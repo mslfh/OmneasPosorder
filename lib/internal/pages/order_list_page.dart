@@ -218,7 +218,7 @@ class _OrderListPageState extends State<OrderListPage> {
       // 1. 并行获取本地订单与服务器订单
       List<ServerOrderModel> serverOrders = [];
       try {
-        serverOrders = await _orderService.getServerOrders(
+        serverOrders = await _orderService.fetchServerOrders(
           date: dateParam,
           dateRange: dateRangeParam,
         );
@@ -380,7 +380,7 @@ class _OrderListPageState extends State<OrderListPage> {
     final nav = Navigator.of(context);
     try {
       _showLoadingDialog('正在重新同步订单到服务器...');
-      await _orderService.retrySyncOrder(order.id);
+      await _orderService.retrySyncOrderToRemote(order.id);
       if (!mounted) return;
       nav.pop();
       _showSuccessSnackBar('重新同步提交成功');
@@ -397,7 +397,7 @@ class _OrderListPageState extends State<OrderListPage> {
     final nav = Navigator.of(context);
     try {
       _showLoadingDialog('正在落地订单到本地数据库...');
-      final localOrderId =  await _orderService.putServerOrderToLocal(serverOrder);
+      final localOrderId =  await _orderService.landServerOrderToLocal(serverOrder);
       if (!mounted) return;
       nav.pop();
       if (localOrderId.isNotEmpty) {
@@ -484,7 +484,7 @@ class _OrderListPageState extends State<OrderListPage> {
             ? _selectedDateRange.start
             : null;
         final count =
-            await _orderService.pullAllServerOrdersToLocal(date: targetDate);
+            await _orderService.restoreServerOrdersToLocal(date: targetDate);
         if (!mounted) return;
         nav.pop();
         _showSuccessSnackBar('成功拉取 $count 个服务器订单到本地数据库');
@@ -1413,23 +1413,35 @@ class _OrderListPageState extends State<OrderListPage> {
         return 'Pending';
       case OrderStatus.confirmed:
         return 'Confirmed';
+      case OrderStatus.preparing:
+        return 'Preparing';
+      case OrderStatus.readyForPickup:
+        return 'Ready for Pickup';
       case OrderStatus.completed:
         return 'Completed';
       case OrderStatus.cancelled:
         return 'Cancelled';
+      case OrderStatus.refunded:
+        return 'Refunded';
     }
   }
 
   Color _getOrderStatusColor(OrderStatus status) {
     switch (status) {
       case OrderStatus.pending:
-        return Colors.grey;
+        return Colors.orange;
       case OrderStatus.confirmed:
         return Colors.blue;
+      case OrderStatus.preparing:
+        return Colors.purple;
+      case OrderStatus.readyForPickup:
+        return Colors.teal;
       case OrderStatus.completed:
         return Colors.green;
       case OrderStatus.cancelled:
         return Colors.red;
+      case OrderStatus.refunded:
+        return Colors.brown;
     }
   }
 

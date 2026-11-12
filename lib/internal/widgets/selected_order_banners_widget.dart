@@ -36,7 +36,7 @@ class SelectedTableBannerWidget extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              '已关联桌台：${currentTable.name}${currentTable.area != null && currentTable.area!.isNotEmpty ? ' (${currentTable.area})' : ''}  ${isTableOrderExisting ? "[堂食坐台单]" : "[开台点餐]"}',
+              '已关联桌台：${currentTable.name}  ${isTableOrderExisting ? "[堂食坐台单]" : "[开台点餐]"}',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 14,
@@ -83,27 +83,57 @@ class SelectedOnlineOrderBannerWidget extends StatelessWidget {
     final currentOrder = order;
     if (currentOrder == null) return const SizedBox.shrink();
 
+    final isPaid = currentOrder.isPaid;
+    final badgeColor = isPaid ? Colors.green : Colors.deepOrange;
+    final badgeText = isPaid ? '已支付' : '未支付 (到店付)';
+
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.fromLTRB(2, 2, 2, 2),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.orange.withOpacity(0.12),
+        color: badgeColor.withOpacity(0.08),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.orange.withOpacity(0.35)),
+        border: Border.all(color: badgeColor.withOpacity(0.35)),
       ),
       child: Row(
         children: [
-          Icon(Icons.cloud_done, color: Colors.orange[700]),
+          Icon(
+            isPaid ? Icons.check_circle_outline : Icons.pending_actions,
+            color: badgeColor,
+            size: 20,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              '已添加在线订单：${currentOrder.orderNo}${currentOrder.remoteOrderNumber != null ? ' / ${currentOrder.remoteOrderNumber}' : ''}',
-              style: const TextStyle(fontWeight: FontWeight.w600),
+              '已关联在线订单：Online #${currentOrder.orderNo}',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: badgeColor.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: badgeColor.withOpacity(0.4)),
+            ),
+            child: Text(
+              badgeText,
+              style: TextStyle(
+                color: badgeColor,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
           Text(
-            '${originalProducts.length} items',
-            style: TextStyle(color: Colors.orange[800]),
+            '${originalProducts.length} 项菜品',
+            style: TextStyle(color: Colors.grey[700], fontSize: 12),
           ),
         ],
       ),

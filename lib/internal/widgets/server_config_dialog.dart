@@ -71,7 +71,6 @@ Future<bool?> showServerConfigDialog({
                                     });
 
                                     try {
-                                      syncService.configureBaseUrl(apiUrl);
                                       ApiService().updateBaseUrlInternal(apiUrl);
 
                                       final isConnected = await syncService.checkNetworkConnectivity();
@@ -126,7 +125,6 @@ Future<bool?> showServerConfigDialog({
                                 : () async {
                                     final apiUrl = urlCleaner(apiUrlController.text);
                                     if (apiUrl.isNotEmpty) {
-                                      syncService.configureBaseUrl(apiUrl);
                                       ApiService().updateBaseUrlInternal(apiUrl);
                                     }
 
@@ -135,7 +133,7 @@ Future<bool?> showServerConfigDialog({
                                     });
 
                                     try {
-                                      await syncService.fetchAndSyncRemoteOrders();
+                                      await syncService.fetchAndLandNewRemoteOrders();
                                       if (!dialogContext.mounted) return;
                                       ScaffoldMessenger.of(dialogContext).showSnackBar(
                                         SnackBar(
@@ -242,8 +240,6 @@ Future<bool?> showServerConfigDialog({
                   );
 
                   await settingsService.saveSettings(updated);
-                  syncService.configureBaseUrl(apiUrl);
-                  ApiService().updateBaseUrlInternal(apiUrl);
                   await BackgroundTaskManager().refreshScheduledTasks();
 
                   if (!dialogContext.mounted) return;

@@ -35,6 +35,21 @@ class _SpaceToTogglePaymentFormatter extends TextInputFormatter {
   }
 }
 
+class _CheckoutItemWrapper {
+  final SelectedProduct product;
+  final int originalQty;
+  final bool isDeleted;
+
+  _CheckoutItemWrapper({
+    required this.product,
+    required this.originalQty,
+    this.isDeleted = false,
+  });
+
+  int get currentQty => product.quantity;
+  int get qtyDiff => currentQty - originalQty;
+}
+
 class CheckoutPage extends StatefulWidget {
   final List<SelectedProduct> orderedProducts;
   final OrderModel? onlineOrder;
@@ -59,7 +74,7 @@ class CheckoutPage extends StatefulWidget {
 
 class _CheckoutPageState extends State<CheckoutPage> {
   double receivedAmount = 0.0;
-  bool isCash = false;
+  bool isCash = true;
   String orderType = 'TAKE AWAY';
   final TextEditingController _controller = TextEditingController();
   final FocusNode _amountInputFocusNode = FocusNode();
@@ -135,7 +150,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
   double get alreadyPaidAmount {
     if (hasOnlineOrder && widget.onlineOrder!.isPaid) {
-      final totalPaid = widget.onlineOrder!.cashAmount +
+      final totalPaid = (widget.onlineOrder!.cashAmount - widget.onlineOrder!.cashChange) +
           widget.onlineOrder!.posAmount +
           widget.onlineOrder!.voucherAmount;
       return totalPaid > 0 ? totalPaid : widget.onlineOrder!.totalAmount;
@@ -298,7 +313,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '已关联桌台：${table.name}${table.area != null ? ' (${table.area})' : ''}',
+              '已关联桌台：${table.name}',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 color: Colors.amber[900],
@@ -312,6 +327,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
   Widget _buildOnlineOrderInfoCard() {
     final order = widget.onlineOrder!;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -331,27 +347,104 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 'Online Order #${order.orderNo}',
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
+              const Spacer(),
+              if (onlineOrderItemsChanged)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[100],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orange[400]!),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.edit_note, size: 14, color: Colors.orange[900]),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Items Modified',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.orange[900],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text('Remote: ${order.remoteOrderNumber ?? '-'}'),
-          Text(
-              'Current status: ${order.orderStatus.name} / ${order.syncStatus.name}'),
-          if (order.note != null && order.note!.isNotEmpty)
+          if (order.note != null && order.note!.isNotEmpty) ...[
+            const SizedBox(height: 4),
             Text('Note: ${order.note}'),
-          Text(
-            onlineOrderItemsChanged
-                ? 'Items changed: yes'
-                : 'Items changed: no',
-            style: TextStyle(
-              color: onlineOrderItemsChanged
-                  ? Colors.orange[800]
-                  : Colors.green[700],
-            ),
-          ),
+          ],
         ],
       ),
     );
+  }
+
+  List<_CheckoutItemWrapper> _getDisplayProducts() {
+    if (splitType == SplitType.byItem) {
+      return remainingProducts.map((p) {
+        final origQty = _findOriginalQty(p);
+        return _CheckoutItemWrapper(product: p, originalQty: origQty);
+      }).toList();
+    }
+
+    final Map<String, int> origQtyMap = {};
+    for (var p in widget.originalOnlineOrderedProducts) {
+      final key = OnlineOrderMapper.getProductKey(p);
+      origQtyMap[key] = (origQtyMap[key] ?? 0) + p.quantity;
+    }
+
+    final Map<String, int> currentQtyMap = {};
+    final List<_CheckoutItemWrapper> list = [];
+
+    for (var p in widget.orderedProducts) {
+      final key = OnlineOrderMapper.getProductKey(p);
+      currentQtyMap[key] = (currentQtyMap[key] ?? 0) + p.quantity;
+      final origQty = origQtyMap[key] ?? 0;
+      list.add(_CheckoutItemWrapper(product: p, originalQty: origQty));
+    }
+
+    if (hasOnlineOrder && onlineOrderItemsChanged) {
+      final Set<String> processedKeys = {};
+      for (var origP in widget.originalOnlineOrderedProducts) {
+        final key = OnlineOrderMapper.getProductKey(origP);
+        if (processedKeys.contains(key)) continue;
+        processedKeys.add(key);
+
+        final origTotal = origQtyMap[key] ?? 0;
+        final currentTotal = currentQtyMap[key] ?? 0;
+
+        if (currentTotal == 0) {
+          list.add(_CheckoutItemWrapper(
+            product: SelectedProduct(
+              product: origP.product,
+              options: origP.options,
+              quantity: 0,
+            ),
+            originalQty: origTotal,
+            isDeleted: true,
+          ));
+        }
+      }
+    }
+
+    return list;
+  }
+
+  int _findOriginalQty(SelectedProduct p) {
+    if (!hasOnlineOrder) return p.quantity;
+    final key = OnlineOrderMapper.getProductKey(p);
+    int sum = 0;
+    for (var origP in widget.originalOnlineOrderedProducts) {
+      if (OnlineOrderMapper.getProductKey(origP) == key) {
+        sum += origP.quantity;
+      }
+    }
+    return sum;
   }
 
   /// 结算模式选择器组件
@@ -625,9 +718,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
   @override
   Widget build(BuildContext context) {
-    final listProducts = splitType == SplitType.byItem
-        ? remainingProducts
-        : widget.orderedProducts;
+    final listProducts = _getDisplayProducts();
 
     return PopScope(
       canPop: false,
@@ -668,7 +759,12 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 child: ListView.builder(
                   itemCount: listProducts.length,
                   itemBuilder: (context, idx) {
-                    final p = listProducts[idx];
+                    final wrapper = listProducts[idx];
+                    final p = wrapper.product;
+                    final isDeleted = wrapper.isDeleted;
+                    final qtyDiff = wrapper.qtyDiff;
+                    final originalQty = wrapper.originalQty;
+
                     double itemPrice = p.product.sellingPrice;
                     double optionsTotal =
                         p.options.fold(0.0, (s, o) => s + o.option.extraCost);
@@ -679,24 +775,44 @@ class _CheckoutPageState extends State<CheckoutPage> {
                         splitType == SplitType.byItem && selectedQty > 0;
 
                     return Card(
-                      color: isItemSelected ? Colors.teal[50] : null,
-                      shape: isItemSelected
+                      color: isDeleted
+                          ? Colors.red.shade50.withOpacity(0.6)
+                          : (isItemSelected ? Colors.teal[50] : null),
+                      shape: isDeleted
                           ? RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
-                              side: const BorderSide(
-                                  color: Colors.teal, width: 1.5),
+                              side: BorderSide(
+                                  color: Colors.red.shade300, width: 1.5),
                             )
-                          : null,
+                          : (isItemSelected
+                              ? RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  side: const BorderSide(
+                                      color: Colors.teal, width: 1.5),
+                                )
+                              : null),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(8),
-                        onTap: splitType == SplitType.byItem
+                        onTap: (splitType == SplitType.byItem && !isDeleted)
                             ? () {
                                 setState(() {
-                                  if (selectedQty < p.quantity) {
-                                    selectedSplitQuantities[idx] =
-                                        selectedQty + 1;
-                                    updateReceivedAmount(currentPayableAmount);
+                                  if (p.quantity == 1) {
+                                    // 数量为1时，点击卡片直接在选中和未选中之间切换 (Toggle)
+                                    if (selectedQty > 0) {
+                                      selectedSplitQuantities.remove(idx);
+                                    } else {
+                                      selectedSplitQuantities[idx] = 1;
+                                    }
+                                  } else {
+                                    // 数量>1时，未加满则+1，满额再次点击卡片则取消重置为0
+                                    if (selectedQty >= p.quantity) {
+                                      selectedSplitQuantities.remove(idx);
+                                    } else {
+                                      selectedSplitQuantities[idx] =
+                                          selectedQty + 1;
+                                    }
                                   }
+                                  updateReceivedAmount(currentPayableAmount);
                                 });
                               }
                             : null,
@@ -712,17 +828,156 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                   Expanded(
                                     child: Row(
                                       children: [
+                                        if (splitType == SplitType.byItem && !isDeleted) ...[
+                                          InkWell(
+                                            borderRadius:
+                                                BorderRadius.circular(16),
+                                            onTap: () {
+                                              setState(() {
+                                                // 点击左侧指示图标：已选择则直接取消，未选择则直接全选
+                                                if (selectedQty > 0) {
+                                                  selectedSplitQuantities
+                                                      .remove(idx);
+                                                } else {
+                                                  selectedSplitQuantities[idx] =
+                                                      p.quantity;
+                                                }
+                                                updateReceivedAmount(
+                                                    currentPayableAmount);
+                                              });
+                                            },
+                                            child: Padding(
+                                              padding: const EdgeInsets.all(2.0),
+                                              child: Icon(
+                                                isItemSelected
+                                                    ? Icons.check_circle
+                                                    : Icons.radio_button_unchecked,
+                                                size: 22,
+                                                color: isItemSelected
+                                                    ? Colors.teal
+                                                    : Colors.grey[400],
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                        ],
                                         Flexible(
                                           child: Text(
                                             p.product.title,
-                                            style: const TextStyle(
-                                                fontWeight: FontWeight.bold),
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: isDeleted
+                                                  ? Colors.grey[700]
+                                                  : null,
+                                              decoration: isDeleted
+                                                  ? TextDecoration.lineThrough
+                                                  : null,
+                                            ),
                                           ),
                                         ),
+                                        if (hasOnlineOrder &&
+                                            onlineOrderItemsChanged) ...[
+                                          const SizedBox(width: 6),
+                                          if (isDeleted)
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 6,
+                                                      vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: Colors.red[100],
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                                border: Border.all(
+                                                    color: Colors.red[300]!),
+                                              ),
+                                              child: Text(
+                                                '- Removed (Orig: x$originalQty)',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.red[900],
+                                                ),
+                                              ),
+                                            )
+                                          else if (qtyDiff > 0 &&
+                                              originalQty == 0)
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 6,
+                                                      vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: Colors.green[100],
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                                border: Border.all(
+                                                    color: Colors.green[300]!),
+                                              ),
+                                              child: Text(
+                                                'New',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.green[900],
+                                                ),
+                                              ),
+                                            )
+                                          else if (qtyDiff > 0 &&
+                                              originalQty > 0)
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 6,
+                                                      vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: Colors.blue[100],
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                                border: Border.all(
+                                                    color: Colors.blue[300]!),
+                                              ),
+                                              child: Text(
+                                                'Added $qtyDiff (Orig: x$originalQty)',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.blue[900],
+                                                ),
+                                              ),
+                                            )
+                                          else if (qtyDiff < 0)
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 6,
+                                                      vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: Colors.red[100],
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                                border: Border.all(
+                                                    color: Colors.red[300]!),
+                                              ),
+                                              child: Text(
+                                                'Deleted $qtyDiff (Orig: x$originalQty)',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.red[900],
+                                                ),
+                                              ),
+                                            ),
+                                        ],
                                         if (splitType == SplitType.byItem &&
-                                            selectedQty > 0) ...[
+                                            !isDeleted &&
+                                            selectedQty > 0 &&
+                                            p.quantity > 1) ...[
                                           const SizedBox(width: 8),
+                                          // 数量 > 1 时的加减调节控制器
                                           InkWell(
+                                            borderRadius:
+                                                BorderRadius.circular(16),
                                             onTap: () {
                                               setState(() {
                                                 if (selectedQty - 1 <= 0) {
@@ -738,7 +993,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                               });
                                             },
                                             child: Container(
-                                              padding: const EdgeInsets.all(2),
+                                              padding:
+                                                  const EdgeInsets.all(3),
                                               decoration: BoxDecoration(
                                                 color: Colors.red[100],
                                                 shape: BoxShape.circle,
@@ -750,10 +1006,12 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                               ),
                                             ),
                                           ),
-                                          const SizedBox(width: 4),
+                                          const SizedBox(width: 6),
                                           Container(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 6, vertical: 2),
+                                            padding:
+                                                const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 2),
                                             decoration: BoxDecoration(
                                               color: Colors.teal,
                                               borderRadius:
@@ -763,8 +1021,43 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                               '$selectedQty/${p.quantity}',
                                               style: const TextStyle(
                                                 color: Colors.white,
-                                                fontSize: 11,
+                                                fontSize: 12,
                                                 fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          InkWell(
+                                            borderRadius:
+                                                BorderRadius.circular(16),
+                                            onTap: selectedQty < p.quantity
+                                                ? () {
+                                                    setState(() {
+                                                      selectedSplitQuantities[
+                                                              idx] =
+                                                          selectedQty + 1;
+                                                      updateReceivedAmount(
+                                                          currentPayableAmount);
+                                                    });
+                                                  }
+                                                : null,
+                                            child: Container(
+                                              padding:
+                                                  const EdgeInsets.all(3),
+                                              decoration: BoxDecoration(
+                                                color: selectedQty <
+                                                        p.quantity
+                                                    ? Colors.teal[100]
+                                                    : Colors.grey[200],
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: Icon(
+                                                Icons.add,
+                                                size: 16,
+                                                color: selectedQty <
+                                                        p.quantity
+                                                    ? Colors.teal[800]
+                                                    : Colors.grey[400],
                                               ),
                                             ),
                                           ),
@@ -778,11 +1071,15 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                         padding: const EdgeInsets.symmetric(
                                             horizontal: 8, vertical: 4),
                                         decoration: BoxDecoration(
-                                          color: Colors.blue[100],
+                                          color: isDeleted
+                                              ? Colors.red[100]
+                                              : Colors.blue[100],
                                           borderRadius:
                                               BorderRadius.circular(12),
                                           border: Border.all(
-                                              color: Colors.blue[300]!,
+                                              color: isDeleted
+                                                  ? Colors.red[300]!
+                                                  : Colors.blue[300]!,
                                               width: 1),
                                         ),
                                         child: Text(
@@ -790,15 +1087,28 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                           style: TextStyle(
                                             fontWeight: FontWeight.bold,
                                             fontSize: 12,
-                                            color: Colors.blue[700],
+                                            color: isDeleted
+                                                ? Colors.red[700]
+                                                : Colors.blue[700],
+                                            decoration: isDeleted
+                                                ? TextDecoration.lineThrough
+                                                : null,
                                           ),
                                         ),
                                       ),
                                       const SizedBox(width: 8),
                                       Text(
-                                          '\$${itemTotalPrice.toStringAsFixed(2)}',
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.bold)),
+                                        '\$${itemTotalPrice.toStringAsFixed(2)}',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: isDeleted
+                                              ? Colors.grey[600]
+                                              : null,
+                                          decoration: isDeleted
+                                              ? TextDecoration.lineThrough
+                                              : null,
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ],
@@ -807,10 +1117,12 @@ class _CheckoutPageState extends State<CheckoutPage> {
                               Row(
                                 children: [
                                   Text(
-                                      'Unit price: \$${itemPrice.toStringAsFixed(2)}',
-                                      style: TextStyle(
-                                          fontSize: 14,
-                                          color: Colors.grey[600])),
+                                    'Unit price: \$${itemPrice.toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
                                 ],
                               ),
                               ...p.options.map((opt) => Padding(
@@ -819,9 +1131,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                       mainAxisAlignment:
                                           MainAxisAlignment.spaceBetween,
                                       children: [
-                                        Text('${opt.type}: ${opt.option.name}',
+                                        Text('* ${opt.option.name}',
                                             style: TextStyle(
-                                                fontSize: 13,
+                                                fontSize: 12,
                                                 color: Colors.grey[700])),
                                         if (opt.option.extraCost > 0)
                                           Text(
@@ -885,13 +1197,13 @@ class _CheckoutPageState extends State<CheckoutPage> {
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: orderType == 'DINE IN'
-                          ? Colors.blue[400]
-                          : Colors.green[400],
+                          ? Colors.amber[900]
+                          : Colors.blue[400],
                       foregroundColor: Colors.white,
                       elevation: 3,
                       shadowColor: orderType == 'DINE IN'
-                          ? Colors.blue[200]
-                          : Colors.green[200],
+                          ? Colors.amber[200]
+                          : Colors.blue[200],
                       padding:
                           const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
                       shape: RoundedRectangleBorder(
@@ -909,66 +1221,59 @@ class _CheckoutPageState extends State<CheckoutPage> {
                       style:
                           TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: isCash ? Colors.amber[100] : Colors.blue[100],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: isCash ? Colors.amber[400]! : Colors.blue[400]!,
-                        width: 1.5,
+                  SegmentedButton<bool>(
+                    showSelectedIcon: false,
+                    segments: const [
+                      ButtonSegment<bool>(
+                        value: false,
+                        label: Text('POS'),
+                        icon: Icon(Icons.credit_card, size: 16),
                       ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          isCash ? Icons.money : Icons.credit_card,
-                          size: 18,
-                          color: isCash ? Colors.amber[800] : Colors.blue[800],
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          isCash ? 'Cash' : 'POS',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color:
-                                isCash ? Colors.amber[800] : Colors.blue[800],
-                          ),
-                        ),
-                      ],
+                      ButtonSegment<bool>(
+                        value: true,
+                        label: Text('Cash'),
+                        icon: Icon(Icons.payments, size: 16),
+                      ),
+                    ],
+                    selected: {isCash},
+                    onSelectionChanged: (Set<bool> newSelection) {
+                      setState(() {
+                        isCash = newSelection.first;
+                        updateReceivedAmount(currentPayableAmount);
+                      });
+                    },
+                    style: ButtonStyle(
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      visualDensity: VisualDensity.compact,
+                      side: WidgetStateProperty.all(
+                        BorderSide(color: Colors.grey[500]!, width: 0.5),
+                      ),
+                      backgroundColor:
+                          WidgetStateProperty.resolveWith<Color?>((states) {
+                        if (states.contains(WidgetState.selected)) {
+                          return isCash ? Colors.blue[400] : Colors.yellow[300];
+                        }
+                        return Colors.grey[100];
+                      }),
+                      foregroundColor:
+                          WidgetStateProperty.resolveWith<Color?>((states) {
+                        if (states.contains(WidgetState.selected)) {
+                          return isCash ?Colors.white  : Colors.blue[900] ;
+                        }
+                        return Colors.grey[700];
+                      }),
+                      iconColor:
+                          WidgetStateProperty.resolveWith<Color?>((states) {
+                        if (states.contains(WidgetState.selected)) {
+                          return isCash ? Colors.white : Colors.blue[900];
+                        }
+                        return Colors.grey[600];
+                      }),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              // POS / Cash 按钮
-              Row(
-                mainAxisAlignment: MainAxisAlignment.start,
-                children: [
-                  ElevatedButton(
-                    onPressed: () {
-                      setState(() {
-                        isCash = false;
-                        updateReceivedAmount(currentPayableAmount);
-                      });
-                    },
-                    child: const Text('POS'),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: () {
-                      setState(() {
-                        isCash = true;
-                        updateReceivedAmount(currentPayableAmount);
-                      });
-                    },
-                    child: const Text('Cash'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 14),
               // 实收金额 TextField
               Row(
                 children: [
@@ -1417,7 +1722,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
       String userNote = _noteController.text.trim();
       String tableNote = widget.diningTable != null
-          ? '[桌台: ${widget.diningTable!.name}${widget.diningTable!.area != null && widget.diningTable!.area!.isNotEmpty ? " (${widget.diningTable!.area})" : ""}]'
+          ? '[桌台: ${widget.diningTable!.name}]'
           : '';
 
       String finalNote = tableNote.isEmpty
@@ -1451,6 +1756,14 @@ class _CheckoutPageState extends State<CheckoutPage> {
             itemsChanged: onlineOrderItemsChanged,
           );
           orderId = widget.onlineOrder!.id;
+
+          final settings = SettingsService().getSettings();
+          if (settings.enableAutoPrint) {
+            final latestOrder = await databaseService.getOrder(orderId);
+            if (latestOrder != null) {
+              await printService.printOrderWithTemplates(latestOrder);
+            }
+          }
         } else {
           orderId = await orderService.placeOrder(
             items: allItems,
@@ -1472,7 +1785,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
             orderId: orderId,
             action: 'table_settlement',
             status: 'success',
-            message: '[Table Settlement] 桌台订单完成结算 [桌台: ${widget.diningTable!.name}${widget.diningTable!.area != null && widget.diningTable!.area!.isNotEmpty ? " (${widget.diningTable!.area})" : ""}]',
+            message: '[Table Settlement] 桌台订单完成结算 [桌台: ${widget.diningTable!.name}]',
             timestamp: DateTime.now(),
           ));
         }
@@ -1660,7 +1973,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
       // 如果是最后一笔支付，且开启了自动同步，则推送同步主订单
       if (settings.enableAutoSync) {
-        await orderService.retrySyncOrder(masterId);
+        await orderService.retrySyncOrderToRemote(masterId);
       }
 
       // 所有账单结算完成，显示最终成功弹窗

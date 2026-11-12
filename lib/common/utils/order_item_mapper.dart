@@ -1,9 +1,118 @@
+import 'type_utils.dart';
+
+extension OrderItemNormalizer on Map<String, dynamic> {
+  int get itemId => NumberFormatUtils.toInt(this['product_id'] ?? this['id']);
+
+  String get itemName => (this['name'] ?? '').toString();
+
+  int get itemQuantity => NumberFormatUtils.toInt(this['quantity'], 1);
+
+  double get itemPrice => NumberFormatUtils.toDouble(this['price']);
+
+  List<dynamic> get itemOptions =>
+      (this['options'] as List<dynamic>?) ??
+      (this['customization'] as List<dynamic>?) ??
+      [];
+
+  double get optionsExtraTotal {
+    double sum = 0.0;
+    for (final opt in itemOptions) {
+      if (opt is Map) {
+        sum += NumberFormatUtils.toDouble(
+          opt['extra_price'] ?? opt['extra_cost'] ?? opt['extra'] ?? opt['priceChange'],
+        );
+      }
+    }
+    return sum;
+  }
+
+  double get itemFinalAmount {
+    final double calculated = (itemPrice + optionsExtraTotal) * itemQuantity;
+    return NumberFormatUtils.toDouble(
+      this['final_amount'],
+      calculated,
+    );
+  }
+
+  List<Map<String, dynamic>> get formattedCustomizationPayload {
+    return itemOptions.map((opt) {
+      if (opt is Map) {
+        final String name = (
+                opt['option_name'] ??
+                opt['name'] ??
+                '')
+            .toString();
+        final double priceChange = NumberFormatUtils.toDouble(
+              opt['extra_price'] ??
+              opt['price'] ??
+              opt['extra_cost'] ??
+              opt['extra'],
+        );
+        final String rawType =
+            (opt['type'] ?? opt['group_name'] ?? '').toString();
+        final String typeUpper = rawType.toUpperCase();
+
+        if (typeUpper.contains('NO') ) {
+          return {
+            'ingredientName': name,
+            'priceChange': priceChange,
+            'type': 'quantity',
+            'currentQuantity': 0,
+            'change': -1,
+          };
+        } else if (typeUpper.contains('CHANGE') ) {
+          return {
+            'priceChange': priceChange,
+            'type': 'replacement',
+            'change': 1,
+            'replacementName': name,
+          };
+        }else if (typeUpper.contains('ONLY') ) {
+          return {
+            'replacementName': name,
+            'priceChange': priceChange,
+            'type': 'replacement',
+            'change': 1,
+          };
+        }
+        else {
+          // extra, chill, chilli 或其他情况
+          return {
+            'ingredientName': name,
+            'priceChange': priceChange,
+            'type': 'quantity',
+            'change': 1,
+          };
+        }
+      }
+      return <String, dynamic>{};
+    }).where((map) => map.isNotEmpty).toList();
+  }
+
+  /// 转换为发往云端服务器的标准菜品 Payload 结构
+  Map<String, dynamic> toStandardTerminalPayload() {
+    final double optionsSum = optionsExtraTotal;
+    final double calculatedFinalAmount =
+        double.parse(((itemPrice + optionsSum) * itemQuantity).toStringAsFixed(2));
+
+    return {
+      'id': itemId,
+      'name': itemName,
+      'quantity': itemQuantity,
+      'price': itemPrice,
+      'final_amount': calculatedFinalAmount,
+      'customization': formattedCustomizationPayload,
+    };
+  }
+}
+
 class OrderItemMapper {
   static List<Map<String, dynamic>> mapServerItemsToLocalItems(
     List<dynamic> serverItems,
   ) {
     return serverItems.map((item) {
-      final customizations = item['customization'] as List<dynamic>? ?? [];
+      final mapItem = Map<String, dynamic>.from(item as Map);
+      final customizations = mapItem['customization'] as List<dynamic>? ?? [];
       final List<Map<String, dynamic>> options = [];
       for (final c in customizations) {
         if (c['type'] == 'replacement') {
@@ -84,42 +193,46 @@ class OrderItemMapper {
           }
         }
       }
-      final int quantity =
-          int.tryParse(item['quantity']?.toString() ?? '1') ?? 1;
 
-      // product_selling_price 字段为菜品单价
-      final double? unitPriceRaw = double.tryParse(
-        item['product_selling_price']?.toString() ??
-            item['unit_price']?.toString() ??
-            item['price']?.toString() ??
-            item['selling_price']?.toString() ??
-            '',
+      final int id =
+          NumberFormatUtils.toInt(mapItem['product_id'] ?? mapItem['id']);
+      final String name = (mapItem['name'] ??
+              mapItem['product_title'] ??
+              mapItem['title'] ??
+              '')
+          .toString();
+      final int quantity =
+          NumberFormatUtils.toInt(mapItem['quantity'] ?? mapItem['count'], 1);
+      final double price = NumberFormatUtils.toDouble(
+        mapItem['price'] ?? mapItem['product_selling_price'] ?? mapItem['unit_price'],
+      );
+      final double optionsTotal = options.fold(
+        0.0,
+        (sum, opt) => sum + NumberFormatUtils.toDouble(opt['extra_price']),
+      );
+      final double calculatedFinalAmount =
+          double.parse(((price + optionsTotal) * quantity).toStringAsFixed(2));
+
+      final double finalAmount = NumberFormatUtils.toDouble(
+        mapItem['final_amount'],
+        calculatedFinalAmount,
       );
 
-      // final_amount 字段为该 item 的最终总价（单价 * 数量 - 折扣）
-      final double? finalAmountRaw =
-          double.tryParse(item['final_amount']?.toString() ?? '');
-
-      final double unitPrice = unitPriceRaw ??
-          (finalAmountRaw != null && quantity > 0
-              ? finalAmountRaw / quantity
-              : 0.0);
-
-      final double finalAmount = finalAmountRaw ?? (unitPrice * quantity);
+      final kitchenPrintName = mapItem['kitchen_print_name'] ??
+          mapItem['kitchenPrintName'] ??
+          mapItem['product']?['kitchen_print_name'] ??
+          mapItem['product']?['kitchenPrintName'];
+      final isPrintable = mapItem['product']?['is_printable'] ?? true;
 
       return {
-        'id': item['product_id'] ?? item['id'],
-        'name': item['product_title'] ?? item['name'] ?? '',
-        'kitchen_print_name': item['kitchen_print_name'] ??
-            item['kitchenPrintName'] ??
-            item['product']?['kitchen_print_name'] ??
-            item['product']?['kitchenPrintName'],
-        'price': unitPrice, // 本地统一使用的菜品单价
-        'product_selling_price': unitPrice, // 显式记录菜品单价
-        'final_amount': finalAmount, // 显式记录 item 最终总价
+        'id': id,
+        'name': name,
         'quantity': quantity,
+        'price': price,
+        'final_amount': finalAmount,
         'options': options,
-        'is_printable': item['product']?['is_printable'] ?? true,
+        if (kitchenPrintName != null) 'kitchen_print_name': kitchenPrintName,
+        'is_printable': isPrintable,
       };
     }).toList();
   }

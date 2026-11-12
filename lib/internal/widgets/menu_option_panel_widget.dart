@@ -10,18 +10,18 @@ class MenuOptionPanelWidget extends StatelessWidget {
   final VoidCallback? onManageOptions;
 
   const MenuOptionPanelWidget({
-    Key? key,
+    super.key,
     required this.optionGroups,
     required this.orderedProducts,
     required this.onOptionTap,
     this.isAdminMode = false,
     this.onManageOptions,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
     if (optionGroups.isEmpty) {
-      return SizedBox.shrink();
+      return const SizedBox.shrink();
     }
     return Container(
       decoration: BoxDecoration(
@@ -30,7 +30,7 @@ class MenuOptionPanelWidget extends StatelessWidget {
           end: Alignment.bottomCenter,
           colors: [Colors.grey[100]!, Colors.grey[200]!],
         ),
-        boxShadow: [
+        boxShadow: const [
           BoxShadow(
             color: Colors.black12,
             blurRadius: 2,
@@ -71,12 +71,12 @@ class MenuOptionPanelWidget extends StatelessWidget {
                     padding: const EdgeInsets.only(right: 8.0),
                     child: ElevatedButton.icon(
                       onPressed: onManageOptions,
-                      icon: Icon(Icons.settings, size: 14),
-                      label: Text('Manage', style: TextStyle(fontSize: 11)),
+                      icon: const Icon(Icons.settings, size: 14),
+                      label: const Text('Manage', style: TextStyle(fontSize: 11)),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.orange,
                         foregroundColor: Colors.white,
-                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       ),
                     ),
                   ),

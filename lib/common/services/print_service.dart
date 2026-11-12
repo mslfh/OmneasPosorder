@@ -12,6 +12,7 @@ import '../utils/local_order_log_helper.dart';
 import '../utils/type_utils.dart';
 import 'database_service.dart';
 import 'settings_service.dart';
+import 'kitchen_split_service.dart';
 
 enum ReceiptType { customer, kitchen }
 
@@ -556,7 +557,6 @@ class PrintService {
     final updatedOrder = order.copyWith(
       printStatus: PrintStatus.skipped,
       printedTime: DateTime.now(),
-      orderStatus: order.isOnlineOrder ? OrderStatus.confirmed : order.orderStatus,
       errorMessage: null,
     );
 
@@ -736,10 +736,8 @@ class PrintService {
         return;
       }
 
-      final kitchenContent = await _generateKitchenReceiptTemplate(order);
-      if (kitchenContent.trim().isEmpty) return;
-
-      final printBytes = await _generateKitchenESCPOSCommands(kitchenContent);
+      final printBytes = await _generateKitchenESCPOSBytesForOrder(order);
+      if (printBytes.isEmpty) return;
 
       for (final station in kitchenStations) {
         try {
@@ -758,7 +756,7 @@ class PrintService {
   /// 发送订单数据到指定打印位（严格依据打印位角色/内容类型生成对应的单据）
   Future<void> _printOrderToStation(OrderModel order, PrinterStationModel station) async {
     String customerContent = '';
-    String kitchenContent = '';
+    List<int> kitchenBytes = [];
 
     final isCounter = station.role == 'counter' || station.role == 'both' ||
         station.contentType == 'customer_receipt' || station.contentType == 'both';
@@ -770,21 +768,20 @@ class PrintService {
     }
 
     if (isKitchen) {
-      kitchenContent = await _generateKitchenReceiptTemplate(order);
+      kitchenBytes = await _generateKitchenESCPOSBytesForOrder(order);
     }
 
-    if (customerContent.trim().isEmpty && kitchenContent.trim().isEmpty) {
+    if (customerContent.trim().isEmpty && kitchenBytes.isEmpty) {
       _logger.i('打印位 [${station.name}] 无可打印内容，跳过');
       return;
     }
 
-    List<int> printBytes;
-    if (customerContent.isNotEmpty && kitchenContent.isNotEmpty) {
-      printBytes = await _generateCombinedESCPOSCommands(customerContent, kitchenContent);
-    } else if (customerContent.isNotEmpty) {
-      printBytes = await _generateCustomerESCPOSCommands(customerContent);
-    } else {
-      printBytes = await _generateKitchenESCPOSCommands(kitchenContent);
+    List<int> printBytes = [];
+    if (customerContent.isNotEmpty) {
+      printBytes.addAll(await _generateCustomerESCPOSCommands(customerContent));
+    }
+    if (kitchenBytes.isNotEmpty) {
+      printBytes.addAll(kitchenBytes);
     }
 
     final adapter = PrinterAdapterFactory.createAdapter(station);
@@ -929,7 +926,6 @@ class PrintService {
     final updatedOrder = order.copyWith(
       printStatus: PrintStatus.printed,
       printedTime: DateTime.now(),
-      orderStatus: order.isOnlineOrder ? OrderStatus.confirmed : order.orderStatus,
     );
 
     await _databaseService.updateOrder(updatedOrder);
@@ -1051,7 +1047,7 @@ class PrintService {
     builder.alignLeft();
     for (String line in parsed['items'] ?? []) {
       builder.setBold(true);
-      if (line.startsWith('*') || line.startsWith('-')) {
+      if (line.startsWith('*') || line.startsWith('-') || line.startsWith('ψ')) {
         builder.setFontSize(width: 2, height: 2);
       } else {
         builder.setFontSize(width: 1, height: 2);
@@ -1607,13 +1603,89 @@ class PrintService {
     _logger.i('打印配置已刷新');
   }
 
-  Future<String> _generateKitchenReceiptTemplate(OrderModel order) async {
-    final items = jsonDecode(order.items) as List;
+  /// 根据订单生成包含后厨分单与自动切纸逻辑的完整 ESC/POS 指令字节流
+  Future<List<int>> _generateKitchenESCPOSBytesForOrder(OrderModel order) async {
+    final splitGroups = await KitchenSplitService().getSplitGroups();
+    final productSplitMap = await KitchenSplitService().getProductSplitMap();
+    final groupMap = {for (var g in splitGroups) g.id: g};
+
+    final rawItems = jsonDecode(order.items) as List;
+    final printableItems =
+        rawItems.where((item) => item['is_printable'] == true).toList();
+
+    if (printableItems.isEmpty) return [];
+
+    // 若未配置任何分单组，合并打在一张后厨单上
+    if (splitGroups.isEmpty) {
+      final content = await _generateKitchenReceiptTemplateForItems(
+        order,
+        printableItems,
+        splitLabel: '1/1',
+      );
+      return await _generateKitchenESCPOSCommands(content);
+    }
+
+    // 依 splitGroupId 分组
+    final Map<int, List<dynamic>> groupedItems = {};
+    for (var item in printableItems) {
+      int splitId = item['split_group_id'] as int? ??
+          item['splitGroupId'] as int? ??
+          productSplitMap[item['id'] ?? item['product_id']] ??
+          0;
+      if (splitId > 0 && !groupMap.containsKey(splitId)) {
+        splitId = 0;
+      }
+      groupedItems.putIfAbsent(splitId, () => []).add(item);
+    }
+
+    // 确定打印顺序：先打印配置好的分单组（依配置顺序） -> 最后打印未分单项 (0)
+    final List<int> sortedSplitIds = [];
+    for (var g in splitGroups) {
+      if (groupedItems.containsKey(g.id)) {
+        sortedSplitIds.add(g.id);
+      }
+    }
+    if (groupedItems.containsKey(0)) {
+      sortedSplitIds.add(0);
+    }
+
+    final int totalSplits = sortedSplitIds.length;
+    List<int> allBytes = [];
+
+    for (int i = 0; i < totalSplits; i++) {
+      final splitId = sortedSplitIds[i];
+      final items = groupedItems[splitId]!;
+      if (items.isEmpty) continue;
+
+      final String splitLabel = '${i + 1}/$totalSplits';
+      final content = await _generateKitchenReceiptTemplateForItems(
+        order,
+        items,
+        splitLabel: splitLabel,
+      );
+      final bytes = await _generateKitchenESCPOSCommands(content);
+      allBytes.addAll(bytes);
+    }
+
+    return allBytes;
+  }
+
+  Future<String> _generateKitchenReceiptTemplateForItems(
+    OrderModel order,
+    List items, {
+    String? splitLabel,
+  }) async {
     final StringBuffer content = StringBuffer();
     content.writeln('[HEADER]');
     content.writeln("------------------------------");
+    if (splitLabel != null && splitLabel.trim().isNotEmpty) {
+      content.writeln("*** [ ${splitLabel.trim()} ] ***");
+    }
     content.writeln("ORDER #${order.orderNo}");
-    content.writeln(order.type);
+    if (order.tableName != null && order.tableName!.isNotEmpty) {
+      content.writeln("TABLE: ${order.tableName}");
+    }
+    content.writeln((order.type ?? 'DINEIN').toUpperCase());
     if (order.orderTime.difference(DateTime.now()).inMinutes >= 10) {
       final typeStr = (order.type ?? 'ORDER').toUpperCase();
       content.writeln("！！** $typeStr AT ${_formatTimeOnly(order.orderTime)} **！！");
@@ -1632,9 +1704,9 @@ class PrintService {
       final quantity = item['quantity'] ?? 1;
       List<String> lines = [];
       if (order.type == 'dinein') {
-        lines.add('* ${name.toUpperCase()} x$quantity /E'.padRight(21));
+        lines.add('ψ ${name.toUpperCase()} x$quantity'.padRight(21));
       } else {
-        lines.add('* ${name.toUpperCase()} x$quantity /T'.padRight(21));
+        lines.add('* ${name.toUpperCase()} x$quantity'.padRight(21));
       }
       if (item['options'] != null && item['options'] is List) {
         for (var opt in item['options']) {
@@ -1654,8 +1726,12 @@ class PrintService {
     content.writeln("------------------------");
     content.writeln('[FOOTER]');
     content.writeln("Order Time: ${_formatDateTime(order.orderTime)}");
-    content.writeln("CLERK 001");
     return content.toString();
+  }
+
+  Future<String> _generateKitchenReceiptTemplate(OrderModel order) async {
+    final items = jsonDecode(order.items) as List;
+    return await _generateKitchenReceiptTemplateForItems(order, items);
   }
 
   /// 获取商家信息用于小票生成
@@ -1764,21 +1840,35 @@ class PrintService {
 
     content.writeln("Tax Invoice /Receipt");
     content.writeln("Type: ${order.type ?? ""}");
+    if (order.tableName != null && order.tableName!.isNotEmpty) {
+      content.writeln("Table: ${order.tableName}");
+    }
     content.writeln('[ORDER_INFO]');
     content.writeln("========================");
     content.writeln("ORDER #${order.orderNo}");
+    if (order.tableName != null && order.tableName!.isNotEmpty) {
+      content.writeln("TABLE: ${order.tableName}");
+    }
     content.writeln("------------------------");
     content.writeln('[ITEMS]');
     for (var item in items) {
       final name = item['name'] ?? '';
-      final quantity = item['quantity'] ?? 1;
-      final price = (item['price'] ?? 0).toDouble();
+      double extraPrice = 0.0;
+      if (item['options'] != null && item['options'] is List) {
+        for (var opt in item['options']) {
+          if (opt is Map) {
+            extraPrice += NumberFormatUtils.toDouble(opt['extra_price']);
+          }
+        }
+      }
+      final quantity = NumberFormatUtils.toInt(item['quantity'], 1);
+      final price = NumberFormatUtils.toDouble(item['price'] ) + extraPrice;
       final subtotal = quantity * price;
-      content.writeln('$quantity x ${name.padRight(28)}  \$${subtotal.toStringAsFixed(2)}');
+      content.writeln('$quantity x ${name.padRight(32)}  \$${subtotal.toStringAsFixed(2)}');
       if (item['options'] != null && item['options'] is List) {
         for (var opt in item['options']) {
           final optName = opt['option_name'] ?? '';
-          final optPrice = (opt['extra_price'] ?? 0).toDouble();
+          final optPrice = NumberFormatUtils.toDouble(opt['extra_price'] );
           if (optPrice > 0) {
             content.writeln('    - $optName (+\$${optPrice.toStringAsFixed(2)})');
           } else {
@@ -1787,9 +1877,9 @@ class PrintService {
         }
       }
     }
-    if (order.note != null) {
+    if (order.note != null && order.note!.isNotEmpty) {
       content.writeln('[NOTES]');
-      content.writeln('Note: ${order.note ?? ""}');
+      content.writeln('Note: ${order.note}');
     }
     content.writeln('[TOTALS]');
     content.writeln("-----------------------------------------------");

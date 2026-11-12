@@ -3,6 +3,43 @@ import '../../common/models/menu_option.dart';
 import '../../common/models/order_model.dart';
 import 'order_selected.dart';
 
+class OnlineOrderDiffItem {
+  final String name;
+  final int count;
+  final int originalQty;
+  final int currentQty;
+
+  OnlineOrderDiffItem({
+    required this.name,
+    required this.count,
+    required this.originalQty,
+    required this.currentQty,
+  });
+
+  bool get isNew => originalQty == 0;
+  bool get isCompletelyRemoved => currentQty == 0;
+}
+
+class OnlineOrderDiffResult {
+  final List<OnlineOrderDiffItem> added;
+  final List<OnlineOrderDiffItem> removed;
+
+  OnlineOrderDiffResult({
+    required this.added,
+    required this.removed,
+  });
+
+  bool get hasChanges => added.isNotEmpty || removed.isNotEmpty;
+}
+
+class _ItemAggregate {
+  final String displayName;
+  int originalQty = 0;
+  int currentQty = 0;
+
+  _ItemAggregate({required this.displayName});
+}
+
 class OnlineOrderMapper {
   static List<SelectedProduct> buildSelectedProducts(
     OrderModel onlineOrder,
@@ -36,6 +73,70 @@ class OnlineOrderMapper {
     return _serialize(current) == _serialize(original);
   }
 
+  static OnlineOrderDiffResult calculateDiff(
+    List<SelectedProduct> original,
+    List<SelectedProduct> current,
+  ) {
+    final Map<String, _ItemAggregate> map = {};
+
+    for (var p in original) {
+      final key = getProductKey(p);
+      final entry = map.putIfAbsent(
+        key,
+        () => _ItemAggregate(displayName: _getDiffItemDisplayName(p)),
+      );
+      entry.originalQty += p.quantity;
+    }
+
+    for (var p in current) {
+      final key = getProductKey(p);
+      final entry = map.putIfAbsent(
+        key,
+        () => _ItemAggregate(displayName: _getDiffItemDisplayName(p)),
+      );
+      entry.currentQty += p.quantity;
+    }
+
+    final List<OnlineOrderDiffItem> added = [];
+    final List<OnlineOrderDiffItem> removed = [];
+
+    for (var entry in map.values) {
+      if (entry.currentQty > entry.originalQty) {
+        added.add(OnlineOrderDiffItem(
+          name: entry.displayName,
+          count: entry.currentQty - entry.originalQty,
+          originalQty: entry.originalQty,
+          currentQty: entry.currentQty,
+        ));
+      } else if (entry.currentQty < entry.originalQty) {
+        removed.add(OnlineOrderDiffItem(
+          name: entry.displayName,
+          count: entry.originalQty - entry.currentQty,
+          originalQty: entry.originalQty,
+          currentQty: entry.currentQty,
+        ));
+      }
+    }
+
+    return OnlineOrderDiffResult(added: added, removed: removed);
+  }
+
+  static String getProductKey(SelectedProduct p) {
+    final optionKeys = p.options
+        .map((o) => '${o.type}:${o.option.name}:${o.option.extraCost}')
+        .toList()
+      ..sort();
+    return '${p.product.id}_${p.product.title}_${optionKeys.join('|')}';
+  }
+
+  static String _getDiffItemDisplayName(SelectedProduct p) {
+    if (p.options.isEmpty) {
+      return p.product.title;
+    }
+    final optStr = p.options.map((o) => o.option.name).join(', ');
+    return '${p.product.title} ($optStr)';
+  }
+
   static List<Map<String, dynamic>> toCheckoutItems(
       List<SelectedProduct> products) {
     return products.map((p) {
@@ -50,13 +151,22 @@ class OnlineOrderMapper {
           )
           .toList();
 
+      final double price = p.product.sellingPrice;
+      final int quantity = p.quantity;
+      final double optionsTotal =
+          p.options.fold(0.0, (s, o) => s + o.option.extraCost);
+      final double finalAmount =
+          double.parse(((price + optionsTotal) * quantity).toStringAsFixed(2));
+
       return {
         'id': p.product.id,
         'name': p.product.title,
-        'kitchen_print_name': p.product.kitchenPrintName,
-        'price': p.product.sellingPrice,
-        'quantity': p.quantity,
+        'quantity': quantity,
+        'price': price,
+        'final_amount': finalAmount,
         'options': options,
+        if (p.product.kitchenPrintName != null)
+          'kitchen_print_name': p.product.kitchenPrintName,
         'is_printable': p.product.isPrintable,
       };
     }).toList();
@@ -66,7 +176,7 @@ class OnlineOrderMapper {
     Map<String, dynamic> item,
     List<MenuItem> menuCatalog,
   ) {
-    final itemId = _toInt(item['id']) ?? _toInt(item['product_id']) ?? 0;
+    final itemId = _toInt(item['product_id']) ?? _toInt(item['id']) ?? 0;
     final resolved =
         menuCatalog.where((product) => product.id == itemId).toList();
     final product = resolved.isNotEmpty

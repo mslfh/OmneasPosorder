@@ -4,12 +4,16 @@ import '../../common/models/category.dart';
 class CategorySidebarWidget extends StatelessWidget {
   final List<Category> categories;
   final void Function(Category? category)? onCategoryTap;
+  final bool isAdminMode;
+  final VoidCallback? onManageKitchenSplit;
 
   const CategorySidebarWidget({
-    Key? key,
+    super.key,
     required this.categories,
     this.onCategoryTap,
-  }) : super(key: key);
+    this.isAdminMode = false,
+    this.onManageKitchenSplit,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +24,7 @@ class CategorySidebarWidget extends StatelessWidget {
           end: Alignment.bottomCenter,
           colors: [Colors.grey[100]!, Colors.grey[200]!],
         ),
-        boxShadow: [
+        boxShadow: const [
           BoxShadow(
             color: Colors.black12,
             blurRadius: 2,
@@ -36,7 +40,7 @@ class CategorySidebarWidget extends StatelessWidget {
               gradient: LinearGradient(
                 colors: [Colors.blue[300]!, Colors.blue[400]!],
               ),
-              boxShadow: [
+              boxShadow: const [
                 BoxShadow(
                   color: Colors.black12,
                   blurRadius: 2,
@@ -44,14 +48,38 @@ class CategorySidebarWidget extends StatelessWidget {
                 ),
               ],
             ),
-            alignment: Alignment.center,
-            child: Text(
-              'Categories',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-                color: Colors.white,
-              ),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Align(
+                    alignment: Alignment.center,
+                    child: Text(
+                      'Categories',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+                if (isAdminMode)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: ElevatedButton.icon(
+                      onPressed: onManageKitchenSplit,
+                      icon: const Icon(Icons.print, size: 12),
+                      label: const Text('分单', style: TextStyle(fontSize: 11)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.teal[600],
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           // 顶部“全部”按钮

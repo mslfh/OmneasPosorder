@@ -102,13 +102,19 @@ class LocalOrderLogHelper {
   static String _getOrderStatusLabel(OrderStatus status) {
     switch (status) {
       case OrderStatus.pending:
-        return 'PENDING (待处理/待付)';
+        return 'PENDING (待付款/待接单)';
       case OrderStatus.confirmed:
-        return 'CONFIRMED (已确认/待出餐)';
+        return 'CONFIRMED (已接单/已确认)';
+      case OrderStatus.preparing:
+        return 'PREPARING (制作中/备餐中)';
+      case OrderStatus.readyForPickup:
+        return 'READY_FOR_PICKUP (待取餐/已出餐)';
       case OrderStatus.completed:
         return 'COMPLETED (已完成)';
       case OrderStatus.cancelled:
         return 'CANCELLED (已取消)';
+      case OrderStatus.refunded:
+        return 'REFUNDED (已退款)';
     }
   }
 

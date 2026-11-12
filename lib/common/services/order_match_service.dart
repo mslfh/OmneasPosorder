@@ -68,7 +68,7 @@ class OrderMatchService {
       // 1. 获取服务器订单
       List<ServerOrderModel> serverOrders = [];
       try {
-        serverOrders = await _orderService.getServerOrders(date: today);
+        serverOrders = await _orderService.fetchServerOrders(date: today);
       } catch (e) {
         _logger.w('订单匹配验证：获取服务器订单失败 ($e)');
         return OrderMatchResult.error('获取服务器订单失败: $e');

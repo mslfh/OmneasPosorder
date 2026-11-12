@@ -31,6 +31,8 @@ class MenuItemAdapter extends HiveObject {
   String? soldOutUntil; // 沽清截止时间
   @HiveField(12)
   String? soldOutLabel; // 售罄自定义标签
+  @HiveField(13)
+  int splitGroupId; // 后厨分单ID
 
   MenuItemAdapter({
     required this.id,
@@ -46,6 +48,7 @@ class MenuItemAdapter extends HiveObject {
     this.isSoldOut = false,
     this.soldOutUntil,
     this.soldOutLabel,
+    this.splitGroupId = 0,
   });
 
   factory MenuItemAdapter.fromMenuItem(MenuItem item) => MenuItemAdapter(
@@ -62,6 +65,7 @@ class MenuItemAdapter extends HiveObject {
     isSoldOut: item.isSoldOut,
     soldOutUntil: item.soldOutUntil,
     soldOutLabel: item.soldOutLabel,
+    splitGroupId: item.splitGroupId,
   );
 
   MenuItem toMenuItem() => MenuItem(
@@ -78,5 +82,6 @@ class MenuItemAdapter extends HiveObject {
     isSoldOut: isSoldOut,
     soldOutUntil: soldOutUntil,
     soldOutLabel: soldOutLabel,
+    splitGroupId: splitGroupId,
   );
 }

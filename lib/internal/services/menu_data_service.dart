@@ -9,6 +9,7 @@ import '../../common/models/category_adapter.dart';
 import '../../common/models/option_groups_adapter.dart';
 import '../../common/services/api_service.dart';
 import '../../common/services/cache_service.dart';
+import '../../common/services/kitchen_split_service.dart';
 
 /// 菜品数据加载服务
 class MenuDataService {
@@ -71,12 +72,17 @@ class MenuDataService {
     try {
       final productsBox = await Hive.openBox<MenuItemAdapter>('productsBox');
       final categoriesBox = await Hive.openBox<CategoryAdapter>('categoriesBox');
+      final splitMap = await KitchenSplitService().getProductSplitMap();
 
       if (productsBox.isEmpty || categoriesBox.isEmpty) {
         _logger.d('缓存为空，从API获取数据');
         return await _fetchMenuDataFromApi();
       } else {
-        final allProducts = productsBox.values.map((e) => e.toMenuItem()).toList();
+        final allProducts = productsBox.values.map((e) {
+          final item = e.toMenuItem();
+          final splitId = splitMap[item.id] ?? item.splitGroupId;
+          return item.copyWith(splitGroupId: splitId);
+        }).toList();
         final products = _sortProducts(List<MenuItem>.from(allProducts));
         final categories = categoriesBox.values.map((e) => e.toCategory()).toList();
         _logger.d('使用本地缓存数据，菜品数量: ${products.length}，分类数量: ${categories.length}');
@@ -103,6 +109,7 @@ class MenuDataService {
     try {
       final prodRes = await _apiService.get('products/active');
       final catRes = await _apiService.get('categories/active');
+      final splitMap = await KitchenSplitService().getProductSplitMap();
 
       final prodDataRaw = prodRes.data['data'];
       List prodData;
@@ -116,7 +123,11 @@ class MenuDataService {
       final catData = catRes.data['data'] as List;
       final allProducts = prodData
           .whereType<Map<String, dynamic>>()
-          .map((e) => MenuItem.fromJson(e))
+          .map((e) {
+            final item = MenuItem.fromJson(e);
+            final splitId = splitMap[item.id] ?? item.splitGroupId;
+            return item.copyWith(splitGroupId: splitId);
+          })
           .toList();
       final products = _sortProducts(List<MenuItem>.from(allProducts));
       final categories = catData.map((e) => Category.fromJson(e)).toList();

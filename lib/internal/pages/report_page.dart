@@ -772,10 +772,16 @@ class _ReportPageState extends State<ReportPage> {
         return 'Pending';
       case OrderStatus.confirmed:
         return 'Confirmed';
+      case OrderStatus.preparing:
+        return 'Preparing';
+      case OrderStatus.readyForPickup:
+        return 'Ready for Pickup';
       case OrderStatus.completed:
         return 'Completed';
       case OrderStatus.cancelled:
         return 'Cancelled';
+      case OrderStatus.refunded:
+        return 'Refunded';
     }
   }
 
@@ -785,10 +791,16 @@ class _ReportPageState extends State<ReportPage> {
         return Colors.orange;
       case OrderStatus.confirmed:
         return Colors.blue;
+      case OrderStatus.preparing:
+        return Colors.purple;
+      case OrderStatus.readyForPickup:
+        return Colors.teal;
       case OrderStatus.completed:
         return Colors.green;
       case OrderStatus.cancelled:
         return Colors.red;
+      case OrderStatus.refunded:
+        return Colors.brown;
     }
   }
 }

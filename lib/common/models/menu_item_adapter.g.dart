@@ -30,13 +30,14 @@ class MenuItemAdapterAdapter extends TypeAdapter<MenuItemAdapter> {
       isSoldOut: fields[10] as bool? ?? false,
       soldOutUntil: fields[11] as String?,
       soldOutLabel: fields[12] as String?,
+      splitGroupId: fields[13] as int? ?? 0,
     );
   }
 
   @override
   void write(BinaryWriter writer, MenuItemAdapter obj) {
     writer
-      ..writeByte(13)
+      ..writeByte(14)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -62,7 +63,9 @@ class MenuItemAdapterAdapter extends TypeAdapter<MenuItemAdapter> {
       ..writeByte(11)
       ..write(obj.soldOutUntil)
       ..writeByte(12)
-      ..write(obj.soldOutLabel);
+      ..write(obj.soldOutLabel)
+      ..writeByte(13)
+      ..write(obj.splitGroupId);
   }
 
   @override

@@ -504,11 +504,12 @@ class DatabaseService {
       final maps = await db.query(
         'orders',
         where:
-            'is_online_order = 1 AND order_status IN (?, ?, ?) AND order_time BETWEEN ? AND ?',
+            'is_online_order = 1 AND order_status IN (?, ?, ?, ?) AND order_time BETWEEN ? AND ?',
         whereArgs: [
           OrderStatus.pending.index,
           OrderStatus.confirmed.index,
-          OrderStatus.completed.index,
+          OrderStatus.preparing.index,
+          OrderStatus.readyForPickup.index,
           start,
           end
         ],

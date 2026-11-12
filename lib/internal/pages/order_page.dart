@@ -35,6 +35,7 @@ import '../widgets/dining_table_selection_dialog.dart';
 import '../widgets/edit_product_dialog.dart';
 import '../widgets/sold_out_dialog.dart';
 import '../widgets/manage_options_dialog.dart';
+import '../widgets/manage_kitchen_split_dialog.dart';
 import '../widgets/option_selection_dialog.dart';
 import '../widgets/selected_order_banners_widget.dart';
 
@@ -43,7 +44,6 @@ class OrderPage extends StatefulWidget {
   final void Function(
           OrderMatchResult? result, Future<void> Function()? requestCheck)?
       onOrderMatchStateChanged;
-
   const OrderPage({
     Key? key,
     this.isAdminMode = false,
@@ -189,7 +189,7 @@ class _OrderPageState extends State<OrderPage> {
           result.rawItems!,
           allProducts,
         );
-        orderedProducts.addAll(tableProducts);
+        orderedProducts.addAll(tableProducts.cast<SelectedProduct>());
         if (orderedProducts.isNotEmpty) {
           selectedOrderedProduct = orderedProducts.last;
         }
@@ -247,7 +247,7 @@ class _OrderPageState extends State<OrderPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '桌台：${_selectedTable!.name} (${_selectedTable!.area ?? ""})',
+                  '桌台：${_selectedTable!.name}',
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 6),
@@ -275,7 +275,7 @@ class _OrderPageState extends State<OrderPage> {
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     icon: const Icon(Icons.shopping_cart),
-                    label: const Text('CHECKOUT / 结账'),
+                    label: const Text('CHECKOUT'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green[700],
                       foregroundColor: Colors.white,
@@ -663,15 +663,43 @@ class _OrderPageState extends State<OrderPage> {
       return;
     }
 
-    setState(() {
-      final existingOptionIndex = targetProduct!.options.indexWhere(
-        (opt) => opt.type == type && opt.option.id == option.id,
-      );
+    if (option.id == 0 || option.type.toLowerCase() == 'manual') {
+      _handleManualOptionAddition(targetProduct!, option.name);
+      return;
+    }
 
-      if (existingOptionIndex == -1) {
-        targetProduct.options.add(SelectedOption(type: type, option: option));
-      }
+    setState(() {
+      targetProduct!.options.add(SelectedOption(type: type, option: option));
     });
+  }
+
+  Future<void> _handleManualOptionAddition(
+      SelectedProduct targetProduct, String optionName) async {
+    final double? extraPrice = await _showManualOptionPriceDialog(optionName);
+    if (extraPrice == null) return;
+
+    final manualOption = MenuOption(
+      id: 0,
+      name: optionName,
+      type: 'manual',
+      extraCost: extraPrice,
+    );
+
+    setState(() {
+      targetProduct.options.add(
+        SelectedOption(type: 'manual', option: manualOption),
+      );
+    });
+    await _playClickSound();
+  }
+
+  /// 弹出手动添加 Option 的 Extra Price 金额输入弹窗
+  Future<double?> _showManualOptionPriceDialog(String optionName) {
+    return showDialog<double>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => _ManualOptionPriceDialog(optionName: optionName),
+    );
   }
 
   /// 动态计算标题字体大小
@@ -985,6 +1013,16 @@ class _OrderPageState extends State<OrderPage> {
     );
   }
 
+  /// Show manage kitchen split dialog (Admin Mode)
+  void _showManageKitchenSplitDialog() {
+    ManageKitchenSplitDialog.show(
+      context: context,
+      allProducts: allProducts,
+      categories: categories,
+      onSaved: _refreshMenuData,
+    );
+  }
+
   Future<void> _performOrderMatchCheck() async {
     await _orderMatchManager.performCheck(_onOrderMatchResultUpdated);
   }
@@ -1076,6 +1114,10 @@ class _OrderPageState extends State<OrderPage> {
                                 flex: 6,
                                 child: CategorySidebarWidget(
                                   categories: categories,
+                                  isAdminMode: _isAdminMode,
+                                  onManageKitchenSplit: _isAdminMode
+                                      ? _showManageKitchenSplitDialog
+                                      : null,
                                   onCategoryTap: (category) {
                                     if (category == null) {
                                       setState(() {
@@ -1227,19 +1269,31 @@ class _OrderPageState extends State<OrderPage> {
                     isQuickSearchActive: _searchInputFocusNode.hasFocus,
                     orderLabel: _hasSelectedTable
                         ? 'confirm'.tr.toUpperCase()
-                        : (orderedProducts.isEmpty && !_hasSelectedOnlineOrder
-                            ? 'ADD ORDER'
-                            : 'ORDER'),
+                        : (_hasSelectedOnlineOrder
+                            ? (_selectedOnlineOrder!.isPaid
+                                ? 'UPDATE'
+                                : 'CHECKOUT')
+                            : (orderedProducts.isEmpty
+                                ? 'ADD ORDER'
+                                : 'ORDER')),
                     orderIcon: _hasSelectedTable
                         ? Icons.check_circle_outline
-                        : (orderedProducts.isEmpty && !_hasSelectedOnlineOrder
-                            ? Icons.playlist_add
-                            : Icons.shopping_cart),
+                        : (_hasSelectedOnlineOrder
+                            ? (_selectedOnlineOrder!.isPaid
+                                ? Icons.sync_alt
+                                : Icons.payment)
+                            : (orderedProducts.isEmpty
+                                ? Icons.playlist_add
+                                : Icons.shopping_cart)),
                     orderColor: _hasSelectedTable
                         ? Colors.amber[800]!
-                        : (orderedProducts.isEmpty && !_hasSelectedOnlineOrder
-                            ? Colors.blueGrey
-                            : Colors.green),
+                        : (_hasSelectedOnlineOrder
+                            ? (_selectedOnlineOrder!.isPaid
+                                ? Colors.teal[700]!
+                                : Colors.deepOrange)
+                            : (orderedProducts.isEmpty
+                                ? Colors.blueGrey
+                                : Colors.green)),
                     onSelectQuickInput: () async {
                       if (_quickInputManager.hasInput) {
                         _keepSearchFocusOnNextBlur = true;
@@ -1256,6 +1310,108 @@ class _OrderPageState extends State<OrderPage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ManualOptionPriceDialog extends StatefulWidget {
+  final String optionName;
+
+  const _ManualOptionPriceDialog({required this.optionName});
+
+  @override
+  State<_ManualOptionPriceDialog> createState() =>
+      __ManualOptionPriceDialogState();
+}
+
+class __ManualOptionPriceDialogState extends State<_ManualOptionPriceDialog> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: '0');
+    _focusNode = FocusNode();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _focusNode.requestFocus();
+        _controller.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: _controller.text.length,
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final price = double.tryParse(_controller.text.trim()) ?? 0.0;
+    Navigator.of(context).pop(price < 0 ? 0.0 : price);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      title: Row(
+        children: [
+          const Icon(Icons.edit_note, color: Colors.purple),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '手写选项加价金额: "${widget.optionName}"',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Extra Price / 额外加价金额 (\$):',
+              style: TextStyle(fontSize: 13)),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _controller,
+            focusNode: _focusNode,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+            autofocus: true,
+            decoration: const InputDecoration(
+              prefixText: '\$ ',
+              border: OutlineInputBorder(),
+              hintText: '0.00',
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+            onSubmitted: (_) => _submit(),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(null),
+          child: const Text('Cancel / 取消'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.purple,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: _submit,
+          child: const Text('Confirm / 确定'),
+        ),
+      ],
     );
   }
 }
