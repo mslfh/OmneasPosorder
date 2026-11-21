@@ -360,7 +360,7 @@ class OrderService {
     return await _databaseService.getOrderLogs(orderId);
   }
 
-  /// 完成在线订单结账
+  /// 完成在线/暂存订单结账
   Future<void> completeOnlineOrderCheckout({
     required OrderModel order,
     required List<Map<String, dynamic>> items,
@@ -375,8 +375,7 @@ class OrderService {
     required double cashChange,
     required double voucherAmount,
     required bool itemsChanged,
-  })
-  async {
+  }) async {
     final updatedOrder = order.copyWith(
       items: jsonEncode(items),
       totalAmount: totalAmount,
@@ -397,23 +396,45 @@ class OrderService {
     // 1. 本地落盘更新 (离线优先，避免网络异常导致本地改单丢失)
     await _databaseService.updateOrder(updatedOrder);
 
-    // 2. 菜品发生变更 (itemsChanged == true) 时通过 syncTerminalOrderChanges 覆盖更新菜品明细、总额与结账状态；
-    //    菜品未变动时通过 complete-order-by-terminal 结账完成（二选一，避免重复调用导致后端抛 500 冲突）
-    try {
-      if (itemsChanged) {
-        await _syncService.syncTerminalOrderChanges(updatedOrder, overrideItems: items);
-      } else {
-        await _syncService.completeOrderByTerminal(updatedOrder, overrideItems: items);
+    // 2. 根据系统设置决定是否推送到后端
+    final settingsService = SettingsService();
+    await settingsService.initialize();
+    final settings = settingsService.getSettings();
+
+    if (settings.enableAutoSync) {
+      try {
+        if (!order.isOnlineOrder && order.remoteOrderId == null) {
+          // 本地添加的 staging order 结账：调用 pushOrderToRemote 推送到后端
+          await _syncService.pushOrderToRemote(updatedOrder.id);
+        } else if (itemsChanged) {
+          await _syncService.syncTerminalOrderChanges(updatedOrder, overrideItems: items);
+        } else {
+          await _syncService.completeOrderByTerminal(updatedOrder, overrideItems: items);
+        }
+      } catch (e) {
+        _logger.w('订单结账同步发包至后端异常 (已落地本地数据库，将等待自动重试): $e');
       }
-    } catch (e) {
-      _logger.w('修改订单发包至后端异常 (已落地本地数据库，将等待自动重试): $e');
+    } else {
+      // 自动同步关闭：标记为已跳过同步
+      await _databaseService.updateOrder(
+        updatedOrder.copyWith(syncStatus: SyncStatus.skipped),
+      );
+      await _databaseService.insertLog(LogModel(
+        orderId: order.id,
+        action: 'sync',
+        status: 'skipped',
+        message: 'Auto sync disabled, marked as skipped',
+        timestamp: DateTime.now(),
+      ));
     }
 
     await _databaseService.insertLog(LogModel(
       orderId: order.id,
       action: 'checkout',
       status: 'success',
-      message: itemsChanged ? '在线订单已完成并同步更新到服务器' : '在线订单已完成',
+      message: (!order.isOnlineOrder && order.remoteOrderId == null)
+          ? '本地暂存订单结账完成'
+          : (itemsChanged ? '在线订单已完成并同步更新到服务器' : '在线订单已完成'),
       timestamp: DateTime.now(),
     ));
   }

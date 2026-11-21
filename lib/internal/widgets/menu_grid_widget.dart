@@ -633,9 +633,9 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
         ],
       ),
       child: Card(
-        elevation: isSelectedInEdit ? 6 : 2,
+        elevation: isSelectedInEdit ? 6 : 1,
         margin: EdgeInsets.zero,
-        shadowColor: isSelectedInEdit ? Colors.blue : Colors.grey[300],
+        shadowColor: isSelectedInEdit ? Colors.blue : Colors.grey[200],
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8),
           side: BorderSide(
@@ -643,17 +643,11 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
             width: isSelectedInEdit ? 2.5 : 1,
           ),
         ),
+        color: backgroundColor,
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(8),
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                backgroundColor,
-                backgroundColor.withOpacity(0.85),
-              ],
-            ),
+            color: backgroundColor,
           ),
           child: Stack(
             children: [
@@ -722,8 +716,8 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                             item.title,
                             style: TextStyle(
                               fontSize: dynamicTitleFontSize,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF0F172A),
                               height: 1.15,
                             ),
                             textAlign: TextAlign.center,
@@ -736,8 +730,8 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                               item.acronym!.trim(),
                               style: TextStyle(
                                 fontSize: dynamicAcronymFontSize,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey[700],
+                                fontWeight: FontWeight.bold,
+                                color: const Color(0xFF1E293B),
                                 height: 1.1,
                               ),
                               textAlign: TextAlign.center,
@@ -759,8 +753,8 @@ class _MenuGridWidgetState extends State<MenuGridWidget> {
                   item.code.length > 5 ? item.code.substring(0, 5) : item.code,
                   style: TextStyle(
                     fontSize: dynamicCodeFontSize,
-                    color: Colors.grey[700],
-                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF334155),
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),

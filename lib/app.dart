@@ -32,7 +32,7 @@ class OmneasApp extends StatelessWidget {
               seedColor: const Color(0xFF2563EB),
               surface: const Color(0xFFF5F7FA),
             ),
-            cardTheme: CardTheme(
+            cardTheme: CardThemeData(
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
@@ -40,7 +40,7 @@ class OmneasApp extends StatelessWidget {
               color: Colors.white,
             ),
           ),
-          home: InternalApp(),
+          home: const InternalApp(),
         );
       },
     );

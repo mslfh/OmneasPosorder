@@ -1593,13 +1593,13 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                       size: 16),
                                   const SizedBox(width: 4),
                                   Text(
-                                    hasOnlineOrder
-                                        ? (onlineOrderItemsChanged
-                                            ? 'Server updated, completing order'
-                                            : 'Server update not needed')
-                                        : (settings.enableAutoSync
-                                            ? 'Syncing to server'
-                                            : 'Sync skipped'),
+                                    settings.enableAutoSync
+                                        ? (hasOnlineOrder
+                                            ? (onlineOrderItemsChanged
+                                                ? 'Server updated, completing order'
+                                                : 'Completing order on server')
+                                            : 'Syncing to server')
+                                        : 'Sync skipped',
                                     style: TextStyle(
                                         color: settings.enableAutoSync
                                             ? Colors.deepOrangeAccent
@@ -2027,6 +2027,20 @@ class _CheckoutPageState extends State<CheckoutPage> {
       // 如果是最后一笔支付，且开启了自动同步，则推送同步主订单
       if (settings.enableAutoSync) {
         await orderService.retrySyncOrderToRemote(masterId);
+      } else {
+        final existing = await databaseService.getOrder(masterId);
+        if (existing != null) {
+          await databaseService.updateOrder(
+            existing.copyWith(syncStatus: SyncStatus.skipped),
+          );
+          await databaseService.insertLog(LogModel(
+            orderId: masterId,
+            action: 'sync',
+            status: 'skipped',
+            message: 'Auto sync disabled, marked as skipped',
+            timestamp: DateTime.now(),
+          ));
+        }
       }
 
       // 所有账单结算完成，显示最终成功弹窗

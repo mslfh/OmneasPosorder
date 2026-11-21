@@ -1066,13 +1066,33 @@ class _OrderPageState extends State<OrderPage> {
             segments: [
               ButtonSegment<String>(
                 value: 'takeaway',
-                label: Text('takeaway'.tr),
-                icon: const Icon(Icons.takeout_dining, size: 14),
+                label: Text(
+                  'takeaway'.tr,
+                  style: TextStyle(
+                    color: _orderType == 'takeaway' ? Colors.orange[900] : Colors.grey[700],
+                    fontWeight: _orderType == 'takeaway' ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+                icon: Icon(
+                  Icons.takeout_dining,
+                  size: 16,
+                  color: _orderType == 'takeaway' ? Colors.orange[900] : Colors.grey[600],
+                ),
               ),
               ButtonSegment<String>(
                 value: 'dinein',
-                label: Text('dine_in'.tr),
-                icon: const Icon(Icons.restaurant, size: 14),
+                label: Text(
+                  'dine_in'.tr,
+                  style: TextStyle(
+                    color: _orderType == 'dinein' ? Colors.blue[800] : Colors.grey[700],
+                    fontWeight: _orderType == 'dinein' ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+                icon: Icon(
+                  Icons.restaurant,
+                  size: 16,
+                  color: _orderType == 'dinein' ? Colors.blue[800] : Colors.grey[600],
+                ),
               ),
             ],
             selected: {_orderType},
@@ -1081,9 +1101,17 @@ class _OrderPageState extends State<OrderPage> {
                 _orderType = selection.first;
               });
             },
-            style: const ButtonStyle(
+            style: ButtonStyle(
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               visualDensity: VisualDensity.compact,
+              backgroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return _orderType == 'takeaway'
+                      ? Colors.orange.shade50
+                      : Colors.blue.shade50;
+                }
+                return null;
+              }),
             ),
           ),
           Expanded(
@@ -1326,7 +1354,9 @@ class _OrderPageState extends State<OrderPage> {
               return Column(
                 children: [
                   _buildSelectedTableBanner(),
+                  //顶部展示区
                   _buildOrderTypeAndShareSelector(),
+                  // 已点菜品区
                   OrderedProductListWidget(
                     orderedProducts: orderedProducts,
                     selectedOrderedProduct: selectedOrderedProduct,

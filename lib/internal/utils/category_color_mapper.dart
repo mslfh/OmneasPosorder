@@ -121,22 +121,98 @@ class CategoryColorMapper {
     return Colors.white;
   }
 
-  /// 获取浅色版本（用于背景）
-  static Color getCategoryBackgroundColor(List<int> categoryIds, List<Category> allCategories) {
-    final baseColor = getCategoryColor(categoryIds, allCategories);
+  /// 预设默认背景调色板 (Material 100 鲜明高识别度调色，比 50 色阶稍微加深)
+  static const List<Color> defaultBackgroundPalette = [
+    Color(0xFFBBDEFB), // 清澈天蓝 100
+    Color(0xFFFFE0B2), // 暖亮黄橙 100
+    Color(0xFFB2DFDB), // 鲜亮青绿 100
+    Color(0xFFE1BEE7), // 柔紫 100
+    Color(0xFFFFECB3), // 明黄 100
+    Color(0xFFF8BBD0), // 浅粉 100
+    Color(0xFFC5CAE9), // 靛蓝 100
+    Color(0xFFB2EBF2), // 青蓝 100
+    Color(0xFFFFCCBC), // 橘红 100
+    Color(0xFFF0F4C3), // 嫩绿 100
+    Color(0xFFC8E6C9), // 鲜绿 100
+    Color(0xFFE2E8F0), // 干净浅灰
+  ];
+
+  /// 预设默认边框调色板 (Material 300 纯正线条，配合 100 背景更清晰)
+  static const List<Color> defaultBorderPalette = [
+    Color(0xFF64B5F6), // 蓝边框
+    Color(0xFFFFB74D), // 橙边框
+    Color(0xFF4DB6AC), // 青边框
+    Color(0xFFBA68C8), // 紫边框
+    Color(0xFFFFD54F), // 黄边框
+    Color(0xFFF06292), // 粉边框
+    Color(0xFF7986CB), // 靛蓝边框
+    Color(0xFF4DD0E1), // 青蓝边框
+    Color(0xFFFF8A65), // 橘红边框
+    Color(0xFFDCE775), // 嫩绿边框
+    Color(0xFF81C784), // 鲜绿边框
+    Color(0xFF94A3B8), // 浅灰边框
+  ];
+
+  /// 将自定义基础颜色转换为高纯度背景色（适度加深亮度与对比度）
+  static Color _toPureCrispColor(Color baseColor) {
     if (baseColor == Colors.white) {
-      return Colors.grey[50]!;
+      return const Color(0xFFE2E8F0);
     }
-    return baseColor.withOpacity(0.12);
+    final hsl = HSLColor.fromColor(baseColor);
+    final newSat = (hsl.saturation).clamp(0.65, 1.0);
+    const newLight = 0.82;
+    return hsl.withSaturation(newSat).withLightness(newLight).toColor();
   }
 
-  /// 获取深色版本（用于边框）
-  static Color getCategoryBorderColor(List<int> categoryIds, List<Category> allCategories) {
-    final baseColor = getCategoryColor(categoryIds, allCategories);
-    if (baseColor == Colors.white) {
-      return Colors.grey[200]!;
+  /// 获取分类背景纯色
+  static Color getCategoryBackgroundColor(List<int> categoryIds, List<Category> allCategories) {
+    if (categoryIds.isEmpty) {
+      return const Color(0xFFE2E8F0);
     }
-    return baseColor.withOpacity(0.35);
+
+    for (int categoryId in categoryIds) {
+      final category = allCategories.firstWhere(
+        (cat) => cat.id == categoryId,
+        orElse: () => Category(id: -1, title: ''),
+      );
+
+      if (category.id != -1) {
+        if (hasCustomColor(category.id)) {
+          final customColor = getColorForCategoryId(category.id, allCategories: allCategories);
+          return _toPureCrispColor(customColor);
+        }
+        final index = category.id.abs() % defaultBackgroundPalette.length;
+        return defaultBackgroundPalette[index];
+      }
+    }
+
+    return const Color(0xFFE2E8F0);
+  }
+
+  /// 获取干净清爽的边框颜色
+  static Color getCategoryBorderColor(List<int> categoryIds, List<Category> allCategories) {
+    if (categoryIds.isEmpty) {
+      return const Color(0xFFCBD5E1);
+    }
+
+    for (int categoryId in categoryIds) {
+      final category = allCategories.firstWhere(
+        (cat) => cat.id == categoryId,
+        orElse: () => Category(id: -1, title: ''),
+      );
+
+      if (category.id != -1) {
+        if (hasCustomColor(category.id)) {
+          final customColor = getColorForCategoryId(category.id, allCategories: allCategories);
+          final hsl = HSLColor.fromColor(customColor);
+          return hsl.withSaturation(hsl.saturation.clamp(0.60, 1.0)).withLightness(0.68).toColor();
+        }
+        final index = category.id.abs() % defaultBorderPalette.length;
+        return defaultBorderPalette[index];
+      }
+    }
+
+    return const Color(0xFFCBD5E1);
   }
 
   /// 设置分类自定义颜色（传入 null 则恢复默认）
