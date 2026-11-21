@@ -7,6 +7,7 @@ class QuickInputManager {
   List<dynamic> _searchResults = []; // 可能是 MenuItem 或 MenuOption
   int _highlightedIndex = 0;
   bool _isSearchingOptions = false; // 标记当前是否在搜索选项
+  bool? _forcedPreferOptions; // 手动强制优先选项：true 为优先选项，false 为优先菜品，null 为默认
 
   String get input => _input;
   List<dynamic> get searchResults => _searchResults;
@@ -33,9 +34,18 @@ class QuickInputManager {
       return false;
     }
 
-    // 检查是否是字母
-    if (keyLabel.length == 1 && RegExp(r'^[a-zA-Z]$').hasMatch(keyLabel)) {
-      _input += keyLabel.toUpperCase();
+    // 检查是否是字母或逗号、句号
+    if (keyLabel.length == 1 && RegExp(r'^[a-zA-Z,\.，。]$').hasMatch(keyLabel)) {
+      if (RegExp(r'^[,\.，。]$').hasMatch(keyLabel)) {
+        // 更新强制优先模式，不拼接到输入框。二次输入相同符号则进行反转切换
+        if (keyLabel == ',' || keyLabel == '，') {
+          _forcedPreferOptions = _forcedPreferOptions == true ? false : true;
+        } else if (keyLabel == '.' || keyLabel == '。') {
+          _forcedPreferOptions = _forcedPreferOptions == false ? true : false;
+        }
+      } else {
+        _input += keyLabel.toUpperCase();
+      }
       _performSearch(allProducts, allOptions: allOptions, preferOptions: preferOptions);
       _highlightedIndex = 0;
       return true;
@@ -49,11 +59,21 @@ class QuickInputManager {
       return true;
     }
 
-    // 检查是否是中文输入
+    // 检查是否是中文输入或标点
     if (event.character != null &&
         event.character!.length == 1 &&
-        RegExp(r'[\u4e00-\u9fa5]').hasMatch(event.character!)) {
-      _input += event.character!;
+        RegExp(r'[\u4e00-\u9fa5,\.，。]').hasMatch(event.character!)) {
+      
+      if (RegExp(r'^[,\.，。]$').hasMatch(event.character!)) {
+        if (event.character == ',' || event.character == '，') {
+          _forcedPreferOptions = _forcedPreferOptions == true ? false : true;
+        } else if (event.character == '.' || event.character == '。') {
+          _forcedPreferOptions = _forcedPreferOptions == false ? true : false;
+        }
+      } else {
+        _input += event.character!;
+      }
+      
       _performSearch(allProducts, allOptions: allOptions, preferOptions: preferOptions);
       _highlightedIndex = 0;
       return true;
@@ -130,12 +150,15 @@ class QuickInputManager {
       return;
     }
 
+    // Determine priority mode based on the forced flag, fallback to default false (优先菜品)
+    bool currentPreferOptions = _forcedPreferOptions ?? false;
+
     final lowerInput = trimmedInput.toLowerCase();
 
     List<MenuItem> matchedProducts = [];
     List<MenuOption> matchedOptions = [];
 
-    if (preferOptions && allOptions != null) {
+    if (currentPreferOptions && allOptions != null) {
       matchedOptions = _searchOptions(allOptions, lowerInput);
       matchedProducts = _searchProducts(allProducts, lowerInput);
     } else {
@@ -145,14 +168,19 @@ class QuickInputManager {
 
     final manualOption = MenuOption(
       id: 0,
-      name: trimmedInput,
+      name: trimmedInput, // 过滤掉,和.的输入词
       type: 'manual',
       extraCost: 0.0,
     );
 
     if (matchedProducts.isNotEmpty && matchedOptions.isNotEmpty) {
-      _searchResults = [...matchedProducts, ...matchedOptions, manualOption];
-      _isSearchingOptions = false;
+      if (currentPreferOptions) {
+        _searchResults = [...matchedOptions, ...matchedProducts, manualOption];
+        _isSearchingOptions = true;
+      } else {
+        _searchResults = [...matchedProducts, ...matchedOptions, manualOption];
+        _isSearchingOptions = false;
+      }
     } else if (matchedProducts.isNotEmpty) {
       _searchResults = [...matchedProducts, manualOption];
       _isSearchingOptions = false;
@@ -161,7 +189,7 @@ class QuickInputManager {
       _isSearchingOptions = true;
     } else {
       _searchResults = [manualOption];
-      _isSearchingOptions = true;
+      _isSearchingOptions = currentPreferOptions;
     }
 
     _highlightedIndex = 0;
@@ -309,6 +337,7 @@ class QuickInputManager {
     _searchResults.clear();
     _highlightedIndex = 0;
     _isSearchingOptions = false;
+    _forcedPreferOptions = null;
   }
 
   // 添加字符（用于外部调用）

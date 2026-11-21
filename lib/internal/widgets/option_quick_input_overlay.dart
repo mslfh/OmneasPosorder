@@ -101,8 +101,8 @@ class _OptionQuickInputOverlayState extends State<OptionQuickInputOverlay> {
             widget.onBackspace();
             return;
           }
-          // 字母/数字/中文输入
-          if (event.character != null && event.character!.isNotEmpty && RegExp(r'[a-zA-Z0-9\u4e00-\u9fa5]').hasMatch(event.character!)) {
+          // 字母/数字/中文输入/逗号/句号
+          if (event.character != null && event.character!.isNotEmpty && RegExp(r'[a-zA-Z0-9\u4e00-\u9fa5,\.，。]').hasMatch(event.character!)) {
             widget.onInputChar(event.character!);
             return;
           }

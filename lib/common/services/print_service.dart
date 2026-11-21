@@ -1091,11 +1091,9 @@ class PrintService {
     // 4. Footer
     builder.alignLeft();
     for (String line in parsed['footer'] ?? []) {
-      if (line.contains('TOTAL ITEMS') || line.contains('餐品总数')) {
-        builder.setBold(true).setFontSize(width: 1, height: 2).addLine(line).resetFontSize().setBold(false);
-      } else {
-        builder.addLine(line);
-      }
+
+        builder.setBold(true).setFontSize(width: 1, height: 1).addLine(line).resetFontSize().setBold(false);
+
     }
 
     builder.cutPaper(feed: 4);
@@ -1711,11 +1709,11 @@ class PrintService {
     if (order.type != null) {
       final t = order.type!.toLowerCase();
       if (t.contains('takeaway') || t.contains('take_away')) {
-        displayType = 'TAKE AWAY (外带)';
+        displayType = 'TAKE AWAY';
       } else if (t.contains('noshare') || t.contains('no_share')) {
-        displayType = 'DINE IN [NO SHARE / 不分餐]';
+        displayType = 'DINE IN [NO SHARE]';
       } else if (t.contains('share')) {
-        displayType = 'DINE IN [SHARE / 合餐]';
+        displayType = 'DINE IN [SHARE]';
       } else {
         displayType = 'DINE IN';
       }
@@ -1770,7 +1768,7 @@ class PrintService {
     }
     content.writeln("------------------------");
     content.writeln('[FOOTER]');
-    content.writeln("TOTAL ITEMS (餐品总数): $totalItemCount");
+    content.writeln("TOTAL: $totalItemCount");
     content.writeln("Order Time: ${_formatDateTime(order.orderTime)}");
     return content.toString();
   }
@@ -1941,8 +1939,8 @@ class PrintService {
   }
 
   String _formatDateTime(DateTime dateTime) {
-    return '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} '
-        '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}:${dateTime.second.toString().padLeft(2, '0')}';
+    return '${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} '
+        '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 
   String _formatTimeOnly(DateTime dateTime) {

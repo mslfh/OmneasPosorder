@@ -43,7 +43,7 @@ dependencies:
   hive_flutter: ^1.1.0
   # SQLite 数据库
   sqflite: ^2.3.0
-  sqflite_common_ffi: ^2.3.0+4
+  sqflite_common_ffi: ^2.4.0
   path: ^1.8.3
   # UUID 生成
   uuid: ^4.1.0
