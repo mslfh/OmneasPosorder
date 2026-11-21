@@ -13,6 +13,7 @@ import '../utils/type_utils.dart';
 import 'database_service.dart';
 import 'settings_service.dart';
 import 'kitchen_split_service.dart';
+import '../../internal/utils/category_priority_mapper.dart';
 
 enum ReceiptType { customer, kitchen }
 
@@ -93,15 +94,18 @@ class EscPosBuilder {
     return this;
   }
 
-  /// 7. 进纸指定行数
+  /// 7. 进纸指定行数（通过直接输出空白换行符 \r\n 实现，兼容性最好）
   EscPosBuilder feedLines(int count) {
-    _ops.add(_EscPosOp.bytes(List.filled(count, 0x0A)));
+    if (count <= 0) return this;
+    _ops.add(_EscPosOp.text('\r\n' * count));
     return this;
   }
 
   /// 8. 自动进纸并切纸
   EscPosBuilder cutPaper({int feed = 4}) {
-    feedLines(feed);
+    if (feed > 0) {
+      feedLines(feed);
+    }
     _ops.add(_EscPosOp.bytes([0x1D, 0x56, 0x01, 0x1B, 0x69]));
     return this;
   }
@@ -115,7 +119,9 @@ class EscPosBuilder {
   }
 
   EscPosBuilder addLine([String text = '']) {
-    final line = text.endsWith('\n') ? text : '$text\n';
+    final line = text.endsWith('\n') || text.endsWith('\r\n')
+        ? text
+        : '$text\r\n';
     _ops.add(_EscPosOp.text(line));
     return this;
   }
@@ -1043,19 +1049,32 @@ class PrintService {
       builder.addTitle(line);
     }
 
-    // 2. Items (左对齐/清晰加粗放大)
+    // 2. Items (左对齐/清晰加粗放大，菜品之间加一行 1x1 空行)
     builder.alignLeft();
+    bool isFirstItem = true;
     for (String line in parsed['items'] ?? []) {
-      builder.setBold(true);
-      if (line.startsWith('*') || line.startsWith('-') || line.startsWith('ψ')) {
-        builder.setFontSize(width: 2, height: 2);
+      final isOption = line.trim().startsWith('-');
+      if (!isOption) {
+        if (!isFirstItem) {
+          builder
+            .setBold(false)
+            .setFontSize(width: 1, height: 1)
+            .feedLines(1);
+        }
+        isFirstItem = false;
+        builder
+          .setBold(true)
+          .setFontSize(width: 2, height: 2)
+          .addLine(line)
+          .setBold(false)
+          .resetFontSize();
       } else {
-        builder.setFontSize(width: 1, height: 2);
+        builder
+          .setBold(false)
+          .setFontSize(width: 2, height: 2)
+          .addLine(line)
+          .resetFontSize();
       }
-      builder.addLine(line);
-      builder
-        ..setBold(false)
-        ..resetFontSize();
     }
 
     // 3. Notes
@@ -1072,7 +1091,11 @@ class PrintService {
     // 4. Footer
     builder.alignLeft();
     for (String line in parsed['footer'] ?? []) {
-      builder.addLine(line);
+      if (line.contains('TOTAL ITEMS') || line.contains('餐品总数')) {
+        builder.setBold(true).setFontSize(width: 1, height: 2).addLine(line).resetFontSize().setBold(false);
+      } else {
+        builder.addLine(line);
+      }
     }
 
     builder.cutPaper(feed: 4);
@@ -1675,6 +1698,29 @@ class PrintService {
     List items, {
     String? splitLabel,
   }) async {
+    final sortedItems = await CategoryPriorityMapper.sortItemsByPriority(items);
+
+    int totalItemCount = 0;
+    for (var item in sortedItems) {
+      if (item['is_printable'] == true) {
+        totalItemCount += NumberFormatUtils.toInt(item['quantity'], 1);
+      }
+    }
+
+    String displayType = 'DINE IN';
+    if (order.type != null) {
+      final t = order.type!.toLowerCase();
+      if (t.contains('takeaway') || t.contains('take_away')) {
+        displayType = 'TAKE AWAY (外带)';
+      } else if (t.contains('noshare') || t.contains('no_share')) {
+        displayType = 'DINE IN [NO SHARE / 不分餐]';
+      } else if (t.contains('share')) {
+        displayType = 'DINE IN [SHARE / 合餐]';
+      } else {
+        displayType = 'DINE IN';
+      }
+    }
+
     final StringBuffer content = StringBuffer();
     content.writeln('[HEADER]');
     content.writeln("------------------------------");
@@ -1685,14 +1731,13 @@ class PrintService {
     if (order.tableName != null && order.tableName!.isNotEmpty) {
       content.writeln("TABLE: ${order.tableName}");
     }
-    content.writeln((order.type ?? 'DINEIN').toUpperCase());
+    content.writeln(displayType);
     if (order.orderTime.difference(DateTime.now()).inMinutes >= 10) {
-      final typeStr = (order.type ?? 'ORDER').toUpperCase();
-      content.writeln("！！** $typeStr AT ${_formatTimeOnly(order.orderTime)} **！！");
+      content.writeln("！！** $displayType AT ${_formatTimeOnly(order.orderTime)} **！！");
     }
     content.writeln("------------------------------");
     content.writeln('[ITEMS]');
-    for (var item in items) {
+    for (var item in sortedItems) {
       bool printable = item['is_printable'] == true;
       if (!printable) continue;
       final rawName = item['name'] ?? '';
@@ -1703,7 +1748,7 @@ class PrintService {
           : rawName;
       final quantity = item['quantity'] ?? 1;
       List<String> lines = [];
-      if (order.type == 'dinein') {
+      if (order.type == 'dinein' || order.isDineIn) {
         lines.add('ψ ${name.toUpperCase()} x$quantity'.padRight(21));
       } else {
         lines.add('* ${name.toUpperCase()} x$quantity'.padRight(21));
@@ -1725,6 +1770,7 @@ class PrintService {
     }
     content.writeln("------------------------");
     content.writeln('[FOOTER]');
+    content.writeln("TOTAL ITEMS (餐品总数): $totalItemCount");
     content.writeln("Order Time: ${_formatDateTime(order.orderTime)}");
     return content.toString();
   }

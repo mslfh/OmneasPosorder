@@ -109,14 +109,14 @@ class OrderedProductListWidget extends StatelessWidget {
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         Row(
+                                          crossAxisAlignment: CrossAxisAlignment.center,
                                           children: [
                                             Expanded(
-                                              flex: 4,
                                               child: Text(
                                                 ordered.product.title,
                                                 style: TextStyle(
                                                   fontWeight: FontWeight.bold,
-                                                  fontSize: _calculateTitleFontSize(ordered.product.title, orderedCardConstraints.maxWidth * 0.7),
+                                                  fontSize: _calculateTitleFontSize(ordered.product.title, orderedCardConstraints.maxWidth * 0.55),
                                                   height: 1.1,
                                                   color: isSelected ? Colors.blue[800] : Colors.black87,
                                                 ),
@@ -124,87 +124,100 @@ class OrderedProductListWidget extends StatelessWidget {
                                                 overflow: TextOverflow.visible,
                                               ),
                                             ),
+                                            const SizedBox(width: 4),
                                             Row(
                                               mainAxisSize: MainAxisSize.min,
                                               children: [
                                                 GestureDetector(
                                                   onTap: () => onDecrease(ordered),
                                                   child: Container(
-                                                    width: 20,
-                                                    height: 20,
-                                                    margin: const EdgeInsets.only(left: 4),
+                                                    width: 22,
+                                                    height: 22,
                                                     decoration: BoxDecoration(
                                                       color: Colors.red[100],
-                                                      borderRadius: BorderRadius.circular(10),
+                                                      borderRadius: BorderRadius.circular(11),
                                                       border: Border.all(color: Colors.red[200]!, width: 0.5),
                                                     ),
                                                     child: Icon(
                                                       Icons.remove,
-                                                      size: 12,
+                                                      size: 14,
                                                       color: Colors.red[700],
                                                     ),
                                                   ),
                                                 ),
                                                 Container(
-                                                  width: 28,
+                                                  width: 30,
                                                   alignment: Alignment.center,
                                                   child: Text(
                                                     '${ordered.quantity}',
                                                     style: TextStyle(
-                                                      fontWeight: FontWeight.bold,
-                                                      fontSize: 12,
-                                                      color: Colors.blue[700],
+                                                      fontWeight: FontWeight.w900,
+                                                      fontSize: 16,
+                                                      color: Colors.blue[800],
                                                     ),
                                                   ),
                                                 ),
                                                 GestureDetector(
                                                   onTap: () => onIncrease(ordered),
                                                   child: Container(
-                                                    width: 20,
-                                                    height: 20,
+                                                    width: 22,
+                                                    height: 22,
                                                     decoration: BoxDecoration(
                                                       color: Colors.green[100],
-                                                      borderRadius: BorderRadius.circular(10),
+                                                      borderRadius: BorderRadius.circular(11),
                                                       border: Border.all(color: Colors.green[200]!, width: 0.5),
                                                     ),
                                                     child: Icon(
                                                       Icons.add,
-                                                      size: 12,
+                                                      size: 14,
                                                       color: Colors.green[700],
                                                     ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Container(
+                                                  width: 58,
+                                                  alignment: Alignment.centerRight,
+                                                  child: Text(
+                                                    '\$${ordered.product.sellingPrice.toStringAsFixed(2)}',
+                                                    style: const TextStyle(
+                                                      fontSize: 14,
+                                                      fontWeight: FontWeight.w900,
+                                                      color: Color(0xFF1B4D3E),
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
                                                   ),
                                                 ),
                                               ],
                                             ),
                                           ],
                                         ),
-                                        const SizedBox(height: 2),
-                                        Row(
-                                          children: [
-                                            Expanded(child: Container()),
-                                            Text(
-                                              '￥${ordered.product.sellingPrice.toStringAsFixed(2)}',
-                                              style: TextStyle(fontSize: 9, color: Colors.green[700]),
-                                            ),
-                                          ],
-                                        ),
                                         ...ordered.options.map((opt) {
                                           return Padding(
-                                            padding: const EdgeInsets.only(top: 1.0),
+                                            padding: const EdgeInsets.only(top: 2.0),
                                             child: Row(
                                               children: [
                                                 Expanded(
                                                   child: Text(
                                                     ' - ${opt.option.name}',
-                                                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[600]),
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: Colors.grey[700],
+                                                    ),
                                                     overflow: TextOverflow.ellipsis,
                                                     maxLines: 1,
                                                   ),
                                                 ),
                                                 if (opt.option.extraCost > 0)
                                                   Text(
-                                                    '+\$ ${opt.option.extraCost.toStringAsFixed(2)}',
-                                                    style: const TextStyle(fontSize: 8, color: Colors.red),
+                                                    '+\$${opt.option.extraCost.toStringAsFixed(2)}',
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: Colors.red[700],
+                                                    ),
                                                   ),
                                               ],
                                             ),

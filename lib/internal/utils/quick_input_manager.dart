@@ -183,24 +183,96 @@ class QuickInputManager {
     return true;
   }
 
-  // 搜索商品
-  List<MenuItem> _searchProducts(List<MenuItem> allProducts, String lowerInput) {
-    // 优先匹配acronym前缀，兼容acronym为null
-    final acronymMatches = allProducts.where((product) =>
-      (product.acronym ?? '').toLowerCase().startsWith(lowerInput)
-    ).toList();
+  /// 计算字符匹配度分数（分数越高表示匹配度越高、字符占比越高）
+  double _calculateMatchScore(String rawText, String rawInput) {
+    if (rawText.isEmpty || rawInput.isEmpty) return 0.0;
 
-    if (acronymMatches.isNotEmpty) {
-      return acronymMatches;
+    final text = rawText.toLowerCase();
+    final input = rawInput.toLowerCase();
+
+    // 1. 完全前缀匹配：给予最高基础分，字符占比越高（文本越短）得分越高
+    if (text.startsWith(input)) {
+      final ratio = input.length / text.length;
+      return 300.0 + ratio * 100.0;
     }
 
-    // 使用字符顺序匹配 - 对title和code进行匹配
-    final charSequenceMatches = allProducts.where((product) =>
-      _matchesCharacterSequence(product.title, lowerInput) ||
-      _matchesCharacterSequence(product.code, lowerInput)
-    ).toList();
+    // 2. 连续包含匹配：字符占比越高得分越高
+    if (text.contains(input)) {
+      final ratio = input.length / text.length;
+      return 200.0 + ratio * 100.0;
+    }
 
-    return charSequenceMatches;
+    // 3. 字符顺序匹配：计算匹配跨度与字符占比
+    int firstIndex = -1;
+    int lastIndex = -1;
+    int textIndex = 0;
+
+    for (final char in input.split('')) {
+      final foundIndex = text.indexOf(char, textIndex);
+      if (foundIndex == -1) {
+        return 0.0;
+      }
+      if (firstIndex == -1) firstIndex = foundIndex;
+      lastIndex = foundIndex;
+      textIndex = foundIndex + 1;
+    }
+
+    final span = lastIndex - firstIndex + 1;
+    final lengthRatio = input.length / text.length;
+    final spanRatio = input.length / span;
+    final compositeRatio = lengthRatio * 0.6 + spanRatio * 0.4;
+
+    return 100.0 + compositeRatio * 100.0;
+  }
+
+  // 搜索商品
+  List<MenuItem> _searchProducts(List<MenuItem> allProducts, String lowerInput) {
+    final List<MenuItem> codeMatches = [];
+    final List<MenuItem> acronymMatches = [];
+    final List<MenuItem> titleMatches = [];
+
+    for (final product in allProducts) {
+      final code = product.code;
+      final acronym = product.acronym ?? '';
+      final title = product.title;
+
+      // 1. 优先匹配 code
+      if (code.isNotEmpty && _matchesCharacterSequence(code, lowerInput)) {
+        codeMatches.add(product);
+      }
+      // 2. 其次优先匹配 acronym
+      else if (acronym.isNotEmpty && _matchesCharacterSequence(acronym, lowerInput)) {
+        acronymMatches.add(product);
+      }
+      // 3. 最后按照 title 字符匹配
+      else if (title.isNotEmpty && _matchesCharacterSequence(title, lowerInput)) {
+        titleMatches.add(product);
+      }
+    }
+
+    // 排序逻辑：优先使用 sort 字段排序，sort 相同时按字符匹配度（字符占比/跨度）降序排序
+    int compareProducts(MenuItem a, MenuItem b, String Function(MenuItem) textGetter) {
+      // 1. 优先使用 sort 字段升序
+      final cmpSort = a.sort.compareTo(b.sort);
+      if (cmpSort != 0) return cmpSort;
+
+      // 2. sort 相同时，按字符匹配度降序（字符占比更高、更紧密的在前）
+      final aText = textGetter(a);
+      final bText = textGetter(b);
+      final aScore = _calculateMatchScore(aText, lowerInput);
+      final bScore = _calculateMatchScore(bText, lowerInput);
+      final cmpScore = bScore.compareTo(aScore);
+      if (cmpScore != 0) return cmpScore;
+
+      // 3. 匹配度相同时，按文本字典序升序
+      return aText.toLowerCase().compareTo(bText.toLowerCase());
+    }
+
+    codeMatches.sort((a, b) => compareProducts(a, b, (item) => item.code));
+    acronymMatches.sort((a, b) => compareProducts(a, b, (item) => item.acronym ?? ''));
+    titleMatches.sort((a, b) => compareProducts(a, b, (item) => item.title));
+
+    return [...codeMatches, ...acronymMatches, ...titleMatches];
   }
 
   // 搜索选项

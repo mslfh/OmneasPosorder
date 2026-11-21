@@ -6,6 +6,7 @@ import 'background_task_manager.dart';
 import 'settings_service.dart';
 import 'api_service.dart';
 import '../../internal/services/menu_data_service.dart';
+import '../../internal/utils/category_color_mapper.dart';
 
 class AppInitializationService {
   static final Logger _logger = Logger();
@@ -93,6 +94,9 @@ class AppInitializationService {
       // 初始化设置服务（内部会自动将配置应用到 SyncService, PrintService, ApiService）
       final settingsService = SettingsService();
       await settingsService.initialize();
+
+      // 加载自定义分类颜色配置
+      await CategoryColorMapper.loadCustomColors();
 
       _logger.i('数据库及设置初始化完成');
     } catch (e) {

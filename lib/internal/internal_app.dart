@@ -251,7 +251,7 @@ class _InternalAppState extends State<InternalApp> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('修改管理员密码'),
+        title: Text('change_admin_pwd'.tr),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -259,26 +259,26 @@ class _InternalAppState extends State<InternalApp> {
               TextField(
                 controller: oldPasswordController,
                 decoration: InputDecoration(
-                  labelText: '当前密码',
-                  border: OutlineInputBorder(),
+                  labelText: 'current_pwd'.tr,
+                  border: const OutlineInputBorder(),
                 ),
                 obscureText: true,
               ),
-              SizedBox(height: 16),
+              const SizedBox(height: 16),
               TextField(
                 controller: newPasswordController,
                 decoration: InputDecoration(
-                  labelText: '新密码',
-                  border: OutlineInputBorder(),
+                  labelText: 'new_pwd'.tr,
+                  border: const OutlineInputBorder(),
                 ),
                 obscureText: true,
               ),
-              SizedBox(height: 16),
+              const SizedBox(height: 16),
               TextField(
                 controller: confirmPasswordController,
                 decoration: InputDecoration(
-                  labelText: '确认新密码',
-                  border: OutlineInputBorder(),
+                  labelText: 'confirm_new_pwd'.tr,
+                  border: const OutlineInputBorder(),
                 ),
                 obscureText: true,
               ),
@@ -288,7 +288,7 @@ class _InternalAppState extends State<InternalApp> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('取消'),
+            child: Text('cancel'.tr),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -298,14 +298,14 @@ class _InternalAppState extends State<InternalApp> {
 
               if (newPassword.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('新密码不能为空')),
+                  SnackBar(content: Text('new_pwd_empty'.tr)),
                 );
                 return;
               }
 
               if (newPassword != confirmPassword) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('两次输入的密码不一致')),
+                  SnackBar(content: Text('pwd_mismatch'.tr)),
                 );
                 return;
               }
@@ -320,20 +320,20 @@ class _InternalAppState extends State<InternalApp> {
               if (success) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('密码修改成功'),
+                    content: Text('pwd_change_success'.tr),
                     backgroundColor: Colors.green,
                   ),
                 );
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('旧密码错误'),
+                    content: Text('old_pwd_incorrect'.tr),
                     backgroundColor: Colors.red,
                   ),
                 );
               }
             },
-            child: Text('修改'),
+            child: Text('edit'.tr),
           ),
         ],
       ),
@@ -345,12 +345,12 @@ class _InternalAppState extends State<InternalApp> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('退出管理模式'),
-        content: Text('确认要退出管理模式吗？'),
+        title: Text('exit_admin'.tr),
+        content: Text('exit_admin_confirm_msg'.tr),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('取消'),
+            child: Text('cancel'.tr),
           ),
           ElevatedButton(
             onPressed: () {
@@ -359,10 +359,10 @@ class _InternalAppState extends State<InternalApp> {
                 _isAdminMode = false;
               });
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('已退出管理模式')),
+                SnackBar(content: Text('exited_admin_mode'.tr)),
               );
             },
-            child: Text('确认'),
+            child: Text('confirm'.tr),
           ),
         ],
       ),

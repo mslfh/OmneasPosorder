@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../common/models/dining_table.dart';
 import '../../common/models/order_model.dart';
+import '../../common/services/language_service.dart';
 import '../utils/order_selected.dart';
 
 class SelectedTableBannerWidget extends StatelessWidget {
@@ -36,7 +37,7 @@ class SelectedTableBannerWidget extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              '已关联桌台：${currentTable.name}  ${isTableOrderExisting ? "[堂食坐台单]" : "[开台点餐]"}',
+              '${'linked_table'.tr}: ${currentTable.name}  ${isTableOrderExisting ? "[${'dine_in_table_order'.tr}]" : "[${'open_table_order'.tr}]"}',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 14,
@@ -52,7 +53,7 @@ class SelectedTableBannerWidget extends StatelessWidget {
               minimumSize: Size.zero,
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
-            child: const Text('换桌', style: TextStyle(fontSize: 12)),
+            child: Text('change_table'.tr, style: const TextStyle(fontSize: 12)),
           ),
           const SizedBox(width: 8),
           IconButton(
@@ -85,7 +86,7 @@ class SelectedOnlineOrderBannerWidget extends StatelessWidget {
 
     final isPaid = currentOrder.isPaid;
     final badgeColor = isPaid ? Colors.green : Colors.deepOrange;
-    final badgeText = isPaid ? '已支付' : '未支付 (到店付)';
+    final badgeText = isPaid ? 'paid'.tr : 'unpaid'.tr;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(2, 2, 2, 2),
@@ -105,7 +106,7 @@ class SelectedOnlineOrderBannerWidget extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              '已关联在线订单：Online #${currentOrder.orderNo}',
+              '${'linked_online_order'.tr}: Online #${currentOrder.orderNo}',
               style: const TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 14,
@@ -132,7 +133,7 @@ class SelectedOnlineOrderBannerWidget extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Text(
-            '${originalProducts.length} 项菜品',
+            '${originalProducts.length} ${'items'.tr}',
             style: TextStyle(color: Colors.grey[700], fontSize: 12),
           ),
         ],

@@ -346,7 +346,7 @@ class _ReportPageState extends State<ReportPage> {
             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
             child: ElevatedButton.icon(
               icon: const Icon(Icons.assignment_turned_in, size: 16),
-              label: const Text('日终结算 (Z-Report)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              label: Text('daily_settlement'.tr, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.indigo,
                 foregroundColor: Colors.white,
@@ -459,9 +459,9 @@ class _ReportPageState extends State<ReportPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Sales Overview',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Text(
+              'sales_overview'.tr,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             GridView.count(
@@ -513,9 +513,9 @@ class _ReportPageState extends State<ReportPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Payment & Cashier Breakdown (银收统计)',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Text(
+              'payment_breakdown'.tr,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             Row(
@@ -581,16 +581,16 @@ class _ReportPageState extends State<ReportPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Order Type Breakdown (用餐类型)',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Text(
+              'order_type_breakdown'.tr,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             Row(
               children: [
                 Expanded(
                   child: _buildStatItem(
-                    title: 'Dine In (堂食)',
+                    title: 'table_order'.tr,
                     value: '${stats.dineInOrders} orders\n\$${stats.dineInRevenue.toStringAsFixed(2)}',
                     icon: Icons.restaurant,
                     color: Colors.indigo,
@@ -599,7 +599,7 @@ class _ReportPageState extends State<ReportPage> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: _buildStatItem(
-                    title: 'Takeaway (外卖)',
+                    title: 'TAKE AWAY',
                     value: '${stats.takeawayOrders} orders\n\$${stats.takeawayRevenue.toStringAsFixed(2)}',
                     icon: Icons.takeout_dining,
                     color: Colors.teal,
@@ -620,7 +620,7 @@ class _ReportPageState extends State<ReportPage> {
     required Color color,
   }) {
     return Container(
-      padding: EdgeInsets.all(12),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
@@ -633,7 +633,7 @@ class _ReportPageState extends State<ReportPage> {
           Row(
             children: [
               Icon(icon, color: color, size: 20),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   title,
@@ -645,7 +645,7 @@ class _ReportPageState extends State<ReportPage> {
               ),
             ],
           ),
-          SizedBox(height: 4),
+          const SizedBox(height: 4),
           Text(
             value,
             style: TextStyle(
@@ -664,13 +664,13 @@ class _ReportPageState extends State<ReportPage> {
 
     return Card(
       child: Padding(
-        padding: EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Top Selling Items',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              'top_selling_items'.tr,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             SizedBox(height: 16),
             if (stats.topSellingItems.isEmpty)
@@ -717,17 +717,17 @@ class _ReportPageState extends State<ReportPage> {
   Widget _buildRecentOrders() {
     return Card(
       child: Padding(
-        padding: EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Recent Orders',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              'recent_orders'.tr,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             if (_orders.isEmpty)
-              Text('No orders available')
+              Text('no_orders'.tr)
             else
               ListView.separated(
                 shrinkWrap: true,

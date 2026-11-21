@@ -80,7 +80,7 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final url = SettingsService.cleanUrlFormat(_apiServerUrlController.text);
       if (url.isEmpty) {
-        setState(() => _error = '请输入服务器地址');
+        setState(() => _error = 'please_enter_server_url'.tr);
         return;
       }
 
@@ -93,20 +93,20 @@ class _LoginPageState extends State<LoginPage> {
         if (response.statusCode != null && response.statusCode! >= 200 && response.statusCode! < 300) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('连接成功'),
+              SnackBar(
+                content: Text('conn_success'.tr),
                 backgroundColor: Colors.green,
               ),
             );
           }
         } else {
-          setState(() => _error = '连接失败: ${response.statusCode}');
+          setState(() => _error = '${'conn_failed_with_code'.tr}: ${response.statusCode}');
         }
       } catch (e) {
-        setState(() => _error = '连接错误: $e');
+        setState(() => _error = '${'conn_error'.tr}: $e');
       }
     } catch (e) {
-      setState(() => _error = '测试失败: $e');
+      setState(() => _error = '${'test_failed'.tr}: $e');
     } finally {
       if (mounted) {
         setState(() => _isTestingConnection = false);
@@ -126,7 +126,7 @@ class _LoginPageState extends State<LoginPage> {
     _logger.i('Server URL: $serverUrl | Username: ${_usernameController.text.trim()}');
     try {
       if (serverUrl.isEmpty) {
-        setState(() => _error = '请输入服务器地址');
+        setState(() => _error = 'please_enter_server_url'.tr);
         return;
       }
 
@@ -158,15 +158,15 @@ class _LoginPageState extends State<LoginPage> {
         // 登录成功后启动后台任务和网络监听
         await _enterApp();
       } else {
-        _logger.w('登录失败，未获取到Token');
+        _logger.w('login_failed_no_token'.tr);
         setState(() {
-          _error = '登录失败，未获取到Token';
+          _error = 'login_failed_no_token'.tr;
         });
       }
     } catch (e, stack) {
       _logger.e('Login Exception: $e', error: e, stackTrace: stack);
       setState(() {
-        _error = '登录失败: $e';
+        _error = '${'login_failed'.tr}: $e';
       });
     } finally {
       if (mounted) {

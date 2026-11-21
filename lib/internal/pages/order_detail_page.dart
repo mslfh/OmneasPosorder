@@ -408,9 +408,9 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  '订单数据对比 (Order Contrast)',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                Text(
+                  'order_contrast'.tr,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 if (server != null)
                   Container(
@@ -421,7 +421,7 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                       border: Border.all(color: Colors.blue[200]!),
                     ),
                     child: Text(
-                      '来源: ${server.placeIn.toUpperCase()}',
+                      '${server.placeIn.toUpperCase()}',
                       style: TextStyle(fontSize: 10, color: Colors.blue[800], fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -431,19 +431,19 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
             _buildComparisonHeaderRow(),
             const Divider(height: 16),
             _buildComparisonRow(
-              '订单编号',
+              'order_id'.tr,
               local.orderNo,
               server?.orderNo ?? '-',
             ),
             _buildComparisonRow(
-              '服务器单号',
+              'server_order_detail'.tr,
               local.remoteOrderNumber ?? '-',
               server?.orderNumber ?? '-',
             ),
             _buildComparisonRow(
-              '总金额',
-              '￥${local.totalAmount.toStringAsFixed(2)}',
-              serverAmount != null ? '￥${serverAmount.toStringAsFixed(2)}' : '-',
+              'order_amount'.tr,
+              '\$${local.totalAmount.toStringAsFixed(2)}',
+              serverAmount != null ? '\$${serverAmount.toStringAsFixed(2)}' : '-',
               isDiff: isAmountMismatch,
             ),
             _buildComparisonRow(
@@ -476,17 +476,17 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
   Widget _buildComparisonHeaderRow() {
     return Row(
       children: [
-        const Expanded(
+        Expanded(
           flex: 3,
-          child: Text('字段名', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
+          child: Text('order_field_name'.tr, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
         ),
         Expanded(
           flex: 4,
-          child: Text('本地数据库 (Local)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blue[800])),
+          child: Text('local_db'.tr, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blue[800])),
         ),
         Expanded(
           flex: 4,
-          child: Text('服务器数据 (Server)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.green[800])),
+          child: Text('server_db'.tr, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.green[800])),
         ),
       ],
     );

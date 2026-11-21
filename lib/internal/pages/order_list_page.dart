@@ -814,18 +814,18 @@ class _OrderListPageState extends State<OrderListPage> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _buildFilterChip('全部', UnifiedFilter.all),
+                _buildFilterChip('all_categories'.tr, UnifiedFilter.all),
                 const SizedBox(width: 6),
-                _buildFilterChip('正常订单', UnifiedFilter.normal),
+                _buildFilterChip('normal_orders'.tr, UnifiedFilter.normal),
                 const SizedBox(width: 6),
-                _buildFilterChip('未拉本地 (重大失误)', UnifiedFilter.missingInLocal,
+                _buildFilterChip('missing_in_local'.tr, UnifiedFilter.missingInLocal,
                     isWarning: true),
                 const SizedBox(width: 6),
-                _buildFilterChip('未同步服务器', UnifiedFilter.missingInServer),
+                _buildFilterChip('missing_in_server'.tr, UnifiedFilter.missingInServer),
                 const SizedBox(width: 6),
-                _buildFilterChip('数据异常', UnifiedFilter.dataMismatch),
+                _buildFilterChip('data_mismatch'.tr, UnifiedFilter.dataMismatch),
                 const SizedBox(width: 6),
-                _buildFilterChip('待打印', UnifiedFilter.pendingPrint),
+                _buildFilterChip('pending_print'.tr, UnifiedFilter.pendingPrint),
               ],
             ),
           ),
@@ -1337,7 +1337,7 @@ class _OrderListPageState extends State<OrderListPage> {
         children: [
           OutlinedButton.icon(
             icon: const Icon(Icons.chevron_left, size: 18),
-            label: const Text('上一页', style: TextStyle(fontSize: 12)),
+            label: Text('prev_page'.tr, style: const TextStyle(fontSize: 12)),
             onPressed: hasPrev
                 ? () {
                     setState(() => _currentPage--);
@@ -1349,7 +1349,7 @@ class _OrderListPageState extends State<OrderListPage> {
             ),
           ),
           Text(
-            '第 ${_currentPage + 1} / $totalPages 页 (共 $totalItemCount 项)',
+            '${_currentPage + 1} / $totalPages ($totalItemCount)',
             style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
@@ -1357,7 +1357,7 @@ class _OrderListPageState extends State<OrderListPage> {
           ),
           OutlinedButton.icon(
             icon: const Icon(Icons.chevron_right, size: 18),
-            label: const Text('下一页', style: TextStyle(fontSize: 12)),
+            label: Text('next_page'.tr, style: const TextStyle(fontSize: 12)),
             onPressed: hasNext
                 ? () {
                     setState(() => _currentPage++);

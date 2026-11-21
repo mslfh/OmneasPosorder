@@ -168,6 +168,7 @@ class OnlineOrderMapper {
         if (p.product.kitchenPrintName != null)
           'kitchen_print_name': p.product.kitchenPrintName,
         'is_printable': p.product.isPrintable,
+        'category_ids': p.product.categoryIds,
       };
     }).toList();
   }

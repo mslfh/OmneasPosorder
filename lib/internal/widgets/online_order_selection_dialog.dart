@@ -205,7 +205,9 @@ class _OnlineOrderSelectionDialogState
     final extra = items.length > itemNames.length
         ? ' +${items.length - itemNames.length} more'
         : '';
-    final orderNumberText = '#${order.orderNo}';
+    final orderNumberText = order.isOnlineOrder
+        ? 'ONLINE #${order.orderNo}'
+        : 'STORE #${order.orderNo}';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -390,24 +392,29 @@ class _OnlineOrderSelectionDialogState
                             child: Icon(
                               order.isPaid
                                   ? Icons.check_circle_outline
-                                  : Icons.cloud_done,
+                                  : (order.isOnlineOrder
+                                      ? Icons.cloud_done
+                                      : Icons.receipt_long),
                               color: order.isPaid
                                   ? Colors.green[700]
-                                  : Colors.orange[700],
+                                  : (order.isOnlineOrder
+                                      ? Colors.orange[700]
+                                      : Colors.indigo[700]),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(child: _buildOrderSummary(order)),
                           const SizedBox(width: 8),
-                          IconButton(
-                            icon: Icon(
-                              Icons.notifications_active,
-                              color: Colors.amber[800],
-                              size: 26,
+                          if (order.isOnlineOrder)
+                            IconButton(
+                              icon: Icon(
+                                Icons.notifications_active,
+                                color: Colors.amber[800],
+                                size: 26,
+                              ),
+                              tooltip: '菜品做好，通知取餐',
+                              onPressed: () => _handleNotifyOrderReady(order),
                             ),
-                            tooltip: '菜品做好，通知取餐',
-                            onPressed: () => _handleNotifyOrderReady(order),
-                          ),
                           if (!order.isPaid)
                             Icon(Icons.chevron_right, color: Colors.grey[500]),
                         ],

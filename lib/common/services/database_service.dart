@@ -493,7 +493,7 @@ class DatabaseService {
     }
   }
 
-  /// 获取当天待完成的在线订单
+  /// 获取当天待完成的在线订单与暂存订单
   Future<List<OrderModel>> getPendingOnlineOrders({DateTime? date}) async {
     final db = await database;
     try {
@@ -504,8 +504,9 @@ class DatabaseService {
       final maps = await db.query(
         'orders',
         where:
-            'is_online_order = 1 AND order_status IN (?, ?, ?, ?) AND order_time BETWEEN ? AND ?',
+            '(is_online_order = 1 OR order_status = ?) AND order_status IN (?, ?, ?, ?) AND order_time BETWEEN ? AND ?',
         whereArgs: [
+          OrderStatus.pending.index,
           OrderStatus.pending.index,
           OrderStatus.confirmed.index,
           OrderStatus.preparing.index,
@@ -518,8 +519,8 @@ class DatabaseService {
 
       return maps.map((map) => OrderModel.fromMap(map)).toList();
     } catch (e) {
-      _logger.e('获取待完成在线订单失败: $e');
-      throw e;
+      _logger.e('获取待完成在线与暂存订单失败: $e');
+      rethrow;
     }
   }
 

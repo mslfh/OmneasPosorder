@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../common/models/menu_option.dart';
+import '../../common/services/language_service.dart';
 import '../utils/order_selected.dart';
 
 class MenuOptionPanelWidget extends StatelessWidget {
@@ -47,7 +48,7 @@ class MenuOptionPanelWidget extends StatelessWidget {
               gradient: LinearGradient(
                 colors: [Colors.blue[300]!, Colors.blue[400]!],
               ),
-              boxShadow: [
+              boxShadow: const [
                 BoxShadow(
                   color: Colors.black12,
                   blurRadius: 2,
@@ -61,8 +62,8 @@ class MenuOptionPanelWidget extends StatelessWidget {
                   child: Align(
                     alignment: Alignment.center,
                     child: Text(
-                      'Options',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
+                      'options'.tr,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
                     ),
                   ),
                 ),
@@ -72,7 +73,7 @@ class MenuOptionPanelWidget extends StatelessWidget {
                     child: ElevatedButton.icon(
                       onPressed: onManageOptions,
                       icon: const Icon(Icons.settings, size: 14),
-                      label: const Text('Manage', style: TextStyle(fontSize: 11)),
+                      label: Text('manage'.tr, style: const TextStyle(fontSize: 11)),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.orange,
                         foregroundColor: Colors.white,

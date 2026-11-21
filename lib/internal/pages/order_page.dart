@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../common/services/language_service.dart';
+import '../../common/services/order_service.dart';
+import '../../common/services/database_service.dart';
 import '../../common/models/menu_item.dart';
 import '../../common/models/category.dart';
 import '../../common/models/menu_option.dart';
@@ -22,7 +25,7 @@ import '../keyboard_handlers/navigation_key_handler.dart';
 import '../keyboard_handlers/digit_key_handler.dart';
 import '../keyboard_handlers/enter_key_handler.dart';
 import '../keyboard_handlers/quick_input_handler.dart';
-import '../keyboard_handlers/duplicate_key_handler.dart';
+import '../keyboard_handlers/toggle_order_type_key_handler.dart';
 import '../../common/services/order_match_service.dart';
 import '../services/menu_data_service.dart';
 import '../services/order_match_manager.dart';
@@ -69,6 +72,8 @@ class _OrderPageState extends State<OrderPage> {
   bool _isCardPressed = false;
   int? _pressedCardIndex;
   bool _isAdminMode = false;
+  String _orderType = 'takeaway';
+  bool _isShareMode = true;
 
   // 桌台状态
   DiningTable? _selectedTable;
@@ -148,11 +153,26 @@ class _OrderPageState extends State<OrderPage> {
     }
 
     setState(() {
+      orderedProducts.clear();
       orderedProducts.addAll(snapshot);
       selectedOrderedProduct = orderedProducts.last;
       _selectedOnlineOrder = order;
       _selectedOnlineOrderOriginalProducts =
           OnlineOrderMapper.cloneSelectedProducts(snapshot);
+
+      if (order.type != null) {
+        final t = order.type!.toLowerCase();
+        if (t.contains('takeaway') || t.contains('take_away')) {
+          _orderType = 'takeaway';
+        } else {
+          _orderType = 'dinein';
+          if (t.contains('noshare') || t.contains('no_share')) {
+            _isShareMode = false;
+          } else if (t.contains('share')) {
+            _isShareMode = true;
+          }
+        }
+      }
     });
   }
 
@@ -230,7 +250,7 @@ class _OrderPageState extends State<OrderPage> {
 
     if (_hasSelectedTable) {
       if (orderedProducts.isEmpty) {
-        UIHelper.showSnackBar(context, '请先选择菜品再操作', backgroundColor: Colors.orange);
+        UIHelper.showSnackBar(context, 'select_items_first'.tr, backgroundColor: Colors.orange);
         return;
       }
 
@@ -247,18 +267,18 @@ class _OrderPageState extends State<OrderPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '桌台：${_selectedTable!.name}',
+                  '${'dining_table'.tr}: ${_selectedTable!.name}',
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 6),
-                Text('已选 ${orderedProducts.length} 个菜品',
+                Text('selected_items_count'.trParams({'count': '${orderedProducts.length}'}),
                     style: TextStyle(color: Colors.grey[700])),
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     icon: const Icon(Icons.save),
-                    label: const Text('UPDATE / 更新暂存'),
+                    label: Text('update_staging'.tr),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.amber[800],
                       foregroundColor: Colors.white,
@@ -275,7 +295,7 @@ class _OrderPageState extends State<OrderPage> {
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     icon: const Icon(Icons.shopping_cart),
-                    label: const Text('CHECKOUT'),
+                    label: Text('checkout'.tr.toUpperCase()),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green[700],
                       foregroundColor: Colors.white,
@@ -370,8 +390,11 @@ class _OrderPageState extends State<OrderPage> {
 
     final addedCount = addedProducts.fold<int>(0, (s, p) => s + p.quantity);
     final msg = addedCount > 0
-        ? '桌台 $tableName 菜品已更新，新增 $addedCount 项菜品已发送后厨打单！'
-        : '桌台 $tableName 暂存菜品已更新！';
+        ? 'table_items_updated_printed'.trParams({
+            'tableName': tableName,
+            'count': '$addedCount',
+          })
+        : 'table_items_updated'.trParams({'tableName': tableName});
 
     UIHelper.showToast(
       context,
@@ -403,6 +426,8 @@ class _OrderPageState extends State<OrderPage> {
           originalOnlineOrderedProducts: _selectedOnlineOrderOriginalProducts,
           diningTable: _selectedTable,
           reservationId: _selectedReservationId,
+          initialOrderType: _orderType,
+          isShareMode: _isShareMode,
         ),
       ),
     );
@@ -424,12 +449,7 @@ class _OrderPageState extends State<OrderPage> {
     }
   }
 
-  Widget _buildSelectedOnlineOrderBanner() {
-    return SelectedOnlineOrderBannerWidget(
-      order: _selectedOnlineOrder,
-      originalProducts: _selectedOnlineOrderOriginalProducts,
-    );
-  }
+
 
   /// 订单匹配结果更新回调
   void _onOrderMatchResultUpdated(OrderMatchResult result) {
@@ -529,16 +549,15 @@ class _OrderPageState extends State<OrderPage> {
       ),
     );
 
-    // Ctrl 键：复制选中的菜品
+    // Ctrl 键：切换外卖/堂食 (Takeaway / Dine in)
     _keyboardEventHandler.addHandler(
-      duplicateKeyHandler(
-        orderedProducts: orderedProducts,
-        selectedOrderedProductGetter: () => selectedOrderedProduct,
-        duplicateProduct: _duplicateOrderedProduct,
+      toggleOrderTypeKeyHandler(
+        onToggleOrderType: () {
+          setState(() {
+            _orderType = _orderType == 'takeaway' ? 'dinein' : 'takeaway';
+          });
+        },
         playClickSound: _playClickSound,
-        setSelectedOrderedProduct: (product) => setState(() {
-          selectedOrderedProduct = product;
-        }),
       ),
     );
     // 你可以继续添加更多 handler ...
@@ -629,7 +648,7 @@ class _OrderPageState extends State<OrderPage> {
     if (item.isSoldOut) {
       UIHelper.showSnackBar(
         context,
-        '${item.title} 已沽清 (Sold Out)',
+        'product_sold_out_msg'.trParams({'title': item.title}),
         backgroundColor: Colors.deepOrange,
       );
       return;
@@ -1027,9 +1046,231 @@ class _OrderPageState extends State<OrderPage> {
     await _orderMatchManager.performCheck(_onOrderMatchResultUpdated);
   }
 
+  Widget _buildOrderTypeAndShareSelector() {
+    final int totalQty =
+        orderedProducts.fold<int>(0, (sum, p) => sum + p.quantity);
+    final double totalAmount = orderedProducts.fold<double>(0.0, (sum, p) {
+      final price = p.product.sellingPrice;
+      final optCost =
+          p.options.fold<double>(0.0, (s, o) => s + o.option.extraCost);
+      return sum + (price + optCost) * p.quantity;
+    });
 
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 4.0),
+      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+      child: Row(
+        children: [
+          SegmentedButton<String>(
+            showSelectedIcon: false,
+            segments: [
+              ButtonSegment<String>(
+                value: 'takeaway',
+                label: Text('takeaway'.tr),
+                icon: const Icon(Icons.takeout_dining, size: 14),
+              ),
+              ButtonSegment<String>(
+                value: 'dinein',
+                label: Text('dine_in'.tr),
+                icon: const Icon(Icons.restaurant, size: 14),
+              ),
+            ],
+            selected: {_orderType},
+            onSelectionChanged: (Set<String> selection) {
+              setState(() {
+                _orderType = selection.first;
+              });
+            },
+            style: const ButtonStyle(
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
+          Expanded(
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+                decoration: BoxDecoration(
+                  color: totalQty > 0 ? Colors.deepOrange.shade50 : Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: totalQty > 0 ? Colors.deepOrange.shade400 : Colors.grey.shade400,
+                    width: 1.2,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.shopping_bag_outlined,
+                      size: 18,
+                      color: totalQty > 0 ? Colors.orange[900] : Colors.grey[700],
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$totalQty ${'quantity'.tr}',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                        color: totalQty > 0 ? Colors.orange[900] : Colors.grey[800],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '|',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: totalQty > 0 ? Colors.deepOrange[300] : Colors.grey[500],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '\$${totalAmount.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                        color: totalQty > 0 ? Colors.orange[900] : Colors.grey[800],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Visibility(
+            maintainSize: true,
+            maintainAnimation: true,
+            maintainState: true,
+            visible: _orderType == 'dinein',
+            child: SegmentedButton<bool>(
+              showSelectedIcon: false,
+              segments: [
+                ButtonSegment<bool>(
+                  value: true,
+                  label: Text('share'.tr),
+                  icon: const Icon(Icons.groups, size: 14),
+                ),
+                ButtonSegment<bool>(
+                  value: false,
+                  label: Text('no_share'.tr),
+                  icon: const Icon(Icons.person, size: 14),
+                ),
+              ],
+              selected: {_isShareMode},
+              onSelectionChanged: (Set<bool> selection) {
+                setState(() {
+                  _isShareMode = selection.first;
+                });
+              },
+              style: const ButtonStyle(
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-  // ...existing code...
+  Future<void> _handleOrderNow() async {
+    if (orderedProducts.isEmpty) {
+      UIHelper.showSnackBar(context, 'select_items_first'.tr,
+          backgroundColor: Colors.orange);
+      return;
+    }
+
+    try {
+      final orderService = OrderService();
+      final databaseService = DatabaseService();
+      final printService = PrintService();
+
+      final items = OnlineOrderMapper.toCheckoutItems(orderedProducts);
+      final double total = orderedProducts.fold(0.0, (sum, p) {
+        double price = p.product.sellingPrice;
+        double optCost = p.options.fold(0.0, (s, o) => s + o.option.extraCost);
+        return sum + (price + optCost) * p.quantity;
+      });
+
+      final now = DateTime.now();
+      String finalType = _orderType == 'dinein'
+          ? (_isShareMode ? 'dinein_share' : 'dinein_noshare')
+          : 'takeaway';
+
+      String tableNote =
+          _selectedTable != null ? '[桌台: ${_selectedTable!.name}]' : '';
+
+      String orderNo;
+
+      if (_selectedOnlineOrder != null) {
+        // 更新已有暂存单/网单
+        final updatedOrder = _selectedOnlineOrder!.copyWith(
+          items: jsonEncode(items),
+          totalAmount: double.parse(total.toStringAsFixed(2)),
+          type: finalType,
+          note: tableNote.isNotEmpty ? tableNote : _selectedOnlineOrder!.note,
+          orderStatus: OrderStatus.pending,
+        );
+        await databaseService.updateOrder(updatedOrder);
+        if (await printService.isAutoPrintEnabled()) {
+          await printService.printOrderWithTemplates(updatedOrder);
+        }
+        orderNo = updatedOrder.orderNo;
+      } else {
+        // 新建暂存订单
+        orderNo = await orderService.generateOrderNo();
+        final orderId =
+            '$orderNo-${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
+
+        final order = OrderModel(
+          id: orderId,
+          orderNo: orderNo,
+          orderTime: now,
+          createdAt: now,
+          items: jsonEncode(items),
+          totalAmount: double.parse(total.toStringAsFixed(2)),
+          discountAmount: 0.0,
+          taxRate: 10.0,
+          serviceFee: 0.0,
+          cashAmount: 0.0,
+          posAmount: 0.0,
+          orderStatus: OrderStatus.pending,
+          syncStatus: SyncStatus.pending,
+          printStatus: PrintStatus.pending,
+          note: tableNote.isNotEmpty ? tableNote : null,
+          type: finalType,
+          cashChange: 0.0,
+          voucherAmount: 0.0,
+          isOnlineOrder: false,
+        );
+
+        await databaseService.insertOrder(order);
+
+        if (await printService.isAutoPrintEnabled()) {
+          await printService.printOrderWithTemplates(order);
+        }
+      }
+
+      if (!mounted) return;
+
+      UIHelper.showToast(
+        context,
+        '${'staging_order_created'.tr}: #$orderNo',
+        backgroundColor: Colors.green,
+      );
+
+      setState(() {
+        orderedProducts.clear();
+        selectedOrderedProduct = null;
+        _clearTableSelection();
+        _clearOnlineOrderSelection();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      UIHelper.showSnackBar(context, 'Order creation failed: $e',
+          backgroundColor: Colors.red);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1085,7 +1326,7 @@ class _OrderPageState extends State<OrderPage> {
               return Column(
                 children: [
                   _buildSelectedTableBanner(),
-                  _buildSelectedOnlineOrderBanner(),
+                  _buildOrderTypeAndShareSelector(),
                   OrderedProductListWidget(
                     orderedProducts: orderedProducts,
                     selectedOrderedProduct: selectedOrderedProduct,
@@ -1118,6 +1359,9 @@ class _OrderPageState extends State<OrderPage> {
                                   onManageKitchenSplit: _isAdminMode
                                       ? _showManageKitchenSplitDialog
                                       : null,
+                                  onCategoryColorChanged: () {
+                                    setState(() {});
+                                  },
                                   onCategoryTap: (category) {
                                     if (category == null) {
                                       setState(() {
@@ -1131,10 +1375,21 @@ class _OrderPageState extends State<OrderPage> {
                                       });
                                     } else {
                                       final selectedCategoryId = category.id;
+                                      final targetCategoryIds = <int>{selectedCategoryId};
+                                      void collectChildren(int parentId) {
+                                        for (final cat in categories) {
+                                          if (cat.parentId == parentId && !targetCategoryIds.contains(cat.id)) {
+                                            targetCategoryIds.add(cat.id);
+                                            collectChildren(cat.id);
+                                          }
+                                        }
+                                      }
+                                      collectChildren(selectedCategoryId);
+
                                       setState(() {
                                         products = allProducts
                                             .where((item) => item.categoryIds
-                                                .contains(selectedCategoryId))
+                                                .any((id) => targetCategoryIds.contains(id)))
                                             .toList();
                                         products.sort((a, b) {
                                           int cmp = a.sort.compareTo(b.sort);
@@ -1191,7 +1446,7 @@ class _OrderPageState extends State<OrderPage> {
                                           decoration: InputDecoration(
                                             border: InputBorder.none,
                                             isCollapsed: true,
-                                            hintText: 'Type to quick search.',
+                                            hintText: 'quick_search_hint'.tr,
                                             hintStyle: TextStyle(
                                               fontSize: 14,
                                               color: Colors.grey[600],
@@ -1261,8 +1516,10 @@ class _OrderPageState extends State<OrderPage> {
                     onShowQuantitySelector: _showQuantitySelector,
                     onCustomAction: _customAction,
                     onOrder: _handleOrderAction,
+                    onOrderNow: _handleOrderNow,
                     onSelectTable: _showTablePicker,
                     selectedTableName: _selectedTable?.name,
+                    selectedOrder: _selectedOnlineOrder,
                     orderedCount: orderedProducts.length,
                     orderEnabled: true,
                     showQuickSelectButton: true,
@@ -1271,11 +1528,11 @@ class _OrderPageState extends State<OrderPage> {
                         ? 'confirm'.tr.toUpperCase()
                         : (_hasSelectedOnlineOrder
                             ? (_selectedOnlineOrder!.isPaid
-                                ? 'UPDATE'
-                                : 'CHECKOUT')
+                                ? 'update'.tr.toUpperCase()
+                                : 'checkout'.tr.toUpperCase())
                             : (orderedProducts.isEmpty
-                                ? 'ADD ORDER'
-                                : 'ORDER')),
+                                ? 'add_order'.tr.toUpperCase()
+                                : 'order'.tr.toUpperCase())),
                     orderIcon: _hasSelectedTable
                         ? Icons.check_circle_outline
                         : (_hasSelectedOnlineOrder
@@ -1368,7 +1625,7 @@ class __ManualOptionPriceDialogState extends State<_ManualOptionPriceDialog> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '手写选项加价金额: "${widget.optionName}"',
+              'manual_option_extra_price'.trParams({'name': widget.optionName}),
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ),
@@ -1378,8 +1635,8 @@ class __ManualOptionPriceDialogState extends State<_ManualOptionPriceDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Extra Price / 额外加价金额 (\$):',
-              style: TextStyle(fontSize: 13)),
+          Text('extra_price_label'.tr,
+              style: const TextStyle(fontSize: 13)),
           const SizedBox(height: 8),
           TextField(
             controller: _controller,
@@ -1401,7 +1658,7 @@ class __ManualOptionPriceDialogState extends State<_ManualOptionPriceDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(null),
-          child: const Text('Cancel / 取消'),
+          child: Text('cancel'.tr),
         ),
         ElevatedButton(
           style: ElevatedButton.styleFrom(
@@ -1409,7 +1666,7 @@ class __ManualOptionPriceDialogState extends State<_ManualOptionPriceDialog> {
             foregroundColor: Colors.white,
           ),
           onPressed: _submit,
-          child: const Text('Confirm / 确定'),
+          child: Text('confirm'.tr),
         ),
       ],
     );

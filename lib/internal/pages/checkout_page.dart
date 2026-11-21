@@ -57,6 +57,8 @@ class CheckoutPage extends StatefulWidget {
   final DiningTable? diningTable;
   final int? tableOrderId;
   final int? reservationId;
+  final String initialOrderType;
+  final bool isShareMode;
 
   const CheckoutPage({
     super.key,
@@ -66,6 +68,8 @@ class CheckoutPage extends StatefulWidget {
     this.diningTable,
     this.tableOrderId,
     this.reservationId,
+    this.initialOrderType = 'dinein',
+    this.isShareMode = true,
   });
 
   @override
@@ -75,7 +79,9 @@ class CheckoutPage extends StatefulWidget {
 class _CheckoutPageState extends State<CheckoutPage> {
   double receivedAmount = 0.0;
   bool isCash = true;
-  String orderType = 'TAKE AWAY';
+  String orderType = 'DINE IN';
+  bool isDineIn = true;
+  bool isShareMode = true;
   final TextEditingController _controller = TextEditingController();
   final FocusNode _amountInputFocusNode = FocusNode();
   final TextEditingController _noteController = TextEditingController();
@@ -105,8 +111,12 @@ class _CheckoutPageState extends State<CheckoutPage> {
   @override
   void initState() {
     super.initState();
+    isDineIn = widget.initialOrderType.contains('dine') || widget.diningTable != null;
+    isShareMode = widget.isShareMode;
     if (widget.diningTable != null) {
       orderType = 'DINE IN (${widget.diningTable!.name})';
+    } else {
+      orderType = isDineIn ? 'DINE IN' : 'TAKE AWAY';
     }
     _controller.text = '';
     _initRemainingProducts();
@@ -264,7 +274,10 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
   void _toggleOrderType() {
     setState(() {
-      orderType = orderType == 'DINE IN' ? 'TAKE AWAY' : 'DINE IN';
+      isDineIn = !isDineIn;
+      orderType = isDineIn
+          ? (widget.diningTable != null ? 'DINE IN (${widget.diningTable!.name})' : 'DINE IN')
+          : 'TAKE AWAY';
     });
   }
 
@@ -463,27 +476,27 @@ class _CheckoutPageState extends State<CheckoutPage> {
             children: [
               const Icon(Icons.call_split, size: 18, color: Colors.indigo),
               const SizedBox(width: 6),
-              const Text(
-                'Mode:',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              Text(
+                '${'mode'.tr}:',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               ),
               const Spacer(),
               SegmentedButton<SplitType>(
-                segments: const [
+                segments: [
                   ButtonSegment<SplitType>(
                     value: SplitType.full,
-                    label: Text('Full Bill'),
-                    icon: Icon(Icons.receipt_long, size: 14),
+                    label: Text('full_bill'.tr),
+                    icon: const Icon(Icons.receipt_long, size: 14),
                   ),
                   ButtonSegment<SplitType>(
                     value: SplitType.byPerson,
-                    label: Text('By Person'),
-                    icon: Icon(Icons.groups, size: 14),
+                    label: Text('by_person'.tr),
+                    icon: const Icon(Icons.groups, size: 14),
                   ),
                   ButtonSegment<SplitType>(
                     value: SplitType.byItem,
-                    label: Text('By Item'),
-                    icon: Icon(Icons.restaurant_menu, size: 14),
+                    label: Text('by_item'.tr),
+                    icon: const Icon(Icons.restaurant_menu, size: 14),
                   ),
                 ],
                 selected: {splitType},
@@ -705,14 +718,14 @@ class _CheckoutPageState extends State<CheckoutPage> {
   }
 
   String get placeOrderButtonText {
-    if (isPlacingOrder) return 'Placing Order...';
+    if (isPlacingOrder) return 'placing_order'.tr;
     switch (splitType) {
       case SplitType.full:
-        return 'Place Order';
+        return 'place_order'.tr;
       case SplitType.byPerson:
-        return 'Pay Person $currentPersonIndex/$splitPersonCount (\$${currentPayableAmount.toStringAsFixed(2)})';
+        return '${'by_person'.tr} ($currentPersonIndex/$splitPersonCount) (\$${currentPayableAmount.toStringAsFixed(2)})';
       case SplitType.byItem:
-        return 'Pay Sub-bill (\$${currentPayableAmount.toStringAsFixed(2)})';
+        return '${'by_item'.tr} (\$${currentPayableAmount.toStringAsFixed(2)})';
     }
   }
 
@@ -1176,41 +1189,81 @@ class _CheckoutPageState extends State<CheckoutPage> {
               const SizedBox(height: 10),
               _buildSplitModeSelector(),
               const SizedBox(height: 12),
-              // 订单类型选择
-              Row(
+              // 订单类型与合餐/不分餐选择
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Order Type: ',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  const Spacer(),
-                  ElevatedButton.icon(
-                    onPressed: _toggleOrderType,
-                    icon: Icon(
-                        orderType == 'DINE IN'
-                            ? Icons.restaurant
-                            : Icons.takeout_dining,
-                        size: 18),
-                    label: Text(
-                      orderType,
-                      style:
-                          const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: orderType == 'DINE IN'
-                          ? Colors.amber[900]
-                          : Colors.blue[400],
-                      foregroundColor: Colors.white,
-                      elevation: 3,
-                      shadowColor: orderType == 'DINE IN'
-                          ? Colors.amber[200]
-                          : Colors.blue[200],
-                      padding:
-                          const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                  Row(
+                    children: [
+                      Text('${'order_type'.tr}: ',
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold)),
+                      const Spacer(),
+                      SegmentedButton<bool>(
+                        showSelectedIcon: false,
+                        segments: [
+                          ButtonSegment<bool>(
+                            value: true,
+                            label: Text('dine_in'.tr),
+                            icon: const Icon(Icons.restaurant, size: 16),
+                          ),
+                          ButtonSegment<bool>(
+                            value: false,
+                            label: Text('takeaway'.tr),
+                            icon: const Icon(Icons.takeout_dining, size: 16),
+                          ),
+                        ],
+                        selected: {isDineIn},
+                        onSelectionChanged: (Set<bool> newSelection) {
+                          setState(() {
+                            isDineIn = newSelection.first;
+                            orderType = isDineIn
+                                ? (widget.diningTable != null
+                                    ? 'DINE IN (${widget.diningTable!.name})'
+                                    : 'DINE IN')
+                                : 'TAKE AWAY';
+                          });
+                        },
+                        style: const ButtonStyle(
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                        ),
                       ),
-                    ),
+                    ],
                   ),
+                  if (isDineIn) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Spacer(),
+                        SegmentedButton<bool>(
+                          showSelectedIcon: false,
+                          segments: [
+                            ButtonSegment<bool>(
+                              value: true,
+                              label: Text('share'.tr),
+                              icon: const Icon(Icons.groups, size: 14),
+                            ),
+                            ButtonSegment<bool>(
+                              value: false,
+                              label: Text('no_share'.tr),
+                              icon: const Icon(Icons.person, size: 14),
+                            ),
+                          ],
+                          selected: {isShareMode},
+                          onSelectionChanged: (Set<bool> newSelection) {
+                            setState(() {
+                              isShareMode = newSelection.first;
+                            });
+                          },
+                          style: const ButtonStyle(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 12),
@@ -1729,9 +1782,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
           ? userNote
           : (userNote.isEmpty ? tableNote : '$tableNote $userNote');
 
-      String finalType = widget.diningTable != null
-          ? 'dinein'
-          : (orderType.contains('DINE IN') ? 'dinein' : 'takeaway');
+      String finalType = isDineIn
+          ? (isShareMode ? 'dinein_share' : 'dinein_noshare')
+          : 'takeaway';
 
       // 整单结算逻辑
       if (splitType == SplitType.full) {
