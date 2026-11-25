@@ -433,6 +433,61 @@ class OrderModel {
     return null;
   }
 
+  /// 提取顾客姓名
+  String? get customerName {
+    if (note != null) {
+      final reg = RegExp(r'\[(?:Customer|Name|顾客|顾客姓名):\s*([^\]]+)\]', caseSensitive: false);
+      final match = reg.firstMatch(note!);
+      if (match != null && match.groupCount >= 1) {
+        return match.group(1)?.trim();
+      }
+    }
+    return null;
+  }
+
+  /// 提取顾客电话
+  String? get customerPhone {
+    if (note != null) {
+      final reg = RegExp(r'\[(?:Phone|Tel|Mobile|电话|联系电话):\s*([^\]]+)\]', caseSensitive: false);
+      final match = reg.firstMatch(note!);
+      if (match != null && match.groupCount >= 1) {
+        return match.group(1)?.trim();
+      }
+    }
+    return null;
+  }
+
+  /// 提取/展示取餐时间
+  String get pickupTimeDisplay {
+    if (note != null) {
+      final reg = RegExp(r'\[(?:Pickup|PickupTime|取餐|取餐时间):\s*([^\]]+)\]', caseSensitive: false);
+      final match = reg.firstMatch(note!);
+      if (match != null && match.groupCount >= 1) {
+        return match.group(1)!.trim();
+      }
+    }
+    final diffMinutes = orderTime.difference(createdAt).inMinutes;
+    if (diffMinutes >= 5) {
+      final hour = orderTime.hour.toString().padLeft(2, '0');
+      final minute = orderTime.minute.toString().padLeft(2, '0');
+      return '$hour:$minute (in $diffMinutes min)';
+    }
+    final hour = orderTime.hour.toString().padLeft(2, '0');
+    final minute = orderTime.minute.toString().padLeft(2, '0');
+    return 'Right Now ($hour:$minute)';
+  }
+
+  /// 过滤去除结构化标签后的用户纯备注
+  String get cleanUserNote {
+    if (note == null || note!.trim().isEmpty) return '';
+    String result = note!;
+    result = result.replaceAll(RegExp(r'\[(?:桌台|Table):\s*[^\]]+\]'), '');
+    result = result.replaceAll(RegExp(r'\[(?:Customer|Name|顾客|顾客姓名):\s*[^\]]+\]', caseSensitive: false), '');
+    result = result.replaceAll(RegExp(r'\[(?:Phone|Tel|Mobile|电话|联系电话):\s*[^\]]+\]', caseSensitive: false), '');
+    result = result.replaceAll(RegExp(r'\[(?:Pickup|PickupTime|取餐|取餐时间):\s*[^\]]+\]', caseSensitive: false), '');
+    return result.trim();
+  }
+
   // 转换到数据库
   Map<String, dynamic> toMap() {
     return {

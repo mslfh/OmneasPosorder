@@ -5,6 +5,7 @@ class MenuItem {
   final String? kitchenPrintName; // 后厨打印名称
   final String? acronym; // 可空类型
   final double sellingPrice;
+  final double? dineInPrice; // 堂食默认价格
   final int stock;
   final int sort;
   final List<int> categoryIds; // 分类IDs
@@ -21,6 +22,7 @@ class MenuItem {
     this.kitchenPrintName,
     required this.acronym,
     required this.sellingPrice,
+    this.dineInPrice,
     required this.stock,
     required this.sort,
     required this.categoryIds,
@@ -30,6 +32,14 @@ class MenuItem {
     this.soldOutLabel,
     this.splitGroupId = 0,
   });
+
+  /// 获取菜品价格（根据是否堂食优先使用 dineInPrice）
+  double getPrice(bool isDineIn) {
+    if (isDineIn && dineInPrice != null) {
+      return dineInPrice!;
+    }
+    return sellingPrice;
+  }
 
   /// 格式化显示的售罄标签
   String get displaySoldOutLabel {
@@ -57,6 +67,7 @@ class MenuItem {
       kitchenPrintName: json['kitchen_print_name'] as String?,
       acronym: json['acronym'] as String?,
       sellingPrice: double.tryParse(json['selling_price'].toString()) ?? 0.0,
+      dineInPrice: json['dine_in_price'] != null ? double.tryParse(json['dine_in_price'].toString()) : null,
       stock: json['stock'] ?? 0,
       sort: json['sort'] ?? 0,
       categoryIds: categoryIds,
@@ -74,6 +85,7 @@ class MenuItem {
     String? soldOutUntil,
     String? soldOutLabel,
     int? splitGroupId,
+    double? dineInPrice,
   }) {
     return MenuItem(
       id: id,
@@ -82,6 +94,7 @@ class MenuItem {
       kitchenPrintName: kitchenPrintName,
       acronym: acronym,
       sellingPrice: sellingPrice,
+      dineInPrice: dineInPrice ?? this.dineInPrice,
       stock: stock,
       sort: sort,
       categoryIds: categoryIds,

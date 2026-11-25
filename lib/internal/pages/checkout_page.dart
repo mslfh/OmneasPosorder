@@ -86,6 +86,12 @@ class _CheckoutPageState extends State<CheckoutPage> {
   final FocusNode _amountInputFocusNode = FocusNode();
   final TextEditingController _noteController = TextEditingController();
   final FocusNode _noteInputFocusNode = FocusNode();
+  final TextEditingController _customerNameController = TextEditingController();
+  final FocusNode _customerNameFocusNode = FocusNode();
+  final TextEditingController _customerPhoneController = TextEditingController();
+  final FocusNode _customerPhoneFocusNode = FocusNode();
+  String _pickupTimeOption = 'Right Now';
+  TimeOfDay? _customPickupTime;
   bool keepChange = false;
   bool isPlacingOrder = false;
 
@@ -118,6 +124,14 @@ class _CheckoutPageState extends State<CheckoutPage> {
     } else {
       orderType = isDineIn ? 'DINE IN' : 'TAKE AWAY';
     }
+    if (widget.onlineOrder != null) {
+      if (widget.onlineOrder!.customerName != null) {
+        _customerNameController.text = widget.onlineOrder!.customerName!;
+      }
+      if (widget.onlineOrder!.customerPhone != null) {
+        _customerPhoneController.text = widget.onlineOrder!.customerPhone!;
+      }
+    }
     _controller.text = '';
     _initRemainingProducts();
     HardwareKeyboard.instance.addHandler(_handleHardwareKeyEvent);
@@ -143,14 +157,56 @@ class _CheckoutPageState extends State<CheckoutPage> {
     _amountInputFocusNode.dispose();
     _noteController.dispose();
     _noteInputFocusNode.dispose();
+    _customerNameController.dispose();
+    _customerNameFocusNode.dispose();
+    _customerPhoneController.dispose();
+    _customerPhoneFocusNode.dispose();
     super.dispose();
+  }
+
+  DateTime getCalculatedPickupDateTime() {
+    final now = DateTime.now();
+    if (_pickupTimeOption == '10min') return now.add(const Duration(minutes: 10));
+    if (_pickupTimeOption == '15min') return now.add(const Duration(minutes: 15));
+    if (_pickupTimeOption == '20min') return now.add(const Duration(minutes: 20));
+    if (_pickupTimeOption == '25min') return now.add(const Duration(minutes: 25));
+    if (_pickupTimeOption == '30min') return now.add(const Duration(minutes: 30));
+    if (_pickupTimeOption == 'Custom' && _customPickupTime != null) {
+      return DateTime(
+        now.year,
+        now.month,
+        now.day,
+        _customPickupTime!.hour,
+        _customPickupTime!.minute,
+      );
+    }
+    return now;
+  }
+
+  String _getPickupTimeDisplayText() {
+    final now = DateTime.now();
+    if (_pickupTimeOption == 'Right Now') {
+      final timeStr =
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      return 'Right Now ($timeStr)';
+    } else if (_pickupTimeOption == 'Custom' && _customPickupTime != null) {
+      final hour = _customPickupTime!.hour.toString().padLeft(2, '0');
+      final minute = _customPickupTime!.minute.toString().padLeft(2, '0');
+      return '$hour:$minute';
+    } else if (_pickupTimeOption.endsWith('min')) {
+      final targetTime = getCalculatedPickupDateTime();
+      final timeStr =
+          '${targetTime.hour.toString().padLeft(2, '0')}:${targetTime.minute.toString().padLeft(2, '0')}';
+      return '$timeStr (+$_pickupTimeOption)';
+    }
+    return 'Right Now';
   }
 
   /// 总订单金额
   double get totalPrice {
     double sum = 0.0;
     for (var p in widget.orderedProducts) {
-      double itemPrice = p.product.sellingPrice;
+      double itemPrice = p.product.getPrice(isDineIn);
       double optionsTotal =
           p.options.fold(0.0, (s, o) => s + o.option.extraCost);
       sum += (itemPrice + optionsTotal) * p.quantity;
@@ -190,7 +246,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
         for (int i = 0; i < remainingProducts.length; i++) {
           int qty = selectedSplitQuantities[i] ?? 0;
           if (qty > 0) {
-            double itemPrice = remainingProducts[i].product.sellingPrice;
+            double itemPrice = remainingProducts[i].product.getPrice(isDineIn);
             double optionsTotal = remainingProducts[i].options
                 .fold(0.0, (s, o) => s + o.option.extraCost);
             sum += (itemPrice + optionsTotal) * qty;
@@ -210,7 +266,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
       case SplitType.byItem:
         double sum = 0.0;
         for (var p in remainingProducts) {
-          double itemPrice = p.product.sellingPrice;
+          double itemPrice = p.product.getPrice(isDineIn);
           double optionsTotal =
               p.options.fold(0.0, (s, o) => s + o.option.extraCost);
           sum += (itemPrice + optionsTotal) * p.quantity;
@@ -306,6 +362,153 @@ class _CheckoutPageState extends State<CheckoutPage> {
     }
 
     return false;
+  }
+
+  Widget _buildCustomerAndPickupTimeSection() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.blue.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.person_pin, size: 18, color: Colors.blue),
+              const SizedBox(width: 6),
+              const Text(
+                'Customer Info & Pickup Time',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+              const Spacer(),
+              Text(
+                'Pickup: ${_getPickupTimeDisplayText()}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.deepOrange,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _customerNameController,
+                  focusNode: _customerNameFocusNode,
+                  decoration: const InputDecoration(
+                    labelText: 'Customer Name',
+                    hintText: 'Enter name (optional)',
+                    prefixIcon: Icon(Icons.person, size: 18),
+                    border: OutlineInputBorder(),
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    isDense: true,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _customerPhoneController,
+                  focusNode: _customerPhoneFocusNode,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Customer Phone',
+                    hintText: 'Enter phone (optional)',
+                    prefixIcon: Icon(Icons.phone, size: 18),
+                    border: OutlineInputBorder(),
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    isDense: true,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(Icons.access_time, size: 16, color: Colors.grey),
+              const SizedBox(width: 4),
+              const Text(
+                'Pickup Time:',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _buildPickupChip('Right Now'),
+                      const SizedBox(width: 6),
+                      _buildPickupChip('10min'),
+                      const SizedBox(width: 6),
+                      _buildPickupChip('15min'),
+                      const SizedBox(width: 6),
+                      _buildPickupChip('20min'),
+                      const SizedBox(width: 6),
+                      _buildPickupChip('25min'),
+                      const SizedBox(width: 6),
+                      _buildPickupChip('30min'),
+                      const SizedBox(width: 6),
+                      _buildPickupChip('Custom'),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPickupChip(String option) {
+    final bool isSelected = _pickupTimeOption == option;
+    String label = option;
+    if (option == 'Right Now') label = 'Right Now';
+    if (option == 'Custom') {
+      if (isSelected && _customPickupTime != null) {
+        final hour = _customPickupTime!.hour.toString().padLeft(2, '0');
+        final minute = _customPickupTime!.minute.toString().padLeft(2, '0');
+        label = 'Custom ($hour:$minute)';
+      } else {
+        label = 'Custom';
+      }
+    }
+
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      visualDensity: VisualDensity.compact,
+      onSelected: (selected) async {
+        if (!selected && isSelected) return;
+        if (option == 'Custom') {
+          final now = TimeOfDay.now();
+          final picked = await showTimePicker(
+            context: context,
+            initialTime: _customPickupTime ?? now,
+          );
+          if (picked != null) {
+            setState(() {
+              _pickupTimeOption = 'Custom';
+              _customPickupTime = picked;
+            });
+          }
+        } else {
+          setState(() {
+            _pickupTimeOption = option;
+          });
+        }
+      },
+    );
   }
 
   Widget _buildSelectedTableBanner() {
@@ -778,7 +981,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                     final qtyDiff = wrapper.qtyDiff;
                     final originalQty = wrapper.originalQty;
 
-                    double itemPrice = p.product.sellingPrice;
+                    double itemPrice = p.product.getPrice(isDineIn);
                     double optionsTotal =
                         p.options.fold(0.0, (s, o) => s + o.option.extraCost);
                     double itemTotalPrice =
@@ -1364,6 +1567,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 ],
               ),
               const SizedBox(height: 12),
+              _buildCustomerAndPickupTimeSection(),
+              const SizedBox(height: 12),
               // 订单备注输入框
               TextField(
                 controller: _noteController,
@@ -1757,8 +1962,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
         targetProducts = widget.orderedProducts;
       }
 
-      final subItems = OnlineOrderMapper.toCheckoutItems(targetProducts);
-      final allItems = OnlineOrderMapper.toCheckoutItems(widget.orderedProducts);
+      final subItems = OnlineOrderMapper.toCheckoutItems(targetProducts, isDineIn: isDineIn);
+      final allItems = OnlineOrderMapper.toCheckoutItems(widget.orderedProducts, isDineIn: isDineIn);
 
       final cashChangeValue = isCash
           ? (keepChange
@@ -1774,13 +1979,25 @@ class _CheckoutPageState extends State<CheckoutPage> {
       _subBillCount++;
 
       String userNote = _noteController.text.trim();
+      String customerName = _customerNameController.text.trim();
+      String customerPhone = _customerPhoneController.text.trim();
+      String pickupDisplay = _getPickupTimeDisplayText();
+      DateTime calculatedExpectedTime = getCalculatedPickupDateTime();
+
       String tableNote = widget.diningTable != null
           ? '[桌台: ${widget.diningTable!.name}]'
           : '';
 
-      String finalNote = tableNote.isEmpty
+      List<String> metaParts = [];
+      if (tableNote.isNotEmpty) metaParts.add(tableNote);
+      if (customerName.isNotEmpty) metaParts.add('[Customer: $customerName]');
+      if (customerPhone.isNotEmpty) metaParts.add('[Phone: $customerPhone]');
+      if (pickupDisplay.isNotEmpty) metaParts.add('[Pickup: $pickupDisplay]');
+
+      String metaString = metaParts.join(' ');
+      String finalNote = metaString.isEmpty
           ? userNote
-          : (userNote.isEmpty ? tableNote : '$tableNote $userNote');
+          : (userNote.isEmpty ? metaString : '$metaString $userNote');
 
       String finalType = isDineIn
           ? (isShareMode ? 'dinein_share' : 'dinein_noshare')
@@ -1807,6 +2024,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
             cashChange: cashChangeValue,
             voucherAmount: origVoucher,
             itemsChanged: onlineOrderItemsChanged,
+            expectedTime: calculatedExpectedTime,
           );
           orderId = widget.onlineOrder!.id;
 
@@ -1830,6 +2048,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
             type: finalType,
             cashChange: cashChangeValue,
             voucherAmount: 0.0,
+            expectedTime: calculatedExpectedTime,
           );
         }
 
@@ -1894,7 +2113,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
       final masterOrder = OrderModel(
         id: masterId,
         orderNo: masterNo,
-        orderTime: widget.onlineOrder?.orderTime ?? now,
+        orderTime: calculatedExpectedTime,
         createdAt: widget.onlineOrder?.createdAt ?? now,
         items: jsonEncode(allItems),
         totalAmount: totalPrice,
@@ -1942,7 +2161,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
       final tempPrintOrder = OrderModel(
         id: '${masterId}_sub_$_subBillCount',
         orderNo: '$masterNo-$_subBillCount',
-        orderTime: now,
+        orderTime: calculatedExpectedTime,
         createdAt: now,
         items: jsonEncode(printOrderItems),
         totalAmount: payable,

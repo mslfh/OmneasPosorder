@@ -173,22 +173,34 @@ class QuickInputManager {
       extraCost: 0.0,
     );
 
+    final manualProduct = MenuItem(
+      id: 0,
+      code: trimmedInput,
+      title: trimmedInput,
+      acronym: trimmedInput,
+      sellingPrice: 0.0,
+      stock: 999,
+      sort: 9999,
+      categoryIds: [],
+      isPrintable: true,
+    );
+
     if (matchedProducts.isNotEmpty && matchedOptions.isNotEmpty) {
       if (currentPreferOptions) {
-        _searchResults = [...matchedOptions, ...matchedProducts, manualOption];
+        _searchResults = [...matchedOptions, ...matchedProducts, manualProduct, manualOption];
         _isSearchingOptions = true;
       } else {
-        _searchResults = [...matchedProducts, ...matchedOptions, manualOption];
+        _searchResults = [...matchedProducts, manualProduct, ...matchedOptions, manualOption];
         _isSearchingOptions = false;
       }
     } else if (matchedProducts.isNotEmpty) {
-      _searchResults = [...matchedProducts, manualOption];
+      _searchResults = [...matchedProducts, manualProduct, manualOption];
       _isSearchingOptions = false;
     } else if (matchedOptions.isNotEmpty) {
-      _searchResults = [...matchedOptions, manualOption];
+      _searchResults = [manualProduct, ...matchedOptions, manualOption];
       _isSearchingOptions = true;
     } else {
-      _searchResults = [manualOption];
+      _searchResults = [manualProduct, manualOption];
       _isSearchingOptions = currentPreferOptions;
     }
 

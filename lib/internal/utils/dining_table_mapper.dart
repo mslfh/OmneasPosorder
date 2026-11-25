@@ -33,7 +33,7 @@ class DiningTableMapper {
         };
       }).toList();
 
-      final double price = p.product.sellingPrice;
+      final double price = p.product.getPrice(true);
       final int quantity = p.quantity;
       final double optionsTotal =
           p.options.fold(0.0, (s, o) => s + o.option.extraCost);

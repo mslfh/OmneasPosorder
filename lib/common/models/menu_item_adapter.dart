@@ -33,6 +33,8 @@ class MenuItemAdapter extends HiveObject {
   String? soldOutLabel; // 售罄自定义标签
   @HiveField(13)
   int splitGroupId; // 后厨分单ID
+  @HiveField(14)
+  double? dineInPrice;
 
   MenuItemAdapter({
     required this.id,
@@ -40,6 +42,7 @@ class MenuItemAdapter extends HiveObject {
     required this.title,
     required this.acronym,
     required this.sellingPrice,
+    this.dineInPrice,
     required this.stock,
     required this.sort,
     required this.categoryIds,
@@ -57,6 +60,7 @@ class MenuItemAdapter extends HiveObject {
     title: item.title,
     acronym: item.acronym,
     sellingPrice: item.sellingPrice,
+    dineInPrice: item.dineInPrice,
     stock: item.stock,
     sort: item.sort,
     categoryIds: item.categoryIds,
@@ -75,6 +79,7 @@ class MenuItemAdapter extends HiveObject {
     kitchenPrintName: kitchenPrintName,
     acronym: acronym,
     sellingPrice: sellingPrice,
+    dineInPrice: dineInPrice,
     stock: stock,
     sort: sort,
     categoryIds: categoryIds,

@@ -1091,12 +1091,10 @@ class PrintService {
     // 4. Footer
     builder.alignLeft();
     for (String line in parsed['footer'] ?? []) {
-
-        builder.setBold(true).setFontSize(width: 1, height: 1).addLine(line).resetFontSize().setBold(false);
-
+      builder.setBold(true).setFontSize(width: 1, height: 1).addLine(line).resetFontSize().setBold(false);
     }
 
-    builder.cutPaper(feed: 4);
+    builder.cutPaper(feed: 8);
     return await builder.buildBytes();
   }
 
@@ -1463,7 +1461,6 @@ class PrintService {
   /// 生成单品小票 ESC/POS 指令字节流
   Future<List<int>> _generateSingleItemESCPOSCommands(
       OrderModel order, Map<String, dynamic> targetItem) async {
-    final merchant = await getMerchantInfo();
     final builder = EscPosBuilder()
       ..init()
       ..enableChineseMode();
@@ -1495,6 +1492,13 @@ class PrintService {
     } else {
       builder.addLine('Scene (用餐场景):   ${order.displayOrderSourceShort}');
     }
+    if (order.customerName != null && order.customerName!.isNotEmpty) {
+      builder.addLine('Customer (顾客):    ${order.customerName}');
+    }
+    if (order.customerPhone != null && order.customerPhone!.isNotEmpty) {
+      builder.addLine('Phone (电话):       ${order.customerPhone}');
+    }
+    builder.addLine('Pickup (取餐):      ${order.pickupTimeDisplay}');
     builder.addLine('Print Time (时间):  ${DateTime.now().toStandardDateTimeString()}');
     builder.addDivider(char: '-', length: 48);
 
@@ -1722,17 +1726,26 @@ class PrintService {
     final StringBuffer content = StringBuffer();
     content.writeln('[HEADER]');
     content.writeln("------------------------------");
-    if (splitLabel != null && splitLabel.trim().isNotEmpty) {
-      content.writeln("*** [ ${splitLabel.trim()} ] ***");
+    if (order.isPaid) {
+      content.writeln("*** PAID ***");
     }
     content.writeln("ORDER #${order.orderNo}");
     if (order.tableName != null && order.tableName!.isNotEmpty) {
       content.writeln("TABLE: ${order.tableName}");
     }
     content.writeln(displayType);
-    if (order.orderTime.difference(DateTime.now()).inMinutes >= 10) {
-      content.writeln("！！** $displayType AT ${_formatTimeOnly(order.orderTime)} **！！");
+    if (order.customerName != null && order.customerName!.isNotEmpty) {
+      content.writeln("NAME: ${order.customerName}");
     }
+    if (order.customerPhone != null && order.customerPhone!.isNotEmpty) {
+      content.writeln("PHONE: ${order.customerPhone}");
+    }
+
+    final pickupStr = order.pickupTimeDisplay.trim();
+    if (!pickupStr.toLowerCase().startsWith('right now')) {
+      content.writeln(pickupStr);
+    }
+
     content.writeln("------------------------------");
     content.writeln('[ITEMS]');
     for (var item in sortedItems) {
@@ -1762,14 +1775,17 @@ class PrintService {
       }
       content.writeln();
     }
-    if (order.note != null && order.note!.isNotEmpty) {
-      content.writeln('Note: ${order.note ?? ""}');
+    final displayNote = order.cleanUserNote;
+    if (displayNote.isNotEmpty) {
+      content.writeln('Note: $displayNote');
       content.writeln();
     }
     content.writeln("------------------------");
     content.writeln('[FOOTER]');
     content.writeln("TOTAL: $totalItemCount");
     content.writeln("Order Time: ${_formatDateTime(order.orderTime)}");
+    content.writeln();
+    content.writeln();
     return content.toString();
   }
 
@@ -1893,6 +1909,13 @@ class PrintService {
     if (order.tableName != null && order.tableName!.isNotEmpty) {
       content.writeln("TABLE: ${order.tableName}");
     }
+    if (order.customerName != null && order.customerName!.isNotEmpty) {
+      content.writeln("CUSTOMER: ${order.customerName}");
+    }
+    if (order.customerPhone != null && order.customerPhone!.isNotEmpty) {
+      content.writeln("PHONE: ${order.customerPhone}");
+    }
+    content.writeln("PICKUP TIME: ${order.pickupTimeDisplay}");
     content.writeln("------------------------");
     content.writeln('[ITEMS]');
     for (var item in items) {
@@ -1921,9 +1944,10 @@ class PrintService {
         }
       }
     }
-    if (order.note != null && order.note!.isNotEmpty) {
+    final displayNote = order.cleanUserNote;
+    if (displayNote.isNotEmpty) {
       content.writeln('[NOTES]');
-      content.writeln('Note: ${order.note}');
+      content.writeln('Note: $displayNote');
     }
     content.writeln('[TOTALS]');
     content.writeln("-----------------------------------------------");
@@ -1941,9 +1965,5 @@ class PrintService {
   String _formatDateTime(DateTime dateTime) {
     return '${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} '
         '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
-  }
-
-  String _formatTimeOnly(DateTime dateTime) {
-    return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 }

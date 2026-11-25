@@ -138,7 +138,7 @@ class OnlineOrderMapper {
   }
 
   static List<Map<String, dynamic>> toCheckoutItems(
-      List<SelectedProduct> products) {
+      List<SelectedProduct> products, {bool isDineIn = true}) {
     return products.map((p) {
       final options = p.options
           .map(
@@ -151,7 +151,7 @@ class OnlineOrderMapper {
           )
           .toList();
 
-      final double price = p.product.sellingPrice;
+      final double price = p.product.getPrice(isDineIn);
       final int quantity = p.quantity;
       final double optionsTotal =
           p.options.fold(0.0, (s, o) => s + o.option.extraCost);

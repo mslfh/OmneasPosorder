@@ -17,6 +17,7 @@ class OrderedProductListWidget extends StatelessWidget {
   final double containerWidth;
   final double? actualHeight;
   final double maxCardHeight;
+  final bool isDineIn;
 
   const OrderedProductListWidget({
     Key? key,
@@ -34,6 +35,7 @@ class OrderedProductListWidget extends StatelessWidget {
     required this.containerWidth,
     this.actualHeight,
     required this.maxCardHeight,
+    this.isDineIn = false,
   }) : super(key: key);
 
   double _calculateTitleFontSize(String title, double containerWidth) {
@@ -179,7 +181,7 @@ class OrderedProductListWidget extends StatelessWidget {
                                                   width: 58,
                                                   alignment: Alignment.centerRight,
                                                   child: Text(
-                                                    '\$${ordered.product.sellingPrice.toStringAsFixed(2)}',
+                                                    '\$${ordered.product.getPrice(isDineIn).toStringAsFixed(2)}',
                                                     style: const TextStyle(
                                                       fontSize: 14,
                                                       fontWeight: FontWeight.w900,

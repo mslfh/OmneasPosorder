@@ -90,6 +90,7 @@ class _OrderPageState extends State<OrderPage> {
   OverlayEntry? _quickInputOverlay;
   late final KeyboardEventHandler _keyboardEventHandler;
   final TextEditingController _searchInputController = TextEditingController();
+  final TextEditingController _tableNumberInputController = TextEditingController();
   final FocusNode _pageKeyboardFocusNode = FocusNode();
   final FocusNode _searchInputFocusNode = FocusNode();
   bool _keepSearchFocusOnNextBlur = false;
@@ -189,6 +190,7 @@ class _OrderPageState extends State<OrderPage> {
     _selectedTableGuestCount = null;
     _selectedReservationId = null;
     _originalTableProducts.clear();
+    _tableNumberInputController.clear();
   }
 
   Future<void> _showTablePicker() async {
@@ -197,6 +199,7 @@ class _OrderPageState extends State<OrderPage> {
 
     setState(() {
       _selectedTable = result.table;
+      _tableNumberInputController.text = result.table.name;
       _isTableOrderExisting = result.isExistingOrder;
       _selectedTableActiveOrder = result.activeOrder;
       _selectedTableGuestCount = result.guestCount;
@@ -227,6 +230,234 @@ class _OrderPageState extends State<OrderPage> {
     }
   }
 
+  Future<DiningTable> _ensureTableSelectedByName(String rawName) async {
+    final name = rawName.trim();
+    if (name.isEmpty) {
+      throw Exception('Please enter a Table Number / 请输入台号');
+    }
+
+    if (_selectedTable != null &&
+        (_selectedTable!.name.toLowerCase() == name.toLowerCase() ||
+            _selectedTable!.id.toString() == name)) {
+      return _selectedTable!;
+    }
+
+    final tables = await DiningTableService().getTables();
+    final matches = tables.where((t) =>
+        t.name.toLowerCase() == name.toLowerCase() ||
+        t.id.toString() == name).toList();
+
+    if (matches.isNotEmpty) {
+      final matchedTable = matches.first;
+      setState(() {
+        _selectedTable = matchedTable;
+        _tableNumberInputController.text = matchedTable.name;
+      });
+      return matchedTable;
+    }
+
+    final customTable = DiningTable(
+      id: 990000 + name.hashCode.abs() % 90000,
+      name: name,
+      capacity: 4,
+      status: 'occupied',
+    );
+
+    setState(() {
+      _selectedTable = customTable;
+      _tableNumberInputController.text = name;
+    });
+    return customTable;
+  }
+
+  Future<void> _handleOrderOrCheckoutTrigger() async {
+    if (orderedProducts.isEmpty && !_hasSelectedOnlineOrder && !_hasSelectedTable) {
+      await _showOnlineOrderPicker();
+      return;
+    }
+
+    final bool isDineIn = _orderType == 'dinein' || _selectedTable != null;
+
+    if (isDineIn) {
+      await _showDineInConfirmDialog();
+    } else {
+      await _openCheckoutPage();
+    }
+  }
+
+  Future<void> _showDineInConfirmDialog() async {
+    if (orderedProducts.isEmpty) {
+      UIHelper.showSnackBar(context, 'select_items_first'.tr, backgroundColor: Colors.orange);
+      return;
+    }
+
+    final controller = TextEditingController(
+      text: _tableNumberInputController.text.isNotEmpty
+          ? _tableNumberInputController.text
+          : (_selectedTable?.name ?? ''),
+    );
+
+    double totalPrice = 0.0;
+    for (var p in orderedProducts) {
+      double itemPrice = p.product.getPrice(_orderType == 'dinein' || _selectedTable != null);
+      double optionsTotal = p.options.fold(0.0, (s, o) => s + o.option.extraCost);
+      totalPrice += (itemPrice + optionsTotal) * p.quantity;
+    }
+
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(Icons.restaurant, color: Colors.blue[800]),
+              const SizedBox(width: 8),
+              Text('${'dine_in'.tr} - ${'confirm'.tr}'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${'selected_items_count'.trParams({'count': '${orderedProducts.length}'})} (\$${totalPrice.toStringAsFixed(2)})',
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: controller,
+                      autofocus: true,
+                      keyboardType: TextInputType.text,
+                      decoration: InputDecoration(
+                        labelText: 'Table Number (台号)',
+                        hintText: 'e.g. 5, A1, Table 12',
+                        prefixIcon: const Icon(Icons.table_restaurant),
+                        border: const OutlineInputBorder(),
+                        suffixIcon: controller.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 18),
+                                onPressed: () {
+                                  controller.clear();
+                                },
+                              )
+                            : null,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () async {
+                      Navigator.of(dialogContext).pop();
+                      await _showTablePicker();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                      backgroundColor: Colors.blueGrey[700],
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Pick Table'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actionsPadding: const EdgeInsets.all(16),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.save, size: 18),
+              label: const Text('Save & Kitchen (下后厨单)'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.amber[800],
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              ),
+              onPressed: () async {
+                final tableInput = controller.text.trim();
+                if (tableInput.isEmpty) {
+                  UIHelper.showSnackBar(context, 'Please enter Table Number / 请输入台号', backgroundColor: Colors.orange);
+                  return;
+                }
+                Navigator.of(dialogContext).pop();
+                _tableNumberInputController.text = tableInput;
+                await _ensureTableSelectedByName(tableInput);
+                await _saveLocalTableOrder();
+              },
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.shopping_cart_checkout, size: 18),
+              label: const Text('Checkout Now (立刻结账)'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green[700],
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+              onPressed: () async {
+                final tableInput = controller.text.trim();
+                if (tableInput.isEmpty) {
+                  UIHelper.showSnackBar(context, 'Please enter Table Number / 请输入台号', backgroundColor: Colors.orange);
+                  return;
+                }
+                Navigator.of(dialogContext).pop();
+                _tableNumberInputController.text = tableInput;
+                await _ensureTableSelectedByName(tableInput);
+                await _openCheckoutPage();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildTableNumberInputHeader() {
+    if (_orderType != 'dinein') return const SizedBox.shrink();
+
+    return Container(
+      width: 140,
+      margin: const EdgeInsets.only(left: 8),
+      child: TextField(
+        controller: _tableNumberInputController,
+        decoration: InputDecoration(
+          labelText: 'Table No.',
+          hintText: '台号',
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          prefixIcon: const Icon(Icons.table_restaurant, size: 16),
+          border: const OutlineInputBorder(),
+          suffixIcon: _tableNumberInputController.text.isNotEmpty
+              ? InkWell(
+                  onTap: () {
+                    setState(() {
+                      _tableNumberInputController.clear();
+                      _clearTableSelection();
+                    });
+                  },
+                  child: const Icon(Icons.close, size: 14),
+                )
+              : null,
+        ),
+        onChanged: (val) async {
+          if (val.trim().isNotEmpty) {
+            await _ensureTableSelectedByName(val.trim());
+          } else {
+            setState(() {
+              _clearTableSelection();
+            });
+          }
+        },
+      ),
+    );
+  }
+
   Widget _buildSelectedTableBanner() {
     return SelectedTableBannerWidget(
       table: _selectedTable,
@@ -241,81 +472,7 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   Future<void> _handleOrderAction() async {
-    if (orderedProducts.isEmpty &&
-        !_hasSelectedOnlineOrder &&
-        !_hasSelectedTable) {
-      await _showOnlineOrderPicker();
-      return;
-    }
-
-    if (_hasSelectedTable) {
-      if (orderedProducts.isEmpty) {
-        UIHelper.showSnackBar(context, 'select_items_first'.tr, backgroundColor: Colors.orange);
-        return;
-      }
-
-      showModalBottomSheet(
-        context: context,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-        ),
-        builder: (sheetCtx) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 20.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${'dining_table'.tr}: ${_selectedTable!.name}',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 6),
-                Text('selected_items_count'.trParams({'count': '${orderedProducts.length}'}),
-                    style: TextStyle(color: Colors.grey[700])),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.save),
-                    label: Text('update_staging'.tr),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.amber[800],
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    onPressed: () async {
-                      Navigator.pop(sheetCtx);
-                      await _saveLocalTableOrder();
-                    },
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.shopping_cart),
-                    label: Text('checkout'.tr.toUpperCase()),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green[700],
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    onPressed: () async {
-                      Navigator.pop(sheetCtx);
-                      await _openCheckoutPage();
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-      return;
-    }
-
-    await _openCheckoutPage();
+    await _handleOrderOrCheckoutTrigger();
   }
 
   /// 计算相比原始暂存菜品，新增/加数量的菜品列表
@@ -486,6 +643,7 @@ class _OrderPageState extends State<OrderPage> {
     _keyboardEventHandler.addHandler(
       navigationKeyHandler(
         hasQuickInput: () => _quickInputManager.hasInput,
+        isSearchFocused: () => _searchInputFocusNode.hasFocus,
         onNavigate: _navigateOrderedProducts,
         playClickSound: _playClickSound,
       ),
@@ -505,6 +663,7 @@ class _OrderPageState extends State<OrderPage> {
     _keyboardEventHandler.addHandler(
       enterKeyHandler(
         quickInputManager: _quickInputManager,
+        onConfirmQuickInput: () async => await _confirmQuickInputSelection(keepSearchFocus: true),
         addProductIntelligently: (item) {
           if (_isAdminMode) {
             _showEditProductDialog(item);
@@ -520,7 +679,7 @@ class _OrderPageState extends State<OrderPage> {
         },
         removeQuickInputOverlay: _removeQuickInputOverlay,
         refreshUI: () => setState(() {}),
-        onOrder: _openCheckoutPage,
+        onOrder: _handleOrderOrCheckoutTrigger,
         hasOrderedProducts: () =>
             orderedProducts.isNotEmpty || _hasSelectedOnlineOrder,
       ),
@@ -595,6 +754,7 @@ class _OrderPageState extends State<OrderPage> {
     _pageKeyboardFocusNode.dispose();
     _searchInputFocusNode.dispose();
     _searchInputController.dispose();
+    _tableNumberInputController.dispose();
     _orderMatchManager.dispose();
     _removeQuickInputOverlay();
     super.dispose();
@@ -808,23 +968,43 @@ class _OrderPageState extends State<OrderPage> {
     final selectedItem = _quickInputManager.getSelectedItem();
     if (selectedItem == null) return;
 
-    if (selectedItem is MenuItem) {
-      if (_isAdminMode) {
-        _showEditProductDialog(selectedItem);
-      } else {
-        _addProductIntelligently(selectedItem);
-      }
-      await _playClickSound();
-    } else if (selectedItem is MenuOption && orderedProducts.isNotEmpty) {
-      _addOptionToLastProduct(selectedItem.type, selectedItem);
-      await _playClickSound();
-    } else {
-      return;
-    }
-
     _quickInputManager.clear();
     _syncSearchInputController();
     _removeQuickInputOverlay();
+
+    if (selectedItem is MenuItem) {
+      if (selectedItem.id == 0) {
+        final result = await showDialog<Map<String, dynamic>>(
+          context: context,
+          builder: (dialogContext) => _ManualProductPriceDialog(productName: selectedItem.title),
+        );
+        if (result == null) return;
+        
+        final manualItem = MenuItem(
+          id: DateTime.now().millisecondsSinceEpoch,
+          code: 'MANUAL_${DateTime.now().millisecondsSinceEpoch}',
+          title: result['name'] as String,
+          acronym: '',
+          sellingPrice: result['price'] as double,
+          dineInPrice: result['price'] as double,
+          stock: 999,
+          sort: 0,
+          categoryIds: [],
+          isPrintable: true,
+        );
+        _addProductIntelligently(manualItem);
+        await _playClickSound();
+      } else if (_isAdminMode) {
+        _showEditProductDialog(selectedItem);
+        await _playClickSound();
+      } else {
+        _addProductIntelligently(selectedItem);
+        await _playClickSound();
+      }
+    } else if (selectedItem is MenuOption && orderedProducts.isNotEmpty) {
+      _addOptionToLastProduct(selectedItem.type, selectedItem);
+      await _playClickSound();
+    }
 
     if (keepSearchFocus) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -855,8 +1035,8 @@ class _OrderPageState extends State<OrderPage> {
     if (!_searchInputFocusNode.hasFocus) return true;
 
     final key = event.logicalKey;
-    final isQuickInputControlKey = key == LogicalKeyboardKey.arrowUp ||
-        key == LogicalKeyboardKey.arrowDown ||
+    final bool isSearchActive = _quickInputManager.hasInput && _quickInputManager.hasResults;
+    final isQuickInputControlKey = (isSearchActive && (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.arrowDown)) ||
         key == LogicalKeyboardKey.escape ||
         (key == LogicalKeyboardKey.enter && _quickInputManager.hasInput);
 
@@ -893,12 +1073,32 @@ class _OrderPageState extends State<OrderPage> {
           _syncSearchInputController();
           _removeQuickInputOverlay();
         },
-        onItemTap: (item) {
+        onItemTap: (item) async {
           _playClickSound();
           _quickInputManager.clear();
           _syncSearchInputController();
           _removeQuickInputOverlay();
-          if (_isAdminMode) {
+          if (item.id == 0) {
+            final result = await showDialog<Map<String, dynamic>>(
+              context: context,
+              builder: (dialogContext) => _ManualProductPriceDialog(productName: item.title),
+            );
+            if (result != null) {
+              final manualItem = MenuItem(
+                id: DateTime.now().millisecondsSinceEpoch,
+                code: 'MANUAL_${DateTime.now().millisecondsSinceEpoch}',
+                title: result['name'] as String,
+                acronym: '',
+                sellingPrice: result['price'] as double,
+                dineInPrice: result['price'] as double,
+                stock: 999,
+                sort: 0,
+                categoryIds: [],
+                isPrintable: true,
+              );
+              _addProductIntelligently(manualItem);
+            }
+          } else if (_isAdminMode) {
             _showEditProductDialog(item);
           } else {
             _addProductIntelligently(item);
@@ -1047,10 +1247,11 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   Widget _buildOrderTypeAndShareSelector() {
+    final bool isDineIn = _orderType == 'dinein' || _selectedTable != null;
     final int totalQty =
         orderedProducts.fold<int>(0, (sum, p) => sum + p.quantity);
     final double totalAmount = orderedProducts.fold<double>(0.0, (sum, p) {
-      final price = p.product.sellingPrice;
+      final price = p.product.getPrice(isDineIn);
       final optCost =
           p.options.fold<double>(0.0, (s, o) => s + o.option.extraCost);
       return sum + (price + optCost) * p.quantity;
@@ -1170,30 +1371,36 @@ class _OrderPageState extends State<OrderPage> {
             maintainAnimation: true,
             maintainState: true,
             visible: _orderType == 'dinein',
-            child: SegmentedButton<bool>(
-              showSelectedIcon: false,
-              segments: [
-                ButtonSegment<bool>(
-                  value: true,
-                  label: Text('share'.tr),
-                  icon: const Icon(Icons.groups, size: 14),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SegmentedButton<bool>(
+                  showSelectedIcon: false,
+                  segments: [
+                    ButtonSegment<bool>(
+                      value: true,
+                      label: Text('share'.tr),
+                      icon: const Icon(Icons.groups, size: 14),
+                    ),
+                    ButtonSegment<bool>(
+                      value: false,
+                      label: Text('no_share'.tr),
+                      icon: const Icon(Icons.person, size: 14),
+                    ),
+                  ],
+                  selected: {_isShareMode},
+                  onSelectionChanged: (Set<bool> selection) {
+                    setState(() {
+                      _isShareMode = selection.first;
+                    });
+                  },
+                  style: const ButtonStyle(
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                  ),
                 ),
-                ButtonSegment<bool>(
-                  value: false,
-                  label: Text('no_share'.tr),
-                  icon: const Icon(Icons.person, size: 14),
-                ),
+                _buildTableNumberInputHeader(),
               ],
-              selected: {_isShareMode},
-              onSelectionChanged: (Set<bool> selection) {
-                setState(() {
-                  _isShareMode = selection.first;
-                });
-              },
-              style: const ButtonStyle(
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                visualDensity: VisualDensity.compact,
-              ),
             ),
           ),
         ],
@@ -1213,9 +1420,10 @@ class _OrderPageState extends State<OrderPage> {
       final databaseService = DatabaseService();
       final printService = PrintService();
 
-      final items = OnlineOrderMapper.toCheckoutItems(orderedProducts);
+      final bool isDineIn = _orderType == 'dinein' || _selectedTable != null;
+      final items = OnlineOrderMapper.toCheckoutItems(orderedProducts, isDineIn: isDineIn);
       final double total = orderedProducts.fold(0.0, (sum, p) {
-        double price = p.product.sellingPrice;
+        double price = p.product.getPrice(isDineIn);
         double optCost = p.options.fold(0.0, (s, o) => s + o.option.extraCost);
         return sum + (price + optCost) * p.quantity;
       });
@@ -1302,11 +1510,11 @@ class _OrderPageState extends State<OrderPage> {
 
   @override
   Widget build(BuildContext context) {
-    return KeyboardListener(
+    return Focus(
       focusNode: _pageKeyboardFocusNode,
       autofocus: true,
-      onKeyEvent: (KeyEvent event) {
-        if (!_shouldHandleGlobalKeyEvent(event)) return;
+      onKeyEvent: (node, event) {
+        if (!_shouldHandleGlobalKeyEvent(event)) return KeyEventResult.ignored;
         final keepSearchFocusedAfterEnter = event is KeyDownEvent &&
             event.logicalKey == LogicalKeyboardKey.enter &&
             _searchInputFocusNode.hasFocus &&
@@ -1324,6 +1532,16 @@ class _OrderPageState extends State<OrderPage> {
             }
           });
         }
+
+        if (event is KeyDownEvent &&
+            (event.logicalKey == LogicalKeyboardKey.arrowUp ||
+             event.logicalKey == LogicalKeyboardKey.arrowDown ||
+             event.logicalKey == LogicalKeyboardKey.escape ||
+             event.logicalKey == LogicalKeyboardKey.enter)) {
+          return KeyEventResult.handled;
+        }
+
+        return KeyEventResult.ignored;
       },
       child: Scaffold(
         body: SafeArea(
@@ -1372,6 +1590,7 @@ class _OrderPageState extends State<OrderPage> {
                     containerWidth: constraints.maxWidth - 32,
                     actualHeight: actualHeight,
                     maxCardHeight: maxCardHeight,
+                    isDineIn: _orderType == 'dinein' || _selectedTable != null,
                   ),
                   Expanded(
                     child: Row(
@@ -1702,3 +1921,123 @@ class __ManualOptionPriceDialogState extends State<_ManualOptionPriceDialog> {
     );
   }
 }
+
+class _ManualProductPriceDialog extends StatefulWidget {
+  final String productName;
+
+  const _ManualProductPriceDialog({required this.productName});
+
+  @override
+  State<_ManualProductPriceDialog> createState() =>
+      __ManualProductPriceDialogState();
+}
+
+class __ManualProductPriceDialogState extends State<_ManualProductPriceDialog> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _priceController;
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.productName);
+    _priceController = TextEditingController(text: '0');
+    _focusNode = FocusNode();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _focusNode.requestFocus();
+        _priceController.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: _priceController.text.length,
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _priceController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _nameController.text.trim();
+    final price = double.tryParse(_priceController.text.trim()) ?? 0.0;
+    Navigator.of(context).pop({
+      'name': name.isEmpty ? widget.productName : name,
+      'price': price < 0 ? 0.0 : price,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      title: Row(
+        children: [
+          const Icon(Icons.add_shopping_cart, color: Colors.blue),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'manual_product_price'.trParams({'name': widget.productName}),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('product_name_label'.tr,
+              style: const TextStyle(fontSize: 13)),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _nameController,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text('extra_price_label'.tr,
+              style: const TextStyle(fontSize: 13)),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _priceController,
+            focusNode: _focusNode,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              prefixText: '\$ ',
+              border: OutlineInputBorder(),
+              hintText: '0.00',
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+            onSubmitted: (_) => _submit(),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(null),
+          child: Text('cancel'.tr),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blue,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: _submit,
+          child: Text('confirm'.tr),
+        ),
+      ],
+    );
+  }
+  }

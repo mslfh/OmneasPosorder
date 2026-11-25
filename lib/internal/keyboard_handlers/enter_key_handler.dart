@@ -8,6 +8,7 @@ typedef KeyEventHandler = bool Function(
 
 KeyEventHandler enterKeyHandler({
   required QuickInputManager quickInputManager,
+  Future<void> Function()? onConfirmQuickInput,
   required void Function(MenuItem) addProductIntelligently,
   required void Function(String type, MenuOption option) addOptionToLastProduct,
   required Future<void> Function() playClickSound,
@@ -21,6 +22,10 @@ KeyEventHandler enterKeyHandler({
     if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
       // 优先处理快捷输入
       if (quickInputManager.hasResults) {
+        if (onConfirmQuickInput != null) {
+          onConfirmQuickInput();
+          return true;
+        }
         final selectedItem = quickInputManager.getSelectedItem();
 
         if (selectedItem is MenuItem) {

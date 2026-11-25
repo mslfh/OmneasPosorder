@@ -375,6 +375,7 @@ class OrderService {
     required double cashChange,
     required double voucherAmount,
     required bool itemsChanged,
+    DateTime? expectedTime,
   }) async {
     final updatedOrder = order.copyWith(
       items: jsonEncode(items),
@@ -388,6 +389,7 @@ class OrderService {
       voucherAmount: voucherAmount,
       note: note,
       type: type,
+      orderTime: expectedTime ?? order.orderTime,
       orderStatus: OrderStatus.completed,
       syncStatus: SyncStatus.pending,
       errorMessage: null,

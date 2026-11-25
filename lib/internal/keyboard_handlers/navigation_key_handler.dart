@@ -13,9 +13,11 @@ KeyEventHandler navigationKeyHandler({
   required HasQuickInput hasQuickInput,
   required NavigateOrderedProducts onNavigate,
   required PlayClickSound playClickSound,
+  bool Function()? isSearchFocused,
 }) {
   return (event, products) {
     if (event is! KeyDownEvent) return false;
+    if (isSearchFocused?.call() == true) return false;
     if (!hasQuickInput() &&
         (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
          event.logicalKey == LogicalKeyboardKey.arrowRight ||

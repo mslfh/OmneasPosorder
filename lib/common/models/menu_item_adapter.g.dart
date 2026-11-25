@@ -22,22 +22,23 @@ class MenuItemAdapterAdapter extends TypeAdapter<MenuItemAdapter> {
       title: fields[2] as String,
       acronym: fields[3] as String?,
       sellingPrice: fields[4] as double,
+      dineInPrice: fields[14] as double?,
       stock: fields[5] as int,
       sort: fields[6] as int,
       categoryIds: (fields[7] as List).cast<int>(),
       isPrintable: fields[8] as bool,
       kitchenPrintName: fields[9] as String?,
-      isSoldOut: fields[10] as bool? ?? false,
+      isSoldOut: fields[10] as bool,
       soldOutUntil: fields[11] as String?,
       soldOutLabel: fields[12] as String?,
-      splitGroupId: fields[13] as int? ?? 0,
+      splitGroupId: fields[13] as int,
     );
   }
 
   @override
   void write(BinaryWriter writer, MenuItemAdapter obj) {
     writer
-      ..writeByte(14)
+      ..writeByte(15)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -65,7 +66,9 @@ class MenuItemAdapterAdapter extends TypeAdapter<MenuItemAdapter> {
       ..writeByte(12)
       ..write(obj.soldOutLabel)
       ..writeByte(13)
-      ..write(obj.splitGroupId);
+      ..write(obj.splitGroupId)
+      ..writeByte(14)
+      ..write(obj.dineInPrice);
   }
 
   @override

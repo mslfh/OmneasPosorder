@@ -202,14 +202,20 @@ class QuickInputOverlay extends StatelessWidget {
   }
 
   Widget _buildProductItem(MenuItem item, bool isHighlighted) {
+    final bool isManual = item.id == 0;
+
     return InkWell(
       onTap: () => onItemTap?.call(item),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
         decoration: BoxDecoration(
-          color: isHighlighted ? Colors.blue.shade100 : Colors.transparent,
+          color: isHighlighted
+              ? (isManual ? Colors.orange.shade100 : Colors.blue.shade100)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(4),
-          border: isHighlighted ? Border.all(color: Colors.blue.shade300) : null,
+          border: isHighlighted
+              ? Border.all(color: isManual ? Colors.orange.shade400 : Colors.blue.shade300)
+              : null,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(
@@ -218,11 +224,11 @@ class QuickInputOverlay extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.blue.shade600,
+                color: isManual ? Colors.orange.shade700 : Colors.blue.shade600,
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
-                item.acronym ?? '',
+                isManual ? 'manual'.tr : (item.acronym ?? ''),
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 12,
@@ -238,16 +244,18 @@ class QuickInputOverlay extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    item.title,
+                    isManual ? 'use_manual_product'.trParams({'name': item.title}) : item.title,
                     style: TextStyle(
                       fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: isHighlighted ? Colors.blue.shade800 : Colors.black87,
+                      fontWeight: isManual ? FontWeight.bold : FontWeight.w500,
+                      color: isHighlighted
+                          ? (isManual ? Colors.orange.shade900 : Colors.blue.shade800)
+                          : Colors.black87,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  if (item.code.isNotEmpty)
+                  if (!isManual && item.code.isNotEmpty)
                     Text(
                       'Code: ${item.code}',
                       style: TextStyle(
@@ -261,11 +269,13 @@ class QuickInputOverlay extends StatelessWidget {
 
             // 价格
             Text(
-              '\$${item.sellingPrice.toStringAsFixed(2)}',
+              isManual ? 'custom_price_hint'.tr : '\$${item.sellingPrice.toStringAsFixed(2)}',
               style: TextStyle(
-                fontSize: 13,
+                fontSize: isManual ? 12 : 13,
                 fontWeight: FontWeight.w600,
-                color: isHighlighted ? Colors.blue.shade700 : Colors.green.shade600,
+                color: isHighlighted
+                    ? (isManual ? Colors.orange.shade800 : Colors.blue.shade700)
+                    : (isManual ? Colors.grey.shade600 : Colors.green.shade600),
               ),
             ),
           ],
