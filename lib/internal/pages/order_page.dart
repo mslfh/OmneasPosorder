@@ -29,7 +29,7 @@ import '../keyboard_handlers/toggle_order_type_key_handler.dart';
 import '../../common/services/order_match_service.dart';
 import '../services/menu_data_service.dart';
 import '../services/order_match_manager.dart';
-import '../widgets/online_order_selection_dialog.dart';
+import '../widgets/order_selection_dialog.dart';
 import '../../common/models/dining_table.dart';
 import '../../common/services/dining_table_service.dart';
 import '../../common/services/print_service.dart';
@@ -41,6 +41,7 @@ import '../widgets/manage_options_dialog.dart';
 import '../widgets/manage_kitchen_split_dialog.dart';
 import '../widgets/option_selection_dialog.dart';
 import '../widgets/selected_order_banners_widget.dart';
+import '../widgets/order_confirm_dialog.dart';
 
 class OrderPage extends StatefulWidget {
   final bool isAdminMode;
@@ -82,6 +83,12 @@ class _OrderPageState extends State<OrderPage> {
   int? _selectedTableGuestCount;
   int? _selectedReservationId;
   List<SelectedProduct> _originalTableProducts = [];
+
+  String _takeawayCustomerName = '';
+  String _takeawayCustomerPhone = '';
+  String _takeawayPickupTimeOption = 'Right Now';
+  TimeOfDay? _takeawayCustomPickupTime;
+  String _dineInCustomerName = '';
 
   bool get _hasSelectedTable => _selectedTable != null;
 
@@ -178,7 +185,7 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   Future<void> _showOnlineOrderPicker() async {
-    final selectedOrder = await OnlineOrderSelectionDialog.show(context);
+    final selectedOrder = await OrderSelectionDialog.show(context);
     if (selectedOrder == null || !mounted) return;
     _applyOnlineOrderToCart(selectedOrder);
   }
@@ -281,7 +288,7 @@ class _OrderPageState extends State<OrderPage> {
     if (isDineIn) {
       await _showDineInConfirmDialog();
     } else {
-      await _openCheckoutPage();
+      await _showTakeAwayConfirmDialog();
     }
   }
 
@@ -291,12 +298,6 @@ class _OrderPageState extends State<OrderPage> {
       return;
     }
 
-    final controller = TextEditingController(
-      text: _tableNumberInputController.text.isNotEmpty
-          ? _tableNumberInputController.text
-          : (_selectedTable?.name ?? ''),
-    );
-
     double totalPrice = 0.0;
     for (var p in orderedProducts) {
       double itemPrice = p.product.getPrice(_orderType == 'dinein' || _selectedTable != null);
@@ -304,135 +305,269 @@ class _OrderPageState extends State<OrderPage> {
       totalPrice += (itemPrice + optionsTotal) * p.quantity;
     }
 
-    await showDialog(
+    final initialTableName = _tableNumberInputController.text.isNotEmpty
+        ? _tableNumberInputController.text
+        : (_selectedTable?.name ?? '');
+
+    final result = await OrderConfirmDialog.showDineIn(
       context: context,
-      barrierDismissible: true,
-      builder: (dialogContext) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Row(
-            children: [
-              Icon(Icons.restaurant, color: Colors.blue[800]),
-              const SizedBox(width: 8),
-              Text('${'dine_in'.tr} - ${'confirm'.tr}'),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${'selected_items_count'.trParams({'count': '${orderedProducts.length}'})} (\$${totalPrice.toStringAsFixed(2)})',
-                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: controller,
-                      autofocus: true,
-                      keyboardType: TextInputType.text,
-                      decoration: InputDecoration(
-                        labelText: 'Table Number (台号)',
-                        hintText: 'e.g. 5, A1, Table 12',
-                        prefixIcon: const Icon(Icons.table_restaurant),
-                        border: const OutlineInputBorder(),
-                        suffixIcon: controller.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear, size: 18),
-                                onPressed: () {
-                                  controller.clear();
-                                },
-                              )
-                            : null,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: () async {
-                      Navigator.of(dialogContext).pop();
-                      await _showTablePicker();
-                    },
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                      backgroundColor: Colors.blueGrey[700],
-                      foregroundColor: Colors.white,
-                    ),
-                    child: const Text('Pick Table'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          actionsPadding: const EdgeInsets.all(16),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.save, size: 18),
-              label: const Text('Save & Kitchen (下后厨单)'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.amber[800],
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              ),
-              onPressed: () async {
-                final tableInput = controller.text.trim();
-                if (tableInput.isEmpty) {
-                  UIHelper.showSnackBar(context, 'Please enter Table Number / 请输入台号', backgroundColor: Colors.orange);
-                  return;
-                }
-                Navigator.of(dialogContext).pop();
-                _tableNumberInputController.text = tableInput;
-                await _ensureTableSelectedByName(tableInput);
-                await _saveLocalTableOrder();
-              },
-            ),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.shopping_cart_checkout, size: 18),
-              label: const Text('Checkout Now (立刻结账)'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green[700],
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              ),
-              onPressed: () async {
-                final tableInput = controller.text.trim();
-                if (tableInput.isEmpty) {
-                  UIHelper.showSnackBar(context, 'Please enter Table Number / 请输入台号', backgroundColor: Colors.orange);
-                  return;
-                }
-                Navigator.of(dialogContext).pop();
-                _tableNumberInputController.text = tableInput;
-                await _ensureTableSelectedByName(tableInput);
-                await _openCheckoutPage();
-              },
-            ),
-          ],
-        );
-      },
+      initialTableName: initialTableName,
+      initialCustomerName: _dineInCustomerName.isNotEmpty
+          ? _dineInCustomerName
+          : (_selectedOnlineOrder?.customerName ?? ''),
+      initialGuestCount: _selectedTableGuestCount,
+      itemQuantity: orderedProducts.length,
+      totalPrice: totalPrice,
     );
+
+    if (result == null || result.action == DineInConfirmAction.cancel) return;
+
+    _dineInCustomerName = result.customerName;
+    if (result.guestCount != null) {
+      _selectedTableGuestCount = result.guestCount;
+    }
+
+    if (result.action == DineInConfirmAction.pickTable) {
+      await _showTablePicker();
+    } else if (result.action == DineInConfirmAction.saveAndKitchen) {
+      _tableNumberInputController.text = result.tableName;
+      await _ensureTableSelectedByName(result.tableName);
+      await _saveLocalTableOrder();
+    } else if (result.action == DineInConfirmAction.checkoutNow) {
+      _tableNumberInputController.text = result.tableName;
+      await _ensureTableSelectedByName(result.tableName);
+      await _openCheckoutPage();
+    }
+  }
+
+  String _getPickupTimeDisplayText(String option, TimeOfDay? customTime) {
+    final now = DateTime.now();
+    if (option == 'Right Now') return 'Right Now';
+    if (option == 'Custom' && customTime != null) {
+      final hour = customTime.hour.toString().padLeft(2, '0');
+      final minute = customTime.minute.toString().padLeft(2, '0');
+      return '$hour:$minute';
+    }
+    if (option.endsWith('min')) {
+      final mins = int.tryParse(option.replaceAll('min', '')) ?? 0;
+      final targetTime = now.add(Duration(minutes: mins));
+      final hour = targetTime.hour.toString().padLeft(2, '0');
+      final minute = targetTime.minute.toString().padLeft(2, '0');
+      return '$hour:$minute';
+    }
+    return option;
+  }
+
+  DateTime _getCalculatedPickupDateTime(String option, TimeOfDay? customTime) {
+    final now = DateTime.now();
+    if (option == '10min') return now.add(const Duration(minutes: 10));
+    if (option == '15min') return now.add(const Duration(minutes: 15));
+    if (option == '20min') return now.add(const Duration(minutes: 20));
+    if (option == '25min') return now.add(const Duration(minutes: 25));
+    if (option == '30min') return now.add(const Duration(minutes: 30));
+    if (option == 'Custom' && customTime != null) {
+      return DateTime(
+        now.year,
+        now.month,
+        now.day,
+        customTime.hour,
+        customTime.minute,
+      );
+    }
+    return now;
+  }
+
+  Future<void> _showTakeAwayConfirmDialog() async {
+    if (orderedProducts.isEmpty && !_hasSelectedOnlineOrder) {
+      UIHelper.showSnackBar(context, 'select_items_first'.tr, backgroundColor: Colors.orange);
+      return;
+    }
+
+    double totalPrice = 0.0;
+    for (var p in orderedProducts) {
+      double itemPrice = p.product.getPrice(false);
+      double optionsTotal = p.options.fold(0.0, (s, o) => s + o.option.extraCost);
+      totalPrice += (itemPrice + optionsTotal) * p.quantity;
+    }
+
+    final initialCustomerName = _takeawayCustomerName.isNotEmpty
+        ? _takeawayCustomerName
+        : (_selectedOnlineOrder?.customerName ?? '');
+    final initialCustomerPhone = _takeawayCustomerPhone.isNotEmpty
+        ? _takeawayCustomerPhone
+        : (_selectedOnlineOrder?.customerPhone ?? '');
+
+    final result = await OrderConfirmDialog.showTakeAway(
+      context: context,
+      initialCustomerName: initialCustomerName,
+      initialCustomerPhone: initialCustomerPhone,
+      initialPickupOption: _takeawayPickupTimeOption,
+      initialCustomTime: _takeawayCustomPickupTime,
+      itemQuantity: orderedProducts.length,
+      totalPrice: totalPrice,
+    );
+
+    if (result == null || result.action == TakeAwayConfirmAction.cancel) return;
+
+    _takeawayCustomerName = result.customerName;
+    _takeawayCustomerPhone = result.customerPhone;
+    _takeawayPickupTimeOption = result.pickupOption;
+    _takeawayCustomPickupTime = result.customTime;
+
+    if (result.action == TakeAwayConfirmAction.saveAndKitchen) {
+      await _saveTakeawayOrderAndPrintKitchen();
+    } else if (result.action == TakeAwayConfirmAction.checkoutNow) {
+      await _openCheckoutPage();
+    }
+  }
+
+  Future<void> _saveTakeawayOrderAndPrintKitchen() async {
+    if (orderedProducts.isEmpty && !_hasSelectedOnlineOrder) return;
+
+    final orderService = OrderService();
+    final databaseService = DatabaseService();
+    final printService = PrintService();
+    final now = DateTime.now();
+
+    final pickupDisplay = _getPickupTimeDisplayText(
+      _takeawayPickupTimeOption,
+      _takeawayCustomPickupTime,
+    );
+    final expectedTime = _getCalculatedPickupDateTime(
+      _takeawayPickupTimeOption,
+      _takeawayCustomPickupTime,
+    );
+
+    List<String> metaParts = [];
+    if (_takeawayCustomerName.isNotEmpty) {
+      metaParts.add('[Customer: $_takeawayCustomerName]');
+    }
+    if (_takeawayCustomerPhone.isNotEmpty) {
+      metaParts.add('[Phone: $_takeawayCustomerPhone]');
+    }
+    if (pickupDisplay.isNotEmpty) {
+      metaParts.add('[Pickup: $pickupDisplay]');
+    }
+    String metaNote = metaParts.join(' ');
+
+    final items = OnlineOrderMapper.toCheckoutItems(orderedProducts, isDineIn: false);
+    final double total = orderedProducts.fold(0.0, (sum, p) {
+      double price = p.product.getPrice(false);
+      double optCost = p.options.fold(0.0, (s, o) => s + o.option.extraCost);
+      return sum + (price + optCost) * p.quantity;
+    });
+
+    String orderNo;
+    OrderModel orderToPrint;
+
+    if (_selectedOnlineOrder != null) {
+      final updatedOrder = _selectedOnlineOrder!.copyWith(
+        items: jsonEncode(items),
+        totalAmount: double.parse(total.toStringAsFixed(2)),
+        type: 'takeaway',
+        note: metaNote.isNotEmpty ? metaNote : _selectedOnlineOrder!.note,
+        orderStatus: OrderStatus.pending,
+        orderTime: expectedTime,
+      );
+      await databaseService.updateOrder(updatedOrder);
+      orderToPrint = updatedOrder;
+      orderNo = updatedOrder.orderNo;
+    } else {
+      orderNo = await orderService.generateOrderNo();
+      final orderId =
+          '$orderNo-${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
+
+      orderToPrint = OrderModel(
+        id: orderId,
+        orderNo: orderNo,
+        orderTime: expectedTime,
+        createdAt: now,
+        items: jsonEncode(items),
+        totalAmount: double.parse(total.toStringAsFixed(2)),
+        discountAmount: 0.0,
+        taxRate: 10.0,
+        serviceFee: 0.0,
+        cashAmount: 0.0,
+        posAmount: 0.0,
+        orderStatus: OrderStatus.pending,
+        syncStatus: SyncStatus.pending,
+        printStatus: PrintStatus.pending,
+        note: metaNote.isNotEmpty ? metaNote : null,
+        type: 'takeaway',
+        cashChange: 0.0,
+        voucherAmount: 0.0,
+        isOnlineOrder: false,
+      );
+      await databaseService.insertOrder(orderToPrint);
+    }
+
+    await printService.printKitchenTicketOnly(orderToPrint);
+
+    if (!mounted) return;
+
+    UIHelper.showToast(
+      context,
+      'takeaway_saved_kitchen_printed'.tr,
+      backgroundColor: Colors.green,
+    );
+
+    setState(() {
+      orderedProducts.clear();
+      selectedOrderedProduct = null;
+      _clearOnlineOrderSelection();
+      _takeawayCustomerName = '';
+      _takeawayCustomerPhone = '';
+      _takeawayPickupTimeOption = 'Right Now';
+      _takeawayCustomPickupTime = null;
+    });
   }
 
   Widget _buildTableNumberInputHeader() {
     if (_orderType != 'dinein') return const SizedBox.shrink();
 
+    final bool hasTable = _selectedTable != null || _tableNumberInputController.text.isNotEmpty;
+
     return Container(
-      width: 140,
+      width: 150,
       margin: const EdgeInsets.only(left: 8),
       child: TextField(
         controller: _tableNumberInputController,
+        style: TextStyle(
+          fontWeight: FontWeight.bold,
+          fontSize: 15,
+          color: Colors.amber.shade900,
+        ),
         decoration: InputDecoration(
           labelText: 'Table No.',
           hintText: '台号',
           isDense: true,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          prefixIcon: const Icon(Icons.table_restaurant, size: 16),
-          border: const OutlineInputBorder(),
+          filled: true,
+          fillColor: hasTable ? Colors.amber.shade100 : Colors.amber.shade50,
+          labelStyle: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.amber.shade900,
+            fontSize: 13,
+          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          prefixIcon: Icon(
+            Icons.table_restaurant,
+            size: 18,
+            color: Colors.amber.shade900,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(
+              color: hasTable ? Colors.amber.shade800 : Colors.amber.shade600,
+              width: 2,
+            ),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(
+              color: Colors.amber.shade900,
+              width: 2.5,
+            ),
+          ),
           suffixIcon: _tableNumberInputController.text.isNotEmpty
               ? InkWell(
                   onTap: () {
@@ -441,7 +576,7 @@ class _OrderPageState extends State<OrderPage> {
                       _clearTableSelection();
                     });
                   },
-                  child: const Icon(Icons.close, size: 14),
+                  child: Icon(Icons.close, size: 16, color: Colors.amber.shade900),
                 )
               : null,
         ),
@@ -454,21 +589,18 @@ class _OrderPageState extends State<OrderPage> {
             });
           }
         },
+        onSubmitted: (val) async {
+          if (val.trim().isNotEmpty) {
+            await _ensureTableSelectedByName(val.trim());
+          }
+          await _handleOrderOrCheckoutTrigger();
+        },
       ),
     );
   }
 
   Widget _buildSelectedTableBanner() {
-    return SelectedTableBannerWidget(
-      table: _selectedTable,
-      isTableOrderExisting: _isTableOrderExisting,
-      onChangeTable: _showTablePicker,
-      onClearTable: () {
-        setState(() {
-          _clearTableSelection();
-        });
-      },
-    );
+    return const SizedBox.shrink();
   }
 
   Future<void> _handleOrderAction() async {
@@ -540,6 +672,7 @@ class _OrderPageState extends State<OrderPage> {
       await PrintService().printKitchenTicketForAddedItems(
         tableName: tableName,
         addedProducts: addedProducts,
+        customerName: _dineInCustomerName.isNotEmpty ? _dineInCustomerName : null,
       );
     }
 
@@ -585,6 +718,12 @@ class _OrderPageState extends State<OrderPage> {
           reservationId: _selectedReservationId,
           initialOrderType: _orderType,
           isShareMode: _isShareMode,
+          customerName: _takeawayCustomerName.isNotEmpty
+              ? _takeawayCustomerName
+              : _dineInCustomerName,
+          customerPhone: _takeawayCustomerPhone,
+          pickupTimeOption: _takeawayPickupTimeOption,
+          customPickupTime: _takeawayCustomPickupTime,
         ),
       ),
     );
@@ -602,6 +741,11 @@ class _OrderPageState extends State<OrderPage> {
         selectedOrderedProduct = null;
         _clearOnlineOrderSelection();
         _clearTableSelection();
+        _takeawayCustomerName = '';
+        _takeawayCustomerPhone = '';
+        _takeawayPickupTimeOption = 'Right Now';
+        _takeawayCustomPickupTime = null;
+        _dineInCustomerName = '';
       });
     }
   }
@@ -1408,106 +1552,6 @@ class _OrderPageState extends State<OrderPage> {
     );
   }
 
-  Future<void> _handleOrderNow() async {
-    if (orderedProducts.isEmpty) {
-      UIHelper.showSnackBar(context, 'select_items_first'.tr,
-          backgroundColor: Colors.orange);
-      return;
-    }
-
-    try {
-      final orderService = OrderService();
-      final databaseService = DatabaseService();
-      final printService = PrintService();
-
-      final bool isDineIn = _orderType == 'dinein' || _selectedTable != null;
-      final items = OnlineOrderMapper.toCheckoutItems(orderedProducts, isDineIn: isDineIn);
-      final double total = orderedProducts.fold(0.0, (sum, p) {
-        double price = p.product.getPrice(isDineIn);
-        double optCost = p.options.fold(0.0, (s, o) => s + o.option.extraCost);
-        return sum + (price + optCost) * p.quantity;
-      });
-
-      final now = DateTime.now();
-      String finalType = _orderType == 'dinein'
-          ? (_isShareMode ? 'dinein_share' : 'dinein_noshare')
-          : 'takeaway';
-
-      String tableNote =
-          _selectedTable != null ? '[桌台: ${_selectedTable!.name}]' : '';
-
-      String orderNo;
-
-      if (_selectedOnlineOrder != null) {
-        // 更新已有暂存单/网单
-        final updatedOrder = _selectedOnlineOrder!.copyWith(
-          items: jsonEncode(items),
-          totalAmount: double.parse(total.toStringAsFixed(2)),
-          type: finalType,
-          note: tableNote.isNotEmpty ? tableNote : _selectedOnlineOrder!.note,
-          orderStatus: OrderStatus.pending,
-        );
-        await databaseService.updateOrder(updatedOrder);
-        if (await printService.isAutoPrintEnabled()) {
-          await printService.printOrderWithTemplates(updatedOrder);
-        }
-        orderNo = updatedOrder.orderNo;
-      } else {
-        // 新建暂存订单
-        orderNo = await orderService.generateOrderNo();
-        final orderId =
-            '$orderNo-${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
-
-        final order = OrderModel(
-          id: orderId,
-          orderNo: orderNo,
-          orderTime: now,
-          createdAt: now,
-          items: jsonEncode(items),
-          totalAmount: double.parse(total.toStringAsFixed(2)),
-          discountAmount: 0.0,
-          taxRate: 10.0,
-          serviceFee: 0.0,
-          cashAmount: 0.0,
-          posAmount: 0.0,
-          orderStatus: OrderStatus.pending,
-          syncStatus: SyncStatus.pending,
-          printStatus: PrintStatus.pending,
-          note: tableNote.isNotEmpty ? tableNote : null,
-          type: finalType,
-          cashChange: 0.0,
-          voucherAmount: 0.0,
-          isOnlineOrder: false,
-        );
-
-        await databaseService.insertOrder(order);
-
-        if (await printService.isAutoPrintEnabled()) {
-          await printService.printOrderWithTemplates(order);
-        }
-      }
-
-      if (!mounted) return;
-
-      UIHelper.showToast(
-        context,
-        '${'staging_order_created'.tr}: #$orderNo',
-        backgroundColor: Colors.green,
-      );
-
-      setState(() {
-        orderedProducts.clear();
-        selectedOrderedProduct = null;
-        _clearTableSelection();
-        _clearOnlineOrderSelection();
-      });
-    } catch (e) {
-      if (!mounted) return;
-      UIHelper.showSnackBar(context, 'Order creation failed: $e',
-          backgroundColor: Colors.red);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Focus(
@@ -1571,7 +1615,6 @@ class _OrderPageState extends State<OrderPage> {
 
               return Column(
                 children: [
-                  _buildSelectedTableBanner(),
                   //顶部展示区
                   _buildOrderTypeAndShareSelector(),
                   // 已点菜品区
@@ -1765,7 +1808,6 @@ class _OrderPageState extends State<OrderPage> {
                     onShowQuantitySelector: _showQuantitySelector,
                     onCustomAction: _customAction,
                     onOrder: _handleOrderAction,
-                    onOrderNow: _handleOrderNow,
                     onSelectTable: _showTablePicker,
                     selectedTableName: _selectedTable?.name,
                     selectedOrder: _selectedOnlineOrder,
@@ -1773,7 +1815,7 @@ class _OrderPageState extends State<OrderPage> {
                     orderEnabled: true,
                     showQuickSelectButton: true,
                     isQuickSearchActive: _searchInputFocusNode.hasFocus,
-                    orderLabel: _hasSelectedTable
+                    orderLabel: (_hasSelectedTable || _orderType == 'dinein' || _tableNumberInputController.text.trim().isNotEmpty)
                         ? 'confirm'.tr.toUpperCase()
                         : (_hasSelectedOnlineOrder
                             ? (_selectedOnlineOrder!.isPaid
@@ -1781,8 +1823,8 @@ class _OrderPageState extends State<OrderPage> {
                                 : 'checkout'.tr.toUpperCase())
                             : (orderedProducts.isEmpty
                                 ? 'add_order'.tr.toUpperCase()
-                                : 'order'.tr.toUpperCase())),
-                    orderIcon: _hasSelectedTable
+                                : 'checkout'.tr.toUpperCase())),
+                    orderIcon: (_hasSelectedTable || _orderType == 'dinein' || _tableNumberInputController.text.trim().isNotEmpty)
                         ? Icons.check_circle_outline
                         : (_hasSelectedOnlineOrder
                             ? (_selectedOnlineOrder!.isPaid
@@ -1791,15 +1833,15 @@ class _OrderPageState extends State<OrderPage> {
                             : (orderedProducts.isEmpty
                                 ? Icons.playlist_add
                                 : Icons.shopping_cart)),
-                    orderColor: _hasSelectedTable
+                    orderColor: (_hasSelectedTable || _orderType == 'dinein' || _tableNumberInputController.text.trim().isNotEmpty)
                         ? Colors.amber[800]!
                         : (_hasSelectedOnlineOrder
                             ? (_selectedOnlineOrder!.isPaid
                                 ? Colors.teal[700]!
                                 : Colors.deepOrange)
                             : (orderedProducts.isEmpty
-                                ? Colors.blueGrey
-                                : Colors.green)),
+                                ? Colors.grey[400]!
+                                : Colors.green[700]!)),
                     onSelectQuickInput: () async {
                       if (_quickInputManager.hasInput) {
                         _keepSearchFocusOnNextBlur = true;

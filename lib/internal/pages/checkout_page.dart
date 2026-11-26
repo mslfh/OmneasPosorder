@@ -59,6 +59,10 @@ class CheckoutPage extends StatefulWidget {
   final int? reservationId;
   final String initialOrderType;
   final bool isShareMode;
+  final String? customerName;
+  final String? customerPhone;
+  final String? pickupTimeOption;
+  final TimeOfDay? customPickupTime;
 
   const CheckoutPage({
     super.key,
@@ -70,6 +74,10 @@ class CheckoutPage extends StatefulWidget {
     this.reservationId,
     this.initialOrderType = 'dinein',
     this.isShareMode = true,
+    this.customerName,
+    this.customerPhone,
+    this.pickupTimeOption,
+    this.customPickupTime,
   });
 
   @override
@@ -131,6 +139,18 @@ class _CheckoutPageState extends State<CheckoutPage> {
       if (widget.onlineOrder!.customerPhone != null) {
         _customerPhoneController.text = widget.onlineOrder!.customerPhone!;
       }
+    }
+    if (widget.customerName != null && widget.customerName!.isNotEmpty) {
+      _customerNameController.text = widget.customerName!;
+    }
+    if (widget.customerPhone != null && widget.customerPhone!.isNotEmpty) {
+      _customerPhoneController.text = widget.customerPhone!;
+    }
+    if (widget.pickupTimeOption != null) {
+      _pickupTimeOption = widget.pickupTimeOption!;
+    }
+    if (widget.customPickupTime != null) {
+      _customPickupTime = widget.customPickupTime;
     }
     _controller.text = '';
     _initRemainingProducts();
@@ -368,7 +388,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.blue.shade50.withOpacity(0.4),
+        color: Colors.blue.shade50.withOpacity(0.5),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.blue.shade200),
       ),
@@ -377,90 +397,74 @@ class _CheckoutPageState extends State<CheckoutPage> {
         children: [
           Row(
             children: [
-              const Icon(Icons.person_pin, size: 18, color: Colors.blue),
+              const Icon(Icons.person_pin, size: 20, color: Colors.blue),
               const SizedBox(width: 6),
               const Text(
-                'Customer Info & Pickup Time',
+                'Customer & Order Info',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               ),
               const Spacer(),
-              Text(
-                'Pickup: ${_getPickupTimeDisplayText()}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.deepOrange,
-                  fontSize: 13,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.deepOrange.shade100,
+                  borderRadius: BorderRadius.circular(12),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _customerNameController,
-                  focusNode: _customerNameFocusNode,
-                  decoration: const InputDecoration(
-                    labelText: 'Customer Name',
-                    hintText: 'Enter name (optional)',
-                    prefixIcon: Icon(Icons.person, size: 18),
-                    border: OutlineInputBorder(),
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    isDense: true,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: _customerPhoneController,
-                  focusNode: _customerPhoneFocusNode,
-                  keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Customer Phone',
-                    hintText: 'Enter phone (optional)',
-                    prefixIcon: Icon(Icons.phone, size: 18),
-                    border: OutlineInputBorder(),
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    isDense: true,
+                child: Text(
+                  'Pickup: ${_getPickupTimeDisplayText()}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.deepOrange.shade900,
+                    fontSize: 12,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Row(
             children: [
-              const Icon(Icons.access_time, size: 16, color: Colors.grey),
-              const SizedBox(width: 4),
-              const Text(
-                'Pickup Time:',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-              ),
-              const SizedBox(width: 8),
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _buildPickupChip('Right Now'),
-                      const SizedBox(width: 6),
-                      _buildPickupChip('10min'),
-                      const SizedBox(width: 6),
-                      _buildPickupChip('15min'),
-                      const SizedBox(width: 6),
-                      _buildPickupChip('20min'),
-                      const SizedBox(width: 6),
-                      _buildPickupChip('25min'),
-                      const SizedBox(width: 6),
-                      _buildPickupChip('30min'),
-                      const SizedBox(width: 6),
-                      _buildPickupChip('Custom'),
-                    ],
-                  ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.person, size: 16, color: Colors.grey),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Name: ',
+                      style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey[700], fontSize: 13),
+                    ),
+                    Expanded(
+                      child: Text(
+                        _customerNameController.text.isNotEmpty
+                            ? _customerNameController.text
+                            : 'N/A',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Row(
+                  children: [
+                    const Icon(Icons.phone, size: 16, color: Colors.grey),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Phone: ',
+                      style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey[700], fontSize: 13),
+                    ),
+                    Expanded(
+                      child: Text(
+                        _customerPhoneController.text.isNotEmpty
+                            ? _customerPhoneController.text
+                            : 'N/A',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],

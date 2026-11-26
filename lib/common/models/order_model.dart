@@ -463,14 +463,23 @@ class OrderModel {
       final reg = RegExp(r'\[(?:Pickup|PickupTime|取餐|取餐时间):\s*([^\]]+)\]', caseSensitive: false);
       final match = reg.firstMatch(note!);
       if (match != null && match.groupCount >= 1) {
-        return match.group(1)!.trim();
+        final val = match.group(1)!.trim();
+        // 如果提取的是类似于 "15min" 的相对时间，转换为具体的计算时间点
+        if (RegExp(r'^\d+min$', caseSensitive: false).hasMatch(val)) {
+          final mins = int.tryParse(val.replaceAll(RegExp(r'[^\d]'), '')) ?? 0;
+          final targetTime = createdAt.add(Duration(minutes: mins));
+          final hour = targetTime.hour.toString().padLeft(2, '0');
+          final minute = targetTime.minute.toString().padLeft(2, '0');
+          return '$hour:$minute';
+        }
+        return val;
       }
     }
     final diffMinutes = orderTime.difference(createdAt).inMinutes;
     if (diffMinutes >= 5) {
       final hour = orderTime.hour.toString().padLeft(2, '0');
       final minute = orderTime.minute.toString().padLeft(2, '0');
-      return '$hour:$minute (in $diffMinutes min)';
+      return '$hour:$minute';
     }
     final hour = orderTime.hour.toString().padLeft(2, '0');
     final minute = orderTime.minute.toString().padLeft(2, '0');

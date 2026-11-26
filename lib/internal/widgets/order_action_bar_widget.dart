@@ -8,7 +8,6 @@ class OrderActionBarWidget extends StatelessWidget {
   final VoidCallback onShowQuantitySelector;
   final VoidCallback onCustomAction;
   final VoidCallback? onOrder;
-  final VoidCallback? onOrderNow;
   final VoidCallback? onSelectQuickInput;
   final VoidCallback? onSelectTable;
   final String? selectedTableName;
@@ -28,7 +27,6 @@ class OrderActionBarWidget extends StatelessWidget {
     required this.onShowQuantitySelector,
     required this.onCustomAction,
     required this.onOrder,
-    this.onOrderNow,
     required this.orderedCount,
     required this.orderEnabled,
     this.orderLabel = 'ORDER',
@@ -185,69 +183,8 @@ class OrderActionBarWidget extends StatelessWidget {
                 ),
               ),
             ),
-          if (onOrderNow != null)
-            Builder(
-              builder: (context) {
-                final bool hasSelectedOrder = selectedOrder != null;
-                final bool isOnline = hasSelectedOrder && selectedOrder!.isOnlineOrder;
 
-                final String labelText;
-                if (hasSelectedOrder) {
-                  final prefix = isOnline ? 'ONLINE' : 'STORE';
-                  labelText = '$prefix #${selectedOrder!.orderNo}';
-                } else {
-                  labelText = 'order'.tr.toUpperCase();
-                }
-
-                final Color btnColor = hasSelectedOrder
-                    ? (isOnline ? Colors.teal[700]! : Colors.green[700]!)
-                    : Colors.amber[800]!;
-
-                return Expanded(
-                  flex: 3,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 3.0),
-                    child: ElevatedButton.icon(
-                      onPressed: orderedCount > 0 ? onOrderNow : null,
-                      icon: Icon(
-                        hasSelectedOrder
-                            ? (isOnline ? Icons.cloud_done : Icons.store)
-                            : Icons.restaurant_menu,
-                        size: 18,
-                      ),
-                      label: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            labelText,
-                            style: const TextStyle(
-                                fontSize: 13, fontWeight: FontWeight.bold),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          if (hasSelectedOrder)
-                            const Text(
-                              'UPDATE',
-                              style: TextStyle(
-                                  fontSize: 8, fontWeight: FontWeight.w600),
-                            ),
-                        ],
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor:
-                            orderedCount > 0 ? btnColor : Colors.grey[400],
-                        foregroundColor: Colors.white,
-                        elevation: orderedCount > 0 ? 3 : 1,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          // Order按钮 - 结账/下单
+          // Order/Checkout 按钮
           Expanded(
             flex: 4,
             child: Padding(
@@ -256,9 +193,7 @@ class OrderActionBarWidget extends StatelessWidget {
                 onPressed: orderEnabled ? onOrder : null,
                 icon: Icon(orderIcon, size: 18),
                 label: Text(
-                  orderLabel == 'ORDER'
-                      ? 'checkout'.tr.toUpperCase()
-                      : orderLabel,
+                  orderLabel,
                   style: const TextStyle(
                       fontSize: 13, fontWeight: FontWeight.bold),
                 ),

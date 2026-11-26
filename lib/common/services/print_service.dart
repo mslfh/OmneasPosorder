@@ -689,6 +689,7 @@ class PrintService {
   Future<void> printKitchenTicketForAddedItems({
     required String tableName,
     required List<SelectedProduct> addedProducts,
+    String? customerName,
     String? note,
   }) async {
     if (addedProducts.isEmpty) return;
@@ -703,6 +704,15 @@ class PrintService {
 
     final now = DateTime.now();
     final itemsList = OnlineOrderMapper.toCheckoutItems(addedProducts);
+
+    List<String> metaParts = ['[桌台: $tableName]'];
+    if (customerName != null && customerName.isNotEmpty) {
+      metaParts.add('[Customer: $customerName]');
+    }
+    if (note != null && note.isNotEmpty) {
+      metaParts.add(note);
+    }
+    String finalNote = metaParts.join(' ');
 
     final tempOrder = OrderModel(
       id: 'KITCHEN-${now.millisecondsSinceEpoch}',
@@ -719,7 +729,7 @@ class PrintService {
       orderStatus: OrderStatus.completed,
       syncStatus: SyncStatus.skipped,
       printStatus: PrintStatus.pending,
-      note: '[桌台: $tableName] ${note ?? ""}'.trim(),
+      note: finalNote,
       type: 'dinein',
       cashChange: 0.0,
       voucherAmount: 0.0,
@@ -1725,28 +1735,37 @@ class PrintService {
 
     final StringBuffer content = StringBuffer();
     content.writeln('[HEADER]');
-    content.writeln("------------------------------");
-    if (order.isPaid) {
-      content.writeln("*** PAID ***");
-    }
+    content.writeln("------------------------");
     content.writeln("ORDER #${order.orderNo}");
     if (order.tableName != null && order.tableName!.isNotEmpty) {
       content.writeln("TABLE: ${order.tableName}");
     }
     content.writeln(displayType);
     if (order.customerName != null && order.customerName!.isNotEmpty) {
-      content.writeln("NAME: ${order.customerName}");
-    }
-    if (order.customerPhone != null && order.customerPhone!.isNotEmpty) {
-      content.writeln("PHONE: ${order.customerPhone}");
+      content.writeln("Name: ${order.customerName}");
     }
 
-    final pickupStr = order.pickupTimeDisplay.trim();
-    if (!pickupStr.toLowerCase().startsWith('right now')) {
-      content.writeln(pickupStr);
+    final rawPickupStr = order.pickupTimeDisplay.trim();
+    final bool isRightNow = rawPickupStr.toLowerCase().startsWith('right now');
+    // 过滤清除带括号的加时/相对时间后缀如 (+15min)，后厨小票仅打印纯时间点如 14:45
+    final cleanPickupTime = rawPickupStr.replaceAll(RegExp(r'\s*\([^)]*\)'), '').trim();
+
+    if (order.isPaid) {
+      if (!isRightNow) {
+        content.writeln("$cleanPickupTime - Paid");
+      } else {
+        content.writeln("Paid");
+      }
+    } else if (!isRightNow) {
+      content.writeln(cleanPickupTime);
     }
 
-    content.writeln("------------------------------");
+    content.writeln("------------------------");
+    if (order.type == 'dinein' || order.isDineIn) {
+      content.writeln("ψ ψ ψ ψ ψ ψ");
+    } else {
+      content.writeln("* * * * * *");
+    }
     content.writeln('[ITEMS]');
     for (var item in sortedItems) {
       bool printable = item['is_printable'] == true;
