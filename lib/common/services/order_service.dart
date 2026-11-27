@@ -60,6 +60,9 @@ class OrderService {
     double cashChange = 0.0, // 新增找零参数
     double voucherAmount = 0.0, // 新增券金额参数
     DateTime? expectedTime, // 可选的预计时间
+    bool printKitchen = true,
+    bool printFrontDesk = true,
+    bool printCustomer = true,
   })
   async {
     final DateTime now = DateTime.now();
@@ -98,8 +101,12 @@ class OrderService {
       _logger.i('订单本地落单成功: $orderId, 订单编号: $orderNo');
 
       // 第二步：根据设置决定是否打印
-      // 自动打印是否开启由打印流程内部统一判断，避免遗漏分支
-      await _addToPrintQueue(order);
+      await _addToPrintQueue(
+        order,
+        printKitchen: printKitchen,
+        printFrontDesk: printFrontDesk,
+        printCustomer: printCustomer,
+      );
 
       // 获取最新的订单（含最新printStatus）
       final printedOrder = await _databaseService.getOrder(orderId);
@@ -164,7 +171,12 @@ class OrderService {
   }
 
   /// 添加到打印队列
-  Future<void> _addToPrintQueue(OrderModel order) async {
+  Future<void> _addToPrintQueue(
+    OrderModel order, {
+    bool printKitchen = true,
+    bool printFrontDesk = true,
+    bool printCustomer = true,
+  }) async {
     try {
       final isAutoPrint = await _printService.isAutoPrintEnabled();
 
@@ -191,7 +203,12 @@ class OrderService {
       }
 
       // 调用打印服务
-      await _printService.printOrderWithTemplates(order);
+      await _printService.printOrderWithSelection(
+        order: order,
+        printKitchen: printKitchen,
+        printFrontDesk: printFrontDesk,
+        printCustomer: printCustomer,
+      );
     } catch (e) {
       _logger.e('添加到打印队列失败: ${order.id}, 错误: $e');
 

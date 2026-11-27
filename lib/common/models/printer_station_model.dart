@@ -1,8 +1,11 @@
 class PrinterStationModel {
   final String id;
   final String name;
-  final String role; // 'counter', 'kitchen', 'both'
-  final String contentType; // 'customer_receipt', 'kitchen_ticket', 'both'
+  final String role; // 兼容保存选项字符串
+  final String contentType; // 兼容保存选项字符串
+  final bool printKitchen; // 后厨单
+  final bool printFrontDesk; // 前台单
+  final bool printCustomer; // 顾客单
   final String connectionType; // 'network', 'bluetooth', 'usb'
   final String? ip;
   final int port;
@@ -14,8 +17,11 @@ class PrinterStationModel {
   PrinterStationModel({
     required this.id,
     required this.name,
-    this.role = 'counter',
+    String? role,
     String? contentType,
+    bool? printKitchen,
+    bool? printFrontDesk,
+    bool? printCustomer,
     this.connectionType = 'network',
     this.ip = '192.168.1.100',
     this.port = 9100,
@@ -23,27 +29,69 @@ class PrinterStationModel {
     this.enableAutoPrint = true,
     this.isEnabled = true,
     DateTime? createdAt,
-  })  : contentType = contentType ?? mapRoleToContentType(role),
+  })  : printKitchen = printKitchen ?? _parsePrintKitchen(contentType, role),
+        printFrontDesk = printFrontDesk ?? _parsePrintFrontDesk(contentType, role),
+        printCustomer = printCustomer ?? _parsePrintCustomer(contentType, role),
+        role = role ??
+            _buildOptionsStr(
+              printKitchen ?? _parsePrintKitchen(contentType, role),
+              printFrontDesk ?? _parsePrintFrontDesk(contentType, role),
+              printCustomer ?? _parsePrintCustomer(contentType, role),
+            ),
+        contentType = contentType ??
+            _buildOptionsStr(
+              printKitchen ?? _parsePrintKitchen(contentType, role),
+              printFrontDesk ?? _parsePrintFrontDesk(contentType, role),
+              printCustomer ?? _parsePrintCustomer(contentType, role),
+            ),
         createdAt = createdAt ?? DateTime.now();
 
-  static String mapRoleToContentType(String role) {
-    switch (role) {
-      case 'kitchen':
-        return 'kitchen_ticket';
-      case 'both':
-        return 'both';
-      case 'counter':
-      default:
-        return 'customer_receipt';
+  static String _buildOptionsStr(bool kitchen, bool frontDesk, bool customer) {
+    final list = <String>[];
+    if (kitchen) list.add('kitchen');
+    if (frontDesk) list.add('front_desk');
+    if (customer) list.add('customer');
+    return list.isEmpty ? 'customer' : list.join(',');
+  }
+
+  static bool _parsePrintKitchen(String? contentType, String? role) {
+    final ct = (contentType ?? '').toLowerCase();
+    final r = (role ?? '').toLowerCase();
+    if (ct.contains('kitchen') || r.contains('kitchen') || ct.contains('both') || r.contains('both')) {
+      return true;
     }
+    return false;
+  }
+
+  static bool _parsePrintFrontDesk(String? contentType, String? role) {
+    final ct = (contentType ?? '').toLowerCase();
+    final r = (role ?? '').toLowerCase();
+    if (ct.contains('front_desk') || r.contains('front_desk') || ct.contains('both') || r.contains('both')) {
+      return true;
+    }
+    return false;
+  }
+
+  static bool _parsePrintCustomer(String? contentType, String? role) {
+    final ct = (contentType ?? '').toLowerCase();
+    final r = (role ?? '').toLowerCase();
+    if (ct.contains('customer') || r.contains('customer') || ct.contains('counter') || r.contains('counter') || ct.contains('both') || r.contains('both')) {
+      return true;
+    }
+    return false;
+  }
+
+  static String mapRoleToContentType(String role) {
+    return role;
   }
 
   Map<String, dynamic> toMap() {
+    final optionsStr = _buildOptionsStr(printKitchen, printFrontDesk, printCustomer);
     return {
       'id': id,
       'name': name,
-      'role': role,
-      'content_type': mapRoleToContentType(role),
+      'role': optionsStr,
+      'content_type': optionsStr,
       'connection_type': connectionType,
       'ip': ip,
       'port': port,
@@ -56,11 +104,20 @@ class PrinterStationModel {
 
   factory PrinterStationModel.fromMap(Map<String, dynamic> map) {
     final roleVal = map['role']?.toString() ?? 'counter';
+    final ctVal = map['content_type']?.toString() ?? roleVal;
+
+    final isKitchen = _parsePrintKitchen(ctVal, roleVal);
+    final isFrontDesk = _parsePrintFrontDesk(ctVal, roleVal);
+    final isCustomer = _parsePrintCustomer(ctVal, roleVal);
+
     return PrinterStationModel(
       id: map['id']?.toString() ?? '',
       name: map['name']?.toString() ?? '',
       role: roleVal,
-      contentType: map['content_type']?.toString() ?? mapRoleToContentType(roleVal),
+      contentType: ctVal,
+      printKitchen: isKitchen,
+      printFrontDesk: isFrontDesk,
+      printCustomer: isCustomer,
       connectionType: map['connection_type']?.toString() ?? 'network',
       ip: map['ip']?.toString(),
       port: (map['port'] is int)
@@ -80,6 +137,9 @@ class PrinterStationModel {
     String? name,
     String? role,
     String? contentType,
+    bool? printKitchen,
+    bool? printFrontDesk,
+    bool? printCustomer,
     String? connectionType,
     String? ip,
     int? port,
@@ -88,12 +148,14 @@ class PrinterStationModel {
     bool? isEnabled,
     DateTime? createdAt,
   }) {
-    final updatedRole = role ?? this.role;
     return PrinterStationModel(
       id: id ?? this.id,
       name: name ?? this.name,
-      role: updatedRole,
-      contentType: contentType ?? mapRoleToContentType(updatedRole),
+      role: role ?? this.role,
+      contentType: contentType ?? this.contentType,
+      printKitchen: printKitchen ?? this.printKitchen,
+      printFrontDesk: printFrontDesk ?? this.printFrontDesk,
+      printCustomer: printCustomer ?? this.printCustomer,
       connectionType: connectionType ?? this.connectionType,
       ip: ip ?? this.ip,
       port: port ?? this.port,
@@ -104,29 +166,18 @@ class PrinterStationModel {
     );
   }
 
-  String get roleDisplay {
-    switch (role) {
-      case 'kitchen':
-        return '后厨 (后厨小票)';
-      case 'both':
-        return '前台+后厨 (顾客+后厨小票)';
-      case 'counter':
-      default:
-        return '前台 (顾客小票)';
-    }
+  String get optionsDisplay {
+    final list = <String>[];
+    if (printKitchen) list.add('Kitchen Ticket');
+    if (printFrontDesk) list.add('Front Desk Ticket');
+    if (printCustomer) list.add('Customer Receipt');
+    if (list.isEmpty) return 'No ticket selected';
+    return list.join(' + ');
   }
 
-  String get contentTypeDisplay {
-    switch (contentType) {
-      case 'kitchen_ticket':
-        return '后厨小票';
-      case 'both':
-        return '顾客小票+后厨小票';
-      case 'customer_receipt':
-      default:
-        return '顾客小票';
-    }
-  }
+  String get roleDisplay => optionsDisplay;
+
+  String get contentTypeDisplay => optionsDisplay;
 
   String get connectionTypeDisplay {
     switch (connectionType) {

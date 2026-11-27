@@ -17,12 +17,18 @@ class DineInConfirmResult {
   final String tableName;
   final String customerName;
   final int? guestCount;
+  final bool printKitchen;
+  final bool printFrontDesk;
+  final bool printCustomer;
 
   const DineInConfirmResult({
     required this.action,
     this.tableName = '',
     this.customerName = '',
     this.guestCount,
+    this.printKitchen = true,
+    this.printFrontDesk = true,
+    this.printCustomer = false,
   });
 }
 
@@ -40,6 +46,9 @@ class TakeAwayConfirmResult {
   final String customerPhone;
   final String pickupOption;
   final TimeOfDay? customTime;
+  final bool printKitchen;
+  final bool printFrontDesk;
+  final bool printCustomer;
 
   const TakeAwayConfirmResult({
     required this.action,
@@ -47,6 +56,9 @@ class TakeAwayConfirmResult {
     this.customerPhone = '',
     this.pickupOption = 'Right Now',
     this.customTime,
+    this.printKitchen = true,
+    this.printFrontDesk = true,
+    this.printCustomer = false,
   });
 }
 
@@ -251,6 +263,10 @@ class _DineInConfirmDialogWidgetState extends State<_DineInConfirmDialogWidget> 
   late final TextEditingController _nameController;
   late final TextEditingController _guestCountController;
 
+  bool _printKitchen = true;
+  bool _printFrontDesk = true;
+  bool _printCustomer = false;
+
   @override
   void initState() {
     super.initState();
@@ -305,6 +321,9 @@ class _DineInConfirmDialogWidgetState extends State<_DineInConfirmDialogWidget> 
         tableName: tableInput,
         customerName: customerNameInput,
         guestCount: guestCountInput,
+        printKitchen: _printKitchen,
+        printFrontDesk: _printFrontDesk,
+        printCustomer: _printCustomer,
       ),
     );
   }
@@ -327,6 +346,9 @@ class _DineInConfirmDialogWidgetState extends State<_DineInConfirmDialogWidget> 
         tableName: tableInput,
         customerName: customerNameInput,
         guestCount: guestCountInput,
+        printKitchen: _printKitchen,
+        printFrontDesk: _printFrontDesk,
+        printCustomer: true,
       ),
     );
   }
@@ -340,7 +362,71 @@ class _DineInConfirmDialogWidgetState extends State<_DineInConfirmDialogWidget> 
         tableName: _tableController.text.trim(),
         customerName: customerNameInput,
         guestCount: guestCountInput,
+        printKitchen: _printKitchen,
+        printFrontDesk: _printFrontDesk,
+        printCustomer: _printCustomer,
       ),
+    );
+  }
+
+  Widget _buildPrintOptionsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Print Options / 小票打印:',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            FilterChip(
+              label: const Text('Kitchen Ticket'),
+              selected: _printKitchen,
+              selectedColor: Colors.blue.shade100,
+              checkmarkColor: Colors.blue.shade800,
+              labelStyle: TextStyle(
+                fontSize: 13,
+                color: _printKitchen ? Colors.blue.shade900 : Colors.black87,
+                fontWeight: _printKitchen ? FontWeight.bold : FontWeight.normal,
+              ),
+              onSelected: (val) {
+                setState(() => _printKitchen = val);
+              },
+            ),
+            FilterChip(
+              label: const Text('Front Desk Ticket'),
+              selected: _printFrontDesk,
+              selectedColor: Colors.purple.shade100,
+              checkmarkColor: Colors.purple.shade800,
+              labelStyle: TextStyle(
+                fontSize: 13,
+                color: _printFrontDesk ? Colors.purple.shade900 : Colors.black87,
+                fontWeight: _printFrontDesk ? FontWeight.bold : FontWeight.normal,
+              ),
+              onSelected: (val) {
+                setState(() => _printFrontDesk = val);
+              },
+            ),
+            FilterChip(
+              label: const Text('Customer Receipt'),
+              selected: _printCustomer,
+              selectedColor: Colors.green.shade100,
+              checkmarkColor: Colors.green.shade800,
+              labelStyle: TextStyle(
+                fontSize: 13,
+                color: _printCustomer ? Colors.green.shade900 : Colors.black87,
+                fontWeight: _printCustomer ? FontWeight.bold : FontWeight.normal,
+              ),
+              onSelected: (val) {
+                setState(() => _printCustomer = val);
+              },
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -437,6 +523,8 @@ class _DineInConfirmDialogWidgetState extends State<_DineInConfirmDialogWidget> 
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+            _buildPrintOptionsSection(),
           ],
         ),
       ),
@@ -500,6 +588,10 @@ class _TakeAwayConfirmDialogWidgetState extends State<_TakeAwayConfirmDialogWidg
   late String _pickupOption;
   TimeOfDay? _customTime;
 
+  bool _printKitchen = true;
+  bool _printFrontDesk = true;
+  bool _printCustomer = false;
+
   @override
   void initState() {
     super.initState();
@@ -557,6 +649,9 @@ class _TakeAwayConfirmDialogWidgetState extends State<_TakeAwayConfirmDialogWidg
         customerPhone: _phoneController.text.trim(),
         pickupOption: _pickupOption,
         customTime: _customTime,
+        printKitchen: _printKitchen,
+        printFrontDesk: _printFrontDesk,
+        printCustomer: _printCustomer,
       ),
     );
   }
@@ -569,6 +664,9 @@ class _TakeAwayConfirmDialogWidgetState extends State<_TakeAwayConfirmDialogWidg
         customerPhone: _phoneController.text.trim(),
         pickupOption: _pickupOption,
         customTime: _customTime,
+        printKitchen: _printKitchen,
+        printFrontDesk: _printFrontDesk,
+        printCustomer: true,
       ),
     );
   }
@@ -619,6 +717,67 @@ class _TakeAwayConfirmDialogWidgetState extends State<_TakeAwayConfirmDialogWidg
           });
         }
       },
+    );
+  }
+
+  Widget _buildPrintOptionsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Print Options / 小票打印:',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            FilterChip(
+              label: const Text('Kitchen Ticket'),
+              selected: _printKitchen,
+              selectedColor: Colors.blue.shade100,
+              checkmarkColor: Colors.blue.shade800,
+              labelStyle: TextStyle(
+                fontSize: 13,
+                color: _printKitchen ? Colors.blue.shade900 : Colors.black87,
+                fontWeight: _printKitchen ? FontWeight.bold : FontWeight.normal,
+              ),
+              onSelected: (val) {
+                setState(() => _printKitchen = val);
+              },
+            ),
+            FilterChip(
+              label: const Text('Front Desk Ticket'),
+              selected: _printFrontDesk,
+              selectedColor: Colors.purple.shade100,
+              checkmarkColor: Colors.purple.shade800,
+              labelStyle: TextStyle(
+                fontSize: 13,
+                color: _printFrontDesk ? Colors.purple.shade900 : Colors.black87,
+                fontWeight: _printFrontDesk ? FontWeight.bold : FontWeight.normal,
+              ),
+              onSelected: (val) {
+                setState(() => _printFrontDesk = val);
+              },
+            ),
+            FilterChip(
+              label: const Text('Customer Receipt'),
+              selected: _printCustomer,
+              selectedColor: Colors.green.shade100,
+              checkmarkColor: Colors.green.shade800,
+              labelStyle: TextStyle(
+                fontSize: 13,
+                color: _printCustomer ? Colors.green.shade900 : Colors.black87,
+                fontWeight: _printCustomer ? FontWeight.bold : FontWeight.normal,
+              ),
+              onSelected: (val) {
+                setState(() => _printCustomer = val);
+              },
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -706,6 +865,8 @@ class _TakeAwayConfirmDialogWidgetState extends State<_TakeAwayConfirmDialogWidg
                   ],
                 ),
               ),
+              const SizedBox(height: 12),
+              _buildPrintOptionsSection(),
             ],
           ),
         ),

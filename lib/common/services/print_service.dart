@@ -595,13 +595,17 @@ class PrintService {
     }
   }
 
-  /// 按模板根据配置的所有启用打印位多端发送打印
-  Future<void> printOrderWithTemplates(OrderModel order) async {
+  /// 按指定的单据控制选项（后厨单、前台单、顾客单）向所有启用的打印位发送打印指令
+  Future<void> printOrderWithSelection({
+    required OrderModel order,
+    bool printKitchen = true,
+    bool printFrontDesk = true,
+    bool printCustomer = true,
+  }) async {
     try {
-      _logger.i('开始打印订单内容: ${order.id}');
-      LocalOrderLogHelper.logOrder(order, tag: 'PRINT_START', message: '开始根据配置的打印位生成指令与打单');
+      _logger.i('开始打印订单 content: ${order.id}, 选项: kitchen=$printKitchen, frontDesk=$printFrontDesk, customer=$printCustomer');
+      LocalOrderLogHelper.logOrder(order, tag: 'PRINT_START', message: '根据选择的打印选项出单: [后厨:$printKitchen, 前台:$printFrontDesk, 顾客:$printCustomer]');
 
-      // 获取所有激活且启用的打印位
       final activeStations = await _databaseService.getEnabledPrinterStations();
 
       if (activeStations.isEmpty) {
@@ -615,7 +619,13 @@ class PrintService {
 
       for (final station in activeStations) {
         try {
-          await _printOrderToStation(order, station);
+          await _printOrderToStationWithSelection(
+            order: order,
+            station: station,
+            allowKitchen: printKitchen,
+            allowFrontDesk: printFrontDesk,
+            allowCustomer: printCustomer,
+          );
           successCount++;
         } catch (e) {
           _logger.e('打印位 [${station.name}] 打印失败: $e');
@@ -633,6 +643,26 @@ class PrintService {
       await _handlePrintError(order.id, e);
       rethrow;
     }
+  }
+
+  /// 按模板根据配置的所有启用打印位多端发送打印 (默认开启全选)
+  Future<void> printOrderWithTemplates(OrderModel order) async {
+    await printOrderWithSelection(
+      order: order,
+      printKitchen: true,
+      printFrontDesk: true,
+      printCustomer: true,
+    );
+  }
+
+  /// 默认 Save & Order 存单下厨单打单方法（默认打后厨单和前台单，不触发顾客单）
+  Future<void> printSaveAndOrder(OrderModel order) async {
+    await printOrderWithSelection(
+      order: order,
+      printKitchen: true,
+      printFrontDesk: true,
+      printCustomer: false,
+    );
   }
 
   /// 批量重试待打印/打印失败的订单
@@ -685,12 +715,15 @@ class PrintService {
     }
   }
 
-  /// 打印坐台加菜单 (仅打后厨单，用于桌台暂存更新时发送新增/加量菜品)
+  /// 打印坐台加菜单 (支持自定义打单类型，默认打后厨单和前台单，不触发顾客单)
   Future<void> printKitchenTicketForAddedItems({
     required String tableName,
     required List<SelectedProduct> addedProducts,
     String? customerName,
     String? note,
+    bool printKitchen = true,
+    bool printFrontDesk = true,
+    bool printCustomer = false,
   }) async {
     if (addedProducts.isEmpty) return;
 
@@ -698,7 +731,7 @@ class PrintService {
     await settingsService.initialize();
     final settings = settingsService.getSettings();
     if (!settings.enableAutoPrint) {
-      _logger.i('自动打印已关闭，跳过坐台加菜单后厨打单');
+      _logger.i('自动打印已关闭，跳过坐台加菜单打单');
       return;
     }
 
@@ -735,73 +768,76 @@ class PrintService {
       voucherAmount: 0.0,
     );
 
-    await printKitchenTicketOnly(tempOrder);
+    await printOrderWithSelection(
+      order: tempOrder,
+      printKitchen: printKitchen,
+      printFrontDesk: printFrontDesk,
+      printCustomer: printCustomer,
+    );
   }
 
   /// 仅发送订单至后厨打印位打单
   Future<void> printKitchenTicketOnly(OrderModel order) async {
-    try {
-      final activeStations = await _databaseService.getEnabledPrinterStations();
-      final kitchenStations = activeStations.where((s) =>
-        s.role == 'kitchen' || s.role == 'both' ||
-        s.contentType == 'kitchen_ticket' || s.contentType == 'both'
-      ).toList();
-
-      if (kitchenStations.isEmpty) {
-        _logger.i('未配置启用的后厨打印位，跳过后厨加菜打单');
-        return;
-      }
-
-      final printBytes = await _generateKitchenESCPOSBytesForOrder(order);
-      if (printBytes.isEmpty) return;
-
-      for (final station in kitchenStations) {
-        try {
-          final adapter = PrinterAdapterFactory.createAdapter(station);
-          await adapter.sendBytes(printBytes);
-          _logger.i('后厨加菜单已成功发送至打印位 [${station.name}]');
-        } catch (e) {
-          _logger.e('后厨加菜单发送至 [${station.name}] 失败: $e');
-        }
-      }
-    } catch (e) {
-      _logger.e('后厨加菜单打单失败: $e');
-    }
+    await printOrderWithSelection(
+      order: order,
+      printKitchen: true,
+      printFrontDesk: false,
+      printCustomer: false,
+    );
   }
 
-  /// 发送订单数据到指定打印位（严格依据打印位角色/内容类型生成对应的单据）
-  Future<void> _printOrderToStation(OrderModel order, PrinterStationModel station) async {
-    String customerContent = '';
-    List<int> kitchenBytes = [];
-
-    final isCounter = station.role == 'counter' || station.role == 'both' ||
-        station.contentType == 'customer_receipt' || station.contentType == 'both';
-    final isKitchen = station.role == 'kitchen' || station.role == 'both' ||
-        station.contentType == 'kitchen_ticket' || station.contentType == 'both';
-
-    if (isCounter) {
-      customerContent = await _generateCustomerReceiptTemplate(order);
-    }
-
-    if (isKitchen) {
-      kitchenBytes = await _generateKitchenESCPOSBytesForOrder(order);
-    }
-
-    if (customerContent.trim().isEmpty && kitchenBytes.isEmpty) {
-      _logger.i('打印位 [${station.name}] 无可打印内容，跳过');
-      return;
-    }
-
+  /// 发送订单数据到指定打印位 (受选项授权约束)
+  Future<void> _printOrderToStationWithSelection({
+    required OrderModel order,
+    required PrinterStationModel station,
+    required bool allowKitchen,
+    required bool allowFrontDesk,
+    required bool allowCustomer,
+  }) async {
     List<int> printBytes = [];
-    if (customerContent.isNotEmpty) {
-      printBytes.addAll(await _generateCustomerESCPOSCommands(customerContent));
+
+    // 1. 后厨单 (动作勾选了后厨单 && 打印位启用了后厨单)
+    if (allowKitchen && station.printKitchen) {
+      final kitchenBytes = await _generateKitchenESCPOSBytesForOrder(order);
+      if (kitchenBytes.isNotEmpty) {
+        printBytes.addAll(kitchenBytes);
+      }
     }
-    if (kitchenBytes.isNotEmpty) {
-      printBytes.addAll(kitchenBytes);
+
+    // 2. 前台单 (动作勾选了前台单 && 打印位启用了前台单)
+    if (allowFrontDesk && station.printFrontDesk) {
+      final frontDeskBytes = await _generateFrontDeskESCPOSBytesForOrder(order);
+      if (frontDeskBytes.isNotEmpty) {
+        printBytes.addAll(frontDeskBytes);
+      }
+    }
+
+    // 3. 顾客单 (动作勾选了顾客单 && 打印位启用了顾客单)
+    if (allowCustomer && station.printCustomer) {
+      final customerContent = await _generateCustomerReceiptTemplate(order);
+      if (customerContent.isNotEmpty) {
+        final customerBytes = await _generateCustomerESCPOSCommands(customerContent);
+        printBytes.addAll(customerBytes);
+      }
+    }
+
+    if (printBytes.isEmpty) {
+      _logger.i('打印位 [${station.name}] 无符合条件可打印内容，跳过');
+      return;
     }
 
     final adapter = PrinterAdapterFactory.createAdapter(station);
     await adapter.sendBytes(printBytes);
+  }
+
+  Future<void> _printOrderToStation(OrderModel order, PrinterStationModel station) async {
+    await _printOrderToStationWithSelection(
+      order: order,
+      station: station,
+      allowKitchen: true,
+      allowFrontDesk: true,
+      allowCustomer: true,
+    );
   }
 
   /// 测试指定打印位连通性并发送包含【居中、加粗、不同字号、切纸】的全功能测试页
@@ -831,7 +867,7 @@ class PrintService {
       .alignLeft()
       .addDivider(char: '-', length: 48)
       .addLine('Station Name: ${station.name}')
-      .addLine('Station Role: ${station.roleDisplay}')
+      .addLine('Station Options: ${station.optionsDisplay}')
       .addLine('Connection  : ${station.connectionTypeDisplay}')
       .addLine('Time        : ${_formatDateTime(DateTime.now())}')
       .addDivider(char: '-', length: 48)
@@ -1148,6 +1184,233 @@ class PrintService {
     return result;
   }
 
+  /// 生成前台用小票 ESC/POS 指令 (基准采用后厨单模板，并增加手机号、菜品单价小计及总价)
+  Future<List<int>> _generateFrontDeskESCPOSBytesForOrder(OrderModel order) async {
+    final rawItems = jsonDecode(order.items) as List;
+    final printableItems = rawItems.where((item) => item['is_printable'] == true).toList();
+    if (printableItems.isEmpty) return [];
+
+    final content = await _generateFrontDeskReceiptTemplateForItems(order, printableItems);
+    return await _generateFrontDeskESCPOSCommands(content);
+  }
+
+  Future<String> _generateFrontDeskReceiptTemplateForItems(
+    OrderModel order,
+    List items,
+  ) async {
+    final sortedItems = await CategoryPriorityMapper.sortItemsByPriority(items);
+
+    int totalItemCount = 0;
+    for (var item in sortedItems) {
+      if (item['is_printable'] == true) {
+        totalItemCount += NumberFormatUtils.toInt(item['quantity'], 1);
+      }
+    }
+
+    String displayType = 'DINE IN';
+    if (order.type != null) {
+      final t = order.type!.toLowerCase();
+      if (t.contains('takeaway') || t.contains('take_away')) {
+        displayType = 'TAKE AWAY';
+      } else if (t.contains('noshare') || t.contains('no_share')) {
+        displayType = 'DINE IN [NO SHARE]';
+      } else if (t.contains('share')) {
+        displayType = 'DINE IN [SHARE]';
+      } else {
+        displayType = 'DINE IN';
+      }
+    }
+
+    final StringBuffer content = StringBuffer();
+    content.writeln('[HEADER]');
+    content.writeln("------------------------");
+    content.writeln("*** FRONT DESK RECEIPT ***");
+    content.writeln("ORDER #${order.orderNo}");
+    if (order.tableName != null && order.tableName!.isNotEmpty) {
+      content.writeln("TABLE: ${order.tableName}");
+    }
+    content.writeln(displayType);
+    if (order.customerName != null && order.customerName!.isNotEmpty) {
+      content.writeln("Name: ${order.customerName}");
+    }
+    if (order.customerPhone != null && order.customerPhone!.isNotEmpty) {
+      content.writeln("Phone: ${order.customerPhone}");
+    }
+
+    final rawPickupStr = order.pickupTimeDisplay.trim();
+    final bool isRightNow = rawPickupStr.toLowerCase().startsWith('right now');
+    final cleanPickupTime = rawPickupStr.replaceAll(RegExp(r'\s*\([^)]*\)'), '').trim();
+
+    if (order.isPaid) {
+      if (!isRightNow) {
+        content.writeln("$cleanPickupTime - Paid");
+      } else {
+        content.writeln("Paid");
+      }
+    } else if (!isRightNow) {
+      content.writeln(cleanPickupTime);
+    }
+
+    content.writeln("------------------------");
+    if (order.type == 'dinein' || order.isDineIn) {
+      content.writeln("ψ ψ ψ ψ ψ ψ");
+    } else {
+      content.writeln("* * * * * *");
+    }
+    content.writeln('[ITEMS]');
+    for (var item in sortedItems) {
+      bool printable = item['is_printable'] == true;
+      if (!printable) continue;
+      final rawName = item['name'] ?? '';
+      final kitchenPrintName = item['kitchen_print_name']?.toString() ??
+          item['kitchenPrintName']?.toString();
+      final name = (kitchenPrintName != null && kitchenPrintName.trim().isNotEmpty)
+          ? kitchenPrintName.trim()
+          : rawName;
+      final quantity = NumberFormatUtils.toInt(item['quantity'], 1);
+
+      final price = NumberFormatUtils.toDouble(item['price'] ??
+          item['product_selling_price'] ??
+          item['unit_price']);
+
+      double extraPriceTotal = 0.0;
+      if (item['options'] != null && item['options'] is List) {
+        for (var opt in item['options']) {
+          if (opt is Map) {
+            extraPriceTotal += NumberFormatUtils.toDouble(opt['extra_price'] ?? opt['extraCost']);
+          }
+        }
+      }
+      final itemSubtotal = quantity * (price + extraPriceTotal);
+
+      List<String> lines = [];
+      String prefix = (order.type == 'dinein' || order.isDineIn) ? 'ψ' : '*';
+      lines.add('$prefix ${name.toUpperCase()} x$quantity  \$${itemSubtotal.toStringAsFixed(2)}');
+
+      if (item['options'] != null && item['options'] is List) {
+        for (var opt in item['options']) {
+          final optName = opt['option_name'] ?? opt['name'] ?? '';
+          final optPrice = NumberFormatUtils.toDouble(opt['extra_price'] ?? opt['extraCost']);
+          if (optPrice > 0) {
+            lines.add('    - $optName (+\$${optPrice.toStringAsFixed(2)})');
+          } else {
+            lines.add('    - $optName');
+          }
+        }
+      }
+      for (var l in lines) {
+        content.writeln(l);
+      }
+      content.writeln();
+    }
+    final displayNote = order.cleanUserNote;
+    if (displayNote.isNotEmpty) {
+      content.writeln('[NOTES]');
+      content.writeln('Note: $displayNote');
+      content.writeln();
+    }
+    content.writeln("------------------------");
+    content.writeln('[FOOTER]');
+    content.writeln("TOTAL ITEMS: $totalItemCount");
+    content.writeln("TOTAL AMOUNT: \$${order.totalAmount.toStringAsFixed(2)}");
+    content.writeln("Order Time: ${_formatDateTime(order.orderTime)}");
+    content.writeln();
+    content.writeln();
+    return content.toString();
+  }
+
+  Future<List<int>> _generateFrontDeskESCPOSCommands(String frontDeskContent) async {
+    final builder = EscPosBuilder()
+      ..init()
+      ..enableChineseMode();
+
+    final parsed = _parseFrontDeskReceipt(frontDeskContent);
+
+    // 1. Header (居中/大号 2x2，完全匹配后厨单风格)
+    for (String line in parsed['header'] ?? []) {
+      builder.addTitle(line);
+    }
+
+    // 2. Items (左对齐/大号 2x2 加粗突显，菜品之间加一行 1x1 空行)
+    builder.alignLeft();
+    bool isFirstItem = true;
+    for (String line in parsed['items'] ?? []) {
+      final isOption = line.trim().startsWith('-');
+      if (!isOption) {
+        if (!isFirstItem) {
+          builder
+            .setBold(false)
+            .setFontSize(width: 1, height: 1)
+            .feedLines(1);
+        }
+        isFirstItem = false;
+        builder
+          .setBold(true)
+          .setFontSize(width: 2, height: 2)
+          .addLine(line)
+          .setBold(false)
+          .resetFontSize();
+      } else {
+        builder
+          .setBold(false)
+          .setFontSize(width: 2, height: 2)
+          .addLine(line)
+          .resetFontSize();
+      }
+    }
+
+    // 3. Notes (大号 2x2 加粗)
+    final notes = parsed['notes'] ?? [];
+    if (notes.isNotEmpty) {
+      builder.feedLines(1);
+      builder.setBold(true);
+      for (String line in notes) {
+        builder.setFontSize(width: 2, height: 2).addLine(line).resetFontSize();
+      }
+      builder.setBold(false);
+    }
+
+    // 4. Footer (左对齐/大号 2x2 加粗)
+    builder.alignLeft();
+    for (String line in parsed['footer'] ?? []) {
+      builder
+        .setBold(true)
+        .setFontSize(width: 2, height: 2)
+        .addLine(line)
+        .resetFontSize()
+        .setBold(false);
+    }
+
+    builder.cutPaper(feed: 8);
+    return await builder.buildBytes();
+  }
+
+  Map<String, List<String>> _parseFrontDeskReceipt(String content) {
+    final lines = content.split('\n');
+    final result = {
+      'header': <String>[],
+      'items': <String>[],
+      'notes': <String>[],
+      'footer': <String>[],
+    };
+    String currentSection = 'header';
+    final sectionMap = {
+      '[HEADER]': 'header',
+      '[ITEMS]': 'items',
+      '[NOTES]': 'notes',
+      '[FOOTER]': 'footer',
+    };
+    for (String line in lines) {
+      if (sectionMap.containsKey(line.trim())) {
+        currentSection = sectionMap[line.trim()]!;
+        continue;
+      }
+      if (line.trim().isEmpty) continue;
+      result[currentSection]!.add(line);
+    }
+    return result;
+  }
+
   Map<String, List<String>> _parseKitchenReceipt(String content) {
     final lines = content.split('\n');
     final result = {
@@ -1186,7 +1449,7 @@ class PrintService {
 
       // 优先发送至前台/收银角色或打印客户小票的打印位
       List<PrinterStationModel> targetStations = allStations.where(
-        (s) => s.role == 'counter' || s.role == 'both' || s.contentType == 'customer_receipt' || s.contentType == 'both',
+        (s) => s.printFrontDesk || s.printCustomer,
       ).toList();
 
       if (targetStations.isEmpty) {
@@ -1311,7 +1574,7 @@ class PrintService {
       }
 
       List<PrinterStationModel> targetStations = allStations.where(
-        (s) => s.role == 'counter' || s.role == 'both' || s.contentType == 'customer_receipt' || s.contentType == 'both',
+        (s) => s.printFrontDesk || s.printCustomer,
       ).toList();
 
       if (targetStations.isEmpty) {
@@ -1433,11 +1696,7 @@ class PrintService {
       }
 
       List<PrinterStationModel> targetStations = allStations.where(
-        (s) =>
-            s.role == 'kitchen' ||
-            s.role == 'both' ||
-            s.contentType == 'kitchen_ticket' ||
-            s.contentType == 'both',
+        (s) => s.printKitchen,
       ).toList();
 
       if (targetStations.isEmpty) {
@@ -1747,7 +2006,7 @@ class PrintService {
 
     final rawPickupStr = order.pickupTimeDisplay.trim();
     final bool isRightNow = rawPickupStr.toLowerCase().startsWith('right now');
-    // 过滤清除带括号的加时/相对时间后缀如 (+15min)，后厨小票仅打印纯时间点如 14:45
+
     final cleanPickupTime = rawPickupStr.replaceAll(RegExp(r'\s*\([^)]*\)'), '').trim();
 
     if (order.isPaid) {
@@ -1778,7 +2037,12 @@ class PrintService {
           : rawName;
       final quantity = item['quantity'] ?? 1;
       List<String> lines = [];
-      if (order.type == 'dinein' || order.isDineIn) {
+      if (order.isDineIn) {
+        if(quantity == 1){
+          lines.add('ψ ${name.toUpperCase()}'.padRight(21));
+        }else{
+          lines.add('ψ $quantity x${name.toUpperCase()} '.padRight(21));
+        }
         lines.add('ψ ${name.toUpperCase()} x$quantity'.padRight(21));
       } else {
         lines.add('* ${name.toUpperCase()} x$quantity'.padRight(21));
@@ -1928,13 +2192,6 @@ class PrintService {
     if (order.tableName != null && order.tableName!.isNotEmpty) {
       content.writeln("TABLE: ${order.tableName}");
     }
-    if (order.customerName != null && order.customerName!.isNotEmpty) {
-      content.writeln("CUSTOMER: ${order.customerName}");
-    }
-    if (order.customerPhone != null && order.customerPhone!.isNotEmpty) {
-      content.writeln("PHONE: ${order.customerPhone}");
-    }
-    content.writeln("PICKUP TIME: ${order.pickupTimeDisplay}");
     content.writeln("------------------------");
     content.writeln('[ITEMS]');
     for (var item in items) {

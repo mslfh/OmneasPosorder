@@ -103,6 +103,11 @@ class _CheckoutPageState extends State<CheckoutPage> {
   bool keepChange = false;
   bool isPlacingOrder = false;
 
+  // 打单开关状态 (默认 Checkout 全选)
+  bool _checkoutPrintKitchen = true;
+  bool _checkoutPrintFrontDesk = true;
+  bool _checkoutPrintCustomer = true;
+
   // 分餐结算状态
   SplitType splitType = SplitType.full;
 
@@ -1651,6 +1656,57 @@ class _CheckoutPageState extends State<CheckoutPage> {
                   ),
                 ],
               ),
+              const SizedBox(height: 10),
+              // 打单控制开关 UI
+              Row(
+                children: [
+                  const Icon(Icons.print_outlined, size: 18, color: Colors.indigo),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'Print Options / 小票打印:',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  const SizedBox(width: 8),
+                  FilterChip(
+                    label: const Text('Kitchen Ticket'),
+                    selected: _checkoutPrintKitchen,
+                    selectedColor: Colors.blue.shade100,
+                    checkmarkColor: Colors.blue.shade800,
+                    labelStyle: TextStyle(
+                      fontSize: 12,
+                      color: _checkoutPrintKitchen ? Colors.blue.shade900 : Colors.black87,
+                      fontWeight: _checkoutPrintKitchen ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    onSelected: (val) => setState(() => _checkoutPrintKitchen = val),
+                  ),
+                  const SizedBox(width: 6),
+                  FilterChip(
+                    label: const Text('Front Desk Ticket'),
+                    selected: _checkoutPrintFrontDesk,
+                    selectedColor: Colors.purple.shade100,
+                    checkmarkColor: Colors.purple.shade800,
+                    labelStyle: TextStyle(
+                      fontSize: 12,
+                      color: _checkoutPrintFrontDesk ? Colors.purple.shade900 : Colors.black87,
+                      fontWeight: _checkoutPrintFrontDesk ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    onSelected: (val) => setState(() => _checkoutPrintFrontDesk = val),
+                  ),
+                  const SizedBox(width: 6),
+                  FilterChip(
+                    label: const Text('Customer Receipt'),
+                    selected: _checkoutPrintCustomer,
+                    selectedColor: Colors.green.shade100,
+                    checkmarkColor: Colors.green.shade800,
+                    labelStyle: TextStyle(
+                      fontSize: 12,
+                      color: _checkoutPrintCustomer ? Colors.green.shade900 : Colors.black87,
+                      fontWeight: _checkoutPrintCustomer ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    onSelected: (val) => setState(() => _checkoutPrintCustomer = val),
+                  ),
+                ],
+              ),
               const SizedBox(height: 12),
               // 下单按钮
               Row(
@@ -2036,7 +2092,12 @@ class _CheckoutPageState extends State<CheckoutPage> {
           if (settings.enableAutoPrint) {
             final latestOrder = await databaseService.getOrder(orderId);
             if (latestOrder != null) {
-              await printService.printOrderWithTemplates(latestOrder);
+              await printService.printOrderWithSelection(
+                order: latestOrder,
+                printKitchen: _checkoutPrintKitchen,
+                printFrontDesk: _checkoutPrintFrontDesk,
+                printCustomer: _checkoutPrintCustomer,
+              );
             }
           }
         } else {
@@ -2053,6 +2114,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
             cashChange: cashChangeValue,
             voucherAmount: 0.0,
             expectedTime: calculatedExpectedTime,
+            printKitchen: _checkoutPrintKitchen,
+            printFrontDesk: _checkoutPrintFrontDesk,
+            printCustomer: _checkoutPrintCustomer,
           );
         }
 
@@ -2185,7 +2249,12 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
       final settings = SettingsService().getSettings();
       if (settings.enableAutoPrint) {
-        await printService.printOrderWithTemplates(tempPrintOrder);
+        await printService.printOrderWithSelection(
+          order: tempPrintOrder,
+          printKitchen: _checkoutPrintKitchen,
+          printFrontDesk: _checkoutPrintFrontDesk,
+          printCustomer: _checkoutPrintCustomer,
+        );
       }
 
       setState(() {

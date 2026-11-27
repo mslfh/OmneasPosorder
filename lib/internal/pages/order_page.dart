@@ -332,7 +332,11 @@ class _OrderPageState extends State<OrderPage> {
     } else if (result.action == DineInConfirmAction.saveAndKitchen) {
       _tableNumberInputController.text = result.tableName;
       await _ensureTableSelectedByName(result.tableName);
-      await _saveLocalTableOrder();
+      await _saveLocalTableOrder(
+        printKitchen: result.printKitchen,
+        printFrontDesk: result.printFrontDesk,
+        printCustomer: result.printCustomer,
+      );
     } else if (result.action == DineInConfirmAction.checkoutNow) {
       _tableNumberInputController.text = result.tableName;
       await _ensureTableSelectedByName(result.tableName);
@@ -415,13 +419,21 @@ class _OrderPageState extends State<OrderPage> {
     _takeawayCustomPickupTime = result.customTime;
 
     if (result.action == TakeAwayConfirmAction.saveAndKitchen) {
-      await _saveTakeawayOrderAndPrintKitchen();
+      await _saveTakeawayOrderAndPrintKitchen(
+        printKitchen: result.printKitchen,
+        printFrontDesk: result.printFrontDesk,
+        printCustomer: result.printCustomer,
+      );
     } else if (result.action == TakeAwayConfirmAction.checkoutNow) {
       await _openCheckoutPage();
     }
   }
 
-  Future<void> _saveTakeawayOrderAndPrintKitchen() async {
+  Future<void> _saveTakeawayOrderAndPrintKitchen({
+    bool printKitchen = true,
+    bool printFrontDesk = true,
+    bool printCustomer = false,
+  }) async {
     if (orderedProducts.isEmpty && !_hasSelectedOnlineOrder) return;
 
     final orderService = OrderService();
@@ -501,7 +513,12 @@ class _OrderPageState extends State<OrderPage> {
       await databaseService.insertOrder(orderToPrint);
     }
 
-    await printService.printKitchenTicketOnly(orderToPrint);
+    await printService.printOrderWithSelection(
+      order: orderToPrint,
+      printKitchen: printKitchen,
+      printFrontDesk: printFrontDesk,
+      printCustomer: printCustomer,
+    );
 
     if (!mounted) return;
 
@@ -647,7 +664,11 @@ class _OrderPageState extends State<OrderPage> {
     return added;
   }
 
-  Future<void> _saveLocalTableOrder() async {
+  Future<void> _saveLocalTableOrder({
+    bool printKitchen = true,
+    bool printFrontDesk = true,
+    bool printCustomer = false,
+  }) async {
     if (_selectedTable == null || orderedProducts.isEmpty) return;
 
     final tableName = _selectedTable!.name;
@@ -673,6 +694,9 @@ class _OrderPageState extends State<OrderPage> {
         tableName: tableName,
         addedProducts: addedProducts,
         customerName: _dineInCustomerName.isNotEmpty ? _dineInCustomerName : null,
+        printKitchen: printKitchen,
+        printFrontDesk: printFrontDesk,
+        printCustomer: printCustomer,
       );
     }
 

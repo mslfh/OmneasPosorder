@@ -394,7 +394,9 @@ class _EditStationDialogState extends State<_EditStationDialog> {
   late TextEditingController _portController;
   late TextEditingController _deviceAddressController;
 
-  late String _role;
+  late bool _printKitchen;
+  late bool _printFrontDesk;
+  late bool _printCustomer;
   late String _connectionType;
   late bool _enableAutoPrint;
   bool _isSearching = false;
@@ -404,11 +406,17 @@ class _EditStationDialogState extends State<_EditStationDialog> {
   void initState() {
     super.initState();
     final st = widget.station;
-    _role = st?.role ?? 'counter';
+    _printKitchen = st?.printKitchen ?? false;
+    _printFrontDesk = st?.printFrontDesk ?? false;
+    _printCustomer = st?.printCustomer ?? true;
+    if (st == null) {
+      _printFrontDesk = true;
+      _printCustomer = true;
+    }
     _connectionType = st?.connectionType ?? 'network';
     _enableAutoPrint = st?.enableAutoPrint ?? true;
 
-    final defaultName = st?.name ?? _generateDefaultName(_role);
+    final defaultName = st?.name ?? _generateDefaultName();
     _nameController = TextEditingController(text: defaultName);
     _ipController = TextEditingController(text: st?.ip ?? '192.168.1.100');
     _portController = TextEditingController(text: st?.port.toString() ?? '9100');
@@ -424,25 +432,23 @@ class _EditStationDialogState extends State<_EditStationDialog> {
     super.dispose();
   }
 
-  /// 自动生成打印位默认名称：打印位区域 + 自动序号
-  String _generateDefaultName(String role) {
-    String prefix = '前台';
-    if (role == 'kitchen') prefix = '后厨';
-    if (role == 'both') prefix = '前台+后厨';
+  /// 自动生成打印位默认名称：选中的小票选项 + 自动序号
+  String _generateDefaultName() {
+    final parts = <String>[];
+    if (_printKitchen) parts.add('Kitchen');
+    if (_printFrontDesk) parts.add('FrontDesk');
+    if (_printCustomer) parts.add('Customer');
+    String prefix = parts.isEmpty ? 'Station' : parts.join('+');
 
-    final sameRoleStations = widget.existingStations
-        .where((s) => s.id != widget.station?.id && s.role == role)
-        .toList();
+    final sameCount = widget.existingStations
+        .where((s) =>
+            s.id != widget.station?.id &&
+            s.printKitchen == _printKitchen &&
+            s.printFrontDesk == _printFrontDesk &&
+            s.printCustomer == _printCustomer)
+        .length;
 
-    return '$prefix${sameRoleStations.length + 1}';
-  }
-
-  /// 更改区域时，自动同步名字与打印内容映射
-  void _onRoleChanged(String newRole) {
-    setState(() {
-      _role = newRole;
-      _nameController.text = _generateDefaultName(newRole);
-    });
+    return '$prefix${sameCount + 1}';
   }
 
   /// 真实扫描局域网打印机
@@ -595,24 +601,67 @@ class _EditStationDialogState extends State<_EditStationDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('1. 打印位区域 (决定打印小票内容):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-              const SizedBox(height: 6),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'counter', label: Text('前台 (顾客小票)')),
-                  ButtonSegment(value: 'kitchen', label: Text('后厨 (后厨小票)')),
-                  ButtonSegment(value: 'both', label: Text('前台+后厨')),
+              const Text('1. 打印小票选项 (可多选/自由组合配置出单类型):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilterChip(
+                    label: const Text('Kitchen Ticket'),
+                    selected: _printKitchen,
+                    selectedColor: const Color(0xFFE9D5FF),
+                    checkmarkColor: const Color(0xFF9333EA),
+                    labelStyle: TextStyle(
+                      color: _printKitchen ? const Color(0xFF9333EA) : Colors.black87,
+                      fontWeight: _printKitchen ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    onSelected: (val) {
+                      setState(() {
+                        _printKitchen = val;
+                        _nameController.text = _generateDefaultName();
+                      });
+                    },
+                  ),
+                  FilterChip(
+                    label: const Text('Front Desk Ticket'),
+                    selected: _printFrontDesk,
+                    selectedColor: const Color(0xFFE9D5FF),
+                    checkmarkColor: const Color(0xFF9333EA),
+                    labelStyle: TextStyle(
+                      color: _printFrontDesk ? const Color(0xFF9333EA) : Colors.black87,
+                      fontWeight: _printFrontDesk ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    onSelected: (val) {
+                      setState(() {
+                        _printFrontDesk = val;
+                        _nameController.text = _generateDefaultName();
+                      });
+                    },
+                  ),
+                  FilterChip(
+                    label: const Text('Customer Receipt'),
+                    selected: _printCustomer,
+                    selectedColor: const Color(0xFFE9D5FF),
+                    checkmarkColor: const Color(0xFF9333EA),
+                    labelStyle: TextStyle(
+                      color: _printCustomer ? const Color(0xFF9333EA) : Colors.black87,
+                      fontWeight: _printCustomer ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    onSelected: (val) {
+                      setState(() {
+                        _printCustomer = val;
+                        _nameController.text = _generateDefaultName();
+                      });
+                    },
+                  ),
                 ],
-                selected: {_role},
-                onSelectionChanged: (set) {
-                  _onRoleChanged(set.first);
-                },
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _nameController,
                 decoration: const InputDecoration(
-                  labelText: '打印位名称 (自动默认: 区域+序号)',
+                  labelText: '打印位名称 (默认根据选项自动生成)',
                   hintText: '如: 前台1 / 后厨1',
                   border: OutlineInputBorder(),
                   contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -738,6 +787,16 @@ class _EditStationDialogState extends State<_EditStationDialog> {
             final name = _nameController.text.trim();
             if (name.isEmpty) return;
 
+            if (!_printKitchen && !_printFrontDesk && !_printCustomer) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Please select at least one ticket type (Kitchen / Front Desk / Customer Receipt)'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+              return;
+            }
+
             final ip = _ipController.text.trim();
             final port = int.tryParse(_portController.text.trim()) ?? 9100;
             final address = _deviceAddressController.text.trim();
@@ -747,8 +806,9 @@ class _EditStationDialogState extends State<_EditStationDialog> {
             final newStation = PrinterStationModel(
               id: id,
               name: name,
-              role: _role,
-              contentType: PrinterStationModel.mapRoleToContentType(_role),
+              printKitchen: _printKitchen,
+              printFrontDesk: _printFrontDesk,
+              printCustomer: _printCustomer,
               connectionType: _connectionType,
               ip: ip.isNotEmpty ? ip : '192.168.1.100',
               port: port,
