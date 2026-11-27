@@ -16,7 +16,8 @@ enum FetchOrdersStatus { success, error }
 class FetchOrdersEvent {
   final FetchOrdersStatus status;
   final DateTime timestamp;
-  FetchOrdersEvent(this.status, this.timestamp);
+  final String? message;
+  FetchOrdersEvent(this.status, this.timestamp, {this.message});
 }
 
 class SyncService {
@@ -442,8 +443,8 @@ class SyncService {
     }
   }
 
-  void _notifyFetchStatus(FetchOrdersStatus status) {
-    fetchOrdersEventNotifier.value = FetchOrdersEvent(status, DateTime.now());
+  void _notifyFetchStatus(FetchOrdersStatus status, {String? message}) {
+    fetchOrdersEventNotifier.value = FetchOrdersEvent(status, DateTime.now(), message: message);
   }
 
   /// 【后台/手动拉取新网单入口】拉取云端新产生的在线订单并落地到本地
@@ -455,35 +456,52 @@ class SyncService {
   Future<void> fetchAndLandNewRemoteOrders() async {
     try {
       if (!isBaseUrlConfigured) {
+        const errorMsg = '未配置后端 API 地址';
         _logger.w('未配置后端 API 地址，跳过拉取服务器新订单任务');
-        _notifyFetchStatus(FetchOrdersStatus.error);
-        return;
+        _notifyFetchStatus(FetchOrdersStatus.error, message: errorMsg);
+        throw Exception(errorMsg);
       }
 
-      final int latestId = await _databaseService.getMaxRemoteOrderId() ?? 0;
-      _logger.i('开始拉取服务器新网单，本地最新 remote_order_id: $latestId');
+      final int initialLocalLatestId = await _databaseService.getMaxRemoteOrderId() ?? 0;
+      _logger.i('开始拉取服务器新网单，本地最新 remote_order_id: $initialLocalLatestId');
 
       final response = await _apiService.get(
         'orders/fetch-new-order',
-        params: {'latestId': latestId},
+        params: {'latestId': initialLocalLatestId},
       );
 
       if (response.statusCode != 200) {
-        _logger.w('拉取服务器新订单失败，服务端状态码: ${response.statusCode}');
-        _notifyFetchStatus(FetchOrdersStatus.error);
-        return;
+        final errorMsg = '拉取服务器新订单失败，服务端状态码: ${response.statusCode}';
+        _logger.w(errorMsg);
+        _notifyFetchStatus(FetchOrdersStatus.error, message: errorMsg);
+        throw Exception(errorMsg);
       }
 
-      final parsedPage = parseOrderResponseData(response.data);
+      final resData = response.data;
+      int? serverLatestId;
+      if (resData is Map<String, dynamic> && resData['data'] is Map<String, dynamic>) {
+        final dataMap = resData['data'] as Map<String, dynamic>;
+        if (dataMap.containsKey('latest_id') && dataMap['latest_id'] != null) {
+          serverLatestId = NumberFormatUtils.toInt(dataMap['latest_id']);
+        }
+      }
+
+      final parsedPage = parseOrderResponseData(resData);
       final rawOrders = parsedPage.orders;
 
       if (rawOrders.isEmpty) {
         _logger.i('服务器暂无新网单');
+        if (serverLatestId != null && serverLatestId > initialLocalLatestId) {
+          final errorMsg = '订单落地校验失败：服务端最新ID为 $serverLatestId，但未返回对应订单数据，本地最新ID仅为 $initialLocalLatestId';
+          _logger.e(errorMsg);
+          _notifyFetchStatus(FetchOrdersStatus.error, message: errorMsg);
+          throw Exception(errorMsg);
+        }
         _notifyFetchStatus(FetchOrdersStatus.success);
         return;
       }
 
-      _logger.i('成功拉取到 ${rawOrders.length} 条服务器新订单，开始依次落地到本地...');
+      _logger.i('成功拉取到 ${rawOrders.length} 条服务器新订单 (服务端 latest_id: $serverLatestId)，开始依次落地到本地...');
       final orderService = OrderService();
       int landedCount = 0;
 
@@ -508,10 +526,24 @@ class SyncService {
       }
 
       _logger.i('服务器新订单处理完成，共新增落地 $landedCount 笔订单');
+
+      // 落地完成后对比服务器 latest_id 与本地最新 remote_order_id
+      final int currentLocalLatestId = await _databaseService.getMaxRemoteOrderId() ?? 0;
+      if (serverLatestId != null && serverLatestId > 0 && currentLocalLatestId < serverLatestId) {
+        final errorMsg = '订单落地校验失败：服务端最新ID为 $serverLatestId，但本地落地后最新ID仅为 $currentLocalLatestId';
+        _logger.e(errorMsg);
+        _notifyFetchStatus(FetchOrdersStatus.error, message: errorMsg);
+        throw Exception(errorMsg);
+      }
+
       _notifyFetchStatus(FetchOrdersStatus.success);
     } catch (e, stack) {
       _logger.e('拉取服务器新网单过程发生异常: $e\n$stack');
-      _notifyFetchStatus(FetchOrdersStatus.error);
+      final errorMsg = e.toString().replaceAll('Exception: ', '');
+      if (fetchOrdersEventNotifier.value?.status != FetchOrdersStatus.error) {
+        _notifyFetchStatus(FetchOrdersStatus.error, message: errorMsg);
+      }
+      rethrow;
     }
   }
 }

@@ -72,14 +72,20 @@ ParsedOrderPage parseOrderResponseData(dynamic payload) {
       lastPage = NumberFormatUtils.toInt(data['last_page'] ?? data['total_pages'], 1);
       hasMore = data['has_more'] == true || currentPage < lastPage;
 
-      final innerList = data['data'] ?? data['items'] ?? data['records'];
+      final innerList = data['data'] ?? data['items'] ?? data['records'] ?? data['orders'];
       if (innerList is List) {
-        ordersList = innerList.whereType<Map<String, dynamic>>().toList();
+        ordersList = innerList
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
       }
     }
     // 格式 A 或 C：payload['data'] 是 List 数组
     else if (data is List) {
-      ordersList = data.whereType<Map<String, dynamic>>().toList();
+      ordersList = data
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
 
       final meta = payload['meta'] ?? payload['pagination'];
       if (meta is Map<String, dynamic>) {

@@ -24,18 +24,30 @@ Future<bool?> showServerConfigDialog({
   bool enableAutoSync = currentSettings.enableAutoSync;
   bool isTesting = false;
   bool isPulling = false;
+  String? pullErrorMessage = (syncService.fetchOrdersEventNotifier.value?.status == FetchOrdersStatus.error)
+      ? syncService.fetchOrdersEventNotifier.value?.message
+      : null;
 
   final result = await showDialog<bool>(
     context: context,
     builder: (dialogContext) {
       return StatefulBuilder(
         builder: (dialogContext, setDialogState) {
+          final bool hasError = pullErrorMessage != null ||
+              syncService.fetchOrdersEventNotifier.value?.status == FetchOrdersStatus.error;
+
           return AlertDialog(
             title: Row(
               children: [
-                const Icon(Icons.cloud_outlined, color: Color(0xFF0284C7)),
+                Icon(
+                  hasError ? Icons.cloud_off : Icons.cloud_outlined,
+                  color: hasError ? Colors.red : const Color(0xFF0284C7),
+                ),
                 const SizedBox(width: 8),
-                Text('server_config'.tr),
+                Text(
+                  'server_config'.tr,
+                  style: TextStyle(color: hasError ? Colors.red : null),
+                ),
               ],
             ),
             content: SizedBox(
@@ -45,6 +57,35 @@ Future<bool?> showServerConfigDialog({
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (pullErrorMessage != null && pullErrorMessage!.isNotEmpty) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          border: Border.all(color: Colors.red.shade300),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.error_outline, color: Colors.red, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                pullErrorMessage!,
+                                style: const TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     TextField(
                       controller: apiUrlController,
                       keyboardType: TextInputType.url,
@@ -130,11 +171,15 @@ Future<bool?> showServerConfigDialog({
 
                                     setDialogState(() {
                                       isPulling = true;
+                                      pullErrorMessage = null;
                                     });
 
                                     try {
                                       await syncService.fetchAndLandNewRemoteOrders();
                                       if (!dialogContext.mounted) return;
+                                      setDialogState(() {
+                                        pullErrorMessage = null;
+                                      });
                                       ScaffoldMessenger.of(dialogContext).showSnackBar(
                                         SnackBar(
                                           content: Text('pull_all'.tr),
@@ -143,9 +188,13 @@ Future<bool?> showServerConfigDialog({
                                       );
                                     } catch (e) {
                                       if (!dialogContext.mounted) return;
+                                      final errMsg = e.toString().replaceAll('Exception: ', '');
+                                      setDialogState(() {
+                                        pullErrorMessage = errMsg;
+                                      });
                                       ScaffoldMessenger.of(dialogContext).showSnackBar(
                                         SnackBar(
-                                          content: Text('Error: $e'),
+                                          content: Text(errMsg),
                                           backgroundColor: Colors.red,
                                         ),
                                       );
