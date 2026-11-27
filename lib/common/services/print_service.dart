@@ -2058,6 +2058,7 @@ class PrintService {
       }
       content.writeln();
     }
+
     final displayNote = order.cleanUserNote;
     if (displayNote.isNotEmpty) {
       content.writeln('Note: $displayNote');
